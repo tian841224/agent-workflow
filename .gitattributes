@@ -1,0 +1,5 @@
+# 這是可攜套件，shell script 一律強制 LF，不受本機 core.autocrlf 影響，
+# 否則在 Windows checkout 出來的 CRLF 換行會讓 bash 逐行報 "$'\r': command not found"。
+*.sh text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf
