@@ -18,7 +18,7 @@ claude-dev-flow/
 ├── state/README.md        任務檢查點格式說明（斷線後手動接續用，不含自動監控）
 ├── products/INDEX.md      多產品配置索引機制（空模板，需自行登錄）
 ├── rules/                 learning.md（自我學習迴圈定義）、prompt-coaching.md（Prompt 教練定義）
-├── skills/                learn / evolve / promptcoach 三個 skill 定義
+├── skills/                learn / evolve / promptcoach / tdd 四個 skill 定義
 ├── memory/                MEMORY.md / inbox.md（空白模板，會隨使用累積你自己的教訓）
 └── DECISION_LOG.md        跨產品決策紀錄模板（空白）
 ```
@@ -32,7 +32,7 @@ claude-dev-flow/
 | 角色 | 定位 | 能做 | 不能做 |
 |------|------|------|--------|
 | **主 Claude（CTO / orchestrator）** | 分派、決策、把關 | 任務分類、交棒各 agent、gate pass/fail 判定、親自抽驗驗收證據 | 自己動手寫 code |
-| **architect** | 資深工程師兼架構師 | 可行性評估（唯讀）、三方案分析、實作、自審、同步規格書、commit | 自行展開 workflow、跳過審查 |
+| **architect** | 資深工程師兼架構師 | 可行性評估（唯讀）、三方案分析、實作（可測邏輯依 `tdd` skill 紅綠迴圈開發）、自審、同步規格書、commit | 自行展開 workflow、跳過審查 |
 | **reviewer** | 程式碼審查員 | commit 前完整審查（安全/效能/邊界/資料一致性），回報通過或問題清單 | 修改程式碼、自訂重試回合數 |
 | **qa** | 測試員 | 本地測試／回歸測試，證據落地為檔案 | 下放行決策、修改程式碼 |
 | **pm** | 產品經理 | 需求整理、可行性核對窗口（**僅需求面**）、制定合格標準、最終驗收 | 修改程式碼、參與技術決策、中途修改凍結標準 |
@@ -152,7 +152,7 @@ flowchart TD
 
 安裝腳本把檔案分三類，各自套用不同的自動化策略——**不覆蓋、不詢問，一律自動處理**：
 
-- **Markdown 文件**（`CLAUDE.md`、`agents/*.md`、`skills/*/SKILL.md`、`acceptance/README.md`、`state/README.md`、`rules/*.md`）：依標題段落自動合併。目標檔裡有相同標題的段落 → 用 kit 最新內容取代該段落；目標檔沒有的標題 → 整段附加到檔尾。你自己在這些檔案裡寫的、kit 沒有的內容完全不會受影響。重跑安裝永遠不會造成同一段落重複出現。
+- **Markdown 文件**（`CLAUDE.md`、`agents/*.md`、`skills/*/SKILL.md`（含 `skills/tdd/tests.md`、`skills/tdd/mocking.md`）、`acceptance/README.md`、`state/README.md`、`rules/*.md`）：依標題段落自動合併。目標檔裡有相同標題的段落 → 用 kit 最新內容取代該段落；目標檔沒有的標題 → 整段附加到檔尾。你自己在這些檔案裡寫的、kit 沒有的內容完全不會受影響。重跑安裝永遠不會造成同一段落重複出現。
 - **可執行腳本**（`scripts/pre-review.sh`、`scripts/verify-evidence.sh`）：逐字比對，相同就跳過；不同的話**不會覆蓋你的原檔**，而是把 kit 版本另存成同目錄的 `pre-review.kit.sh` / `verify-evidence.kit.sh`，兩份都能獨立執行，你可以自行比對後決定要不要採用。之所以不像 markdown 一樣直接合併，是因為腳本是一整條可執行的控制流程，硬把兩段邏輯接在一起，很可能因為前段已經有 `exit` 而讓後半段變成永遠不會執行的死碼，反而是「看起來裝新了、其實沒作用」的假象。
 - **資料類檔案**（`memory/MEMORY.md`、`memory/inbox.md`、`memory/prompt-coach/*.md`、`DECISION_LOG.md`、`products/INDEX.md`）：只在完全不存在時才建立，一旦存在就完全不動。這些檔案會隨使用累積你自己的真實資料（學習條目、決策紀錄、產品登錄），任何自動邏輯都不該去動它們。
 
