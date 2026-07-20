@@ -2,7 +2,7 @@
 
 一份可攜的 Claude Code 設定組合（「kit」在這裡就是「一份能整包複製到任何電腦、直接安裝使用的設定/工具組合」的意思，不是 Claude Code 的專有功能），內含兩套機制：
 
-1. **CTO 分派式標準開發流程**——主 Claude 扮演 orchestrator（CTO），依任務是「技術型」（重構/效能/架構調整，不影響功能）或「功能型」（新增/修改功能、bug fix）分流成兩條軌道，分派給 architect / reviewer / QA / PM 四個 subagent，各 gate 的通過條件、回合數上限都由骨架確定性控制。（完整流程見下方〈[標準開發流程詳解](#標準開發流程詳解)〉）
+1. **CTO 分派式標準開發流程**——主 Claude 扮演 orchestrator（CTO），依任務是「技術型」（重構/效能/架構調整，不影響功能）或「功能型」（新增/修改功能、bug fix）分流成兩條軌道，分派給 architect / reviewer / QA / PM / debugger 五個 subagent，各 gate 的通過條件、回合數上限都由骨架確定性控制。（完整流程見下方〈[標準開發流程詳解](#標準開發流程詳解)〉）
 2. **自我學習迴圈**——任務中擷取的教訓（技術陷阱、協作偏好、流程方法論）累積在收件匣，定期蒸餾成精煉記憶，重複出現的教訓升級成正式規則或 skill；另外還有一套獨立的「Prompt 教練」，用來檢討使用者自己的 prompt 撰寫習慣。
 
 ## 目錄導覽
@@ -12,7 +12,7 @@ claude-dev-flow/
 ├── CLAUDE.md              主設定檔精簡版：編排協定、標準開發流程（技術軌/功能軌）、工程紀律等
 ├── install.sh             安裝腳本（Git Bash / macOS / Linux）
 ├── install.ps1            安裝腳本（原生 PowerShell）
-├── agents/                四個 subagent 定義：architect（架構師）/ pm（產品經理）/ qa（測試）/ reviewer（審查）
+├── agents/                五個 subagent 定義：architect（架構師）/ pm（產品經理）/ qa（測試）/ reviewer（審查）/ debugger（根因分析，唯讀）
 ├── acceptance/README.md   驗收清單機制說明（三段式格式、證據落地規約）
 ├── scripts/                pre-review.sh（實作後確定性預檢）、verify-evidence.sh（驗收證據完整性檢查）
 ├── state/README.md        任務檢查點格式說明（斷線後手動接續用，不含自動監控）
@@ -36,6 +36,7 @@ claude-dev-flow/
 | **reviewer** | 程式碼審查員 | commit 前完整審查（安全/效能/邊界/資料一致性），回報通過或問題清單 | 修改程式碼、自訂重試回合數 |
 | **qa** | 測試員 | 本地測試／回歸測試，證據落地為檔案 | 下放行決策、修改程式碼 |
 | **pm** | 產品經理 | 需求整理、可行性核對窗口（**僅需求面**）、制定合格標準、最終驗收 | 修改程式碼、參與技術決策、中途修改凍結標準 |
+| **debugger** | 根因分析員（唯讀，非常態） | 在除錯迴圈連續失敗達門檻時介入，蒐證、列假說、驗證、產出根因判定與建議修復方向 | 修改程式碼、下三方案分析、自行驗證修復結果 |
 
 ### 步驟 0：任務分類（主 Claude / CTO）
 
@@ -126,6 +127,7 @@ flowchart TD
 | 守則 | 內容 |
 |------|------|
 | 回合上限 | PM ↔ architect 可行性核對 2 回合；architect ↔ reviewer 審查 3 回合；pre-review 腳本重跑不計回合。超限一律回報使用者，agent 不得自行加碼 |
+| 除錯策略 | 統一 3 次門檻：architect 內部修復同一 bug 同一方向最多試 3 次（architect 自己計數），QA 對同一驗收條目/回歸項目連續退回達 3 次（orchestrator 計數）；達門檻一律轉交 `debugger` 唯讀根因分析，architect 依建議重新實作後全套重跑 |
 | 凍結原則 | 合格標準在實作開始前凍結，中途不可變更；驗收有落差退回 architect，不得放寬標準遷就結果；需求變更回 F1 重走 |
 | 編排護欄 | 流程骨架、所有 gate、回退條件由設定檔確定性控制；subagent 一律不得自行展開 workflow；平行 agent 唯讀且維度互斥 |
 | 流程邊界 | 到「本地驗收通過」為止即停止——不含 push、不含部署驗證、不含線上 QA；commit / merge 時機由使用者自行決定 |

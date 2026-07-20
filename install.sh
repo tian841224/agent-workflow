@@ -143,6 +143,7 @@ bootstrap_only() {
 echo "=== 類別 A：Markdown 文件（自動按標題段落合併）==="
 merge_markdown "CLAUDE.md" "#"
 merge_markdown "agents/architect.md" "##"
+merge_markdown "agents/debugger.md" "##"
 merge_markdown "agents/pm.md" "##"
 merge_markdown "agents/qa.md" "##"
 merge_markdown "agents/reviewer.md" "##"

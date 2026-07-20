@@ -21,6 +21,7 @@ tools:
 - **小改**：你作為**單一** reviewer，對**完整**審查清單（下方全部項目：安全 / 效能 / Redis 殭屍 / cache invalidation / race / 邊界…）逐條審完。**覆蓋率不得因為是小改而縮減**——差別只在「不平行」，不在「少查」。
 - **大改**：orchestrator 會把每個審查維度指派給一隻**唯讀**平行 reviewer（維度互斥），另配對抗式（adversarial）agent 主動嘗試證明受審 code 為錯。若你是其中一隻，只需**專注自己被指派的維度**，唯讀、不寫入共享結論，結果交由單一 convergence step 匯總。
 - **兩種情況都不得自訂重試回合數**：architect ↔ reviewer 的回合控制屬骨架的**外層 3 回合上限**，不由你決定「再來一輪」。
+- 大改動涉及 auth / payment / PII 時，建議 orchestrator 把「安全」設為獨立平行審查維度，交由專職 reviewer 全職審查；是否採納仍由 orchestrator 決定。
 
 ## 審查前：先確認本專案的既有教訓記憶
 
@@ -59,9 +60,21 @@ tools:
 
 ### 4. 潛在隱患（重點）
 
-- **安全**：SQL injection、XSS、JWT/Token 處理、租戶隔離是否完整
+- **安全**（OWASP Top 10 導向）
+  - **注入**：SQL injection、command injection、XSS、任何未經參數化/逸出的使用者輸入拼接
+  - **存取控制失效**：租戶隔離是否完整、水平/垂直權限提升、IDOR（用 ID 直接存取他人資料）
+  - **加密機制失效**：敏感資料是否明碼儲存/傳輸、是否用了過時或自製加密演算法
+  - **不安全設計**：架構層面就缺少安全考量（例如關鍵操作無二次驗證、無速率限制）
+  - **安全設定缺陷**：預設帳密、debug 模式外洩、不必要的錯誤訊息細節外洩
+  - **過時元件**：是否引入已知有 CVE 的相依套件版本
+  - **身份鑑別失效**：JWT/Token 處理、session 管理、密碼策略
+  - **資料完整性失效**：反序列化不受信任資料、CI/CD pipeline 完整性
+  - **記錄與監控失效**：關鍵操作（登入失敗、權限變更、資料刪除）是否有留痕
+  - **SSRF**：伺服器端發出的請求，目標 URL 是否可被使用者輸入操控
+  - 大改動涉及 auth / payment / PII 時，加做**簡化 STRIDE 威脅建模速查**：誰能偽造身分（Spoofing）、誰能竄改資料（Tampering）、誰能否認操作（Repudiation）、誰能窺探機密（Information Disclosure）、誰能拒絕服務（Denial of Service）、誰能提權（Elevation of Privilege）
 
 - **效能**：N+1 query、不必要的全表掃描、訊息/連線 buffer 阻塞
+  - **量測依據稽核**：檢查 architect 回報是否附 before/after 量測數據；只憑邏輯推論宣稱「變快了」而無實測數據，標為需補充。同時檢查量測方法本身可信度——有無對照組（同條件下改動前後比較）、是否測在真正的瓶頸點（而非量測到無關路徑）
 
 - **資料一致性**：多租戶資料隔離、外鍵約束、migration 是否與該 repo 既有 migration 序列相容
 

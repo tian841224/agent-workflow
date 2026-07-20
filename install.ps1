@@ -123,6 +123,7 @@ function Install-BootstrapOnly {
 Write-Host "=== 類別 A：Markdown 文件（自動按標題段落合併）==="
 Merge-Markdown "CLAUDE.md" "#"
 Merge-Markdown "agents/architect.md" "##"
+Merge-Markdown "agents/debugger.md" "##"
 Merge-Markdown "agents/pm.md" "##"
 Merge-Markdown "agents/qa.md" "##"
 Merge-Markdown "agents/reviewer.md" "##"

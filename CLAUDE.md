@@ -89,7 +89,8 @@
 ```
 T1. architect 實作（規模 triage 照舊：大型架構調整先三方案分析、使用者選定後實作；
     完成後先做「作者自檢」——排除自己看得出來的明顯錯誤，不是獨立審核，
-    不能取代下方 T3/T4 的把關——再同步規格書；不自行 commit，停在此步驟等候後續 gate）
+    不能取代下方 T3/T4 的把關——再同步規格書；不自行 commit，停在此步驟等候後續 gate。
+    除錯同一解法最多試 3 次，第 3 次仍失敗須主動停手並揭露嘗試記錄，交 debugger）
         ↓
 T2. pre-review 腳本預檢（於目標 repo 子目錄執行 `bash ~/.claude/scripts/pre-review.sh`）
         不過 → 退回 T1 修正 → 重跑（不計入 reviewer 3 回合上限）
@@ -99,6 +100,7 @@ T3. reviewer 審查（architect ↔ reviewer 最多 3 回合，超過回報使�
 T4. QA 回歸測試：只驗證「受改動影響的相關功能維持原有邏輯」，不驗新行為（技術型不該有新行為）
     - 無凍結清單，證據依 qa.md 臨時任務規約存 /tmp
     - 發現任何使用者可見行為改變 → 退回 architect（重跑 T2→T3→T4），並評估改判功能型
+    - 同一項目連續失敗達 3 次 → 改派 debugger 唯讀分析根因，architect 依建議重新實作後全套重跑
         過 →
 T5. 回報使用者：改了什麼、為什麼行為不變、回歸證據
 ```
@@ -127,7 +129,8 @@ F3. PM 制定合格標準（凍結）
     - 需求中途變更 → 回到 F1 重走，舊清單標記 superseded
         ↓
 F4. architect 實作（同一隻 agent：寫 code → 作者自檢（排除明顯錯誤，不是獨立審核，
-    不能取代下方 F6 reviewer / F7 QA / F8 PM 的把關）→ 同步規格書；不自行 commit，停在此步驟等候後續 gate）
+    不能取代下方 F6 reviewer / F7 QA / F8 PM 的把關）→ 同步規格書；不自行 commit，停在此步驟等候後續 gate。
+    除錯同一解法最多試 3 次，第 3 次仍失敗須主動停手並揭露嘗試記錄，交 debugger）
         ↓
 F5. pre-review 腳本預檢（不過 → 退回 F4 修正 → 重跑，不計入 reviewer 3 回合上限）
         過 →
@@ -135,6 +138,7 @@ F6. reviewer 審查（最多 3 回合，超過回報使用者）
         過 →
 F7. QA 本地測試（Claude_Preview 工具，逐條對照 F3 凍結清單，證據落地 evidence/）
         不過 → 退回 F4 → 重跑 F5→F6→F7
+        同一項目連續失敗達 3 次 → 改派 debugger 唯讀分析根因，architect 依建議重新實作後全套重跑
         過 →
 F8. PM 驗收（唯一依據 = F3 凍結清單 + 三層證據 gate）
     - 證據落地：QA/PM 每驗一條 A<n> 落地證據檔到 acceptance/<任務>/evidence/，
@@ -196,8 +200,19 @@ F10. 回報使用者，流程結束。附「1 分鐘複驗指引」：確切 URL
 
 ## 除錯策略
 
-- 修復 bug 時，同一個解決方法最多嘗試 3 次
-- 若 3 次後問題仍未解決，停止當前方向，重新分析根本原因，思考並改用不同的解決方案
+除錯迴圈拆成兩個場景，計數者不同：
+
+- **場景 A（architect 內部除錯）**：architect 修復 bug 時，同一個解決方向最多自己嘗試 3 次，由 architect 自己計數。第 3 次仍未解決 → architect 主動停手，揭露已嘗試的 3 次修法與各自失敗原因，轉交 `debugger` agent 唯讀根因分析，不得默默再試第 4 次或隱瞞已嘗試次數。
+- **場景 B（QA 連續驗收失敗）**：同一驗收條目/回歸項目連續退回 architect 達 3 次仍失敗，由 orchestrator（主 Claude）計數。達 3 次 → orchestrator 改派 `debugger` agent 唯讀分析根因，architect 依建議重新實作後，該項目所屬的審查/測試全套重跑（不可只重跑最後一步）。
+
+四個計數器統一對照表：
+
+| 計數器 | 誰維護 | 上限 | 超過後動作 |
+|---|---|---|---|
+| architect↔reviewer 審查回合 | orchestrator | 3 回合 | 回報使用者裁決 |
+| PM↔architect 可行性核對回合 | orchestrator | 2 回合 | 回報使用者裁決 |
+| 同一 bug 內部修復嘗試次數（場景 A） | architect 自己 | 3 次 | 轉交 `debugger` |
+| 同一驗收條目/回歸項目連續失敗次數（場景 B） | orchestrator | 3 次 | 轉交 `debugger` |
 
 ## 程式碼設計原則
 
