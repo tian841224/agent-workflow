@@ -1,6 +1,6 @@
 # claude-workflow v2
 
-可攜的 Claude Code 開發流程 kit：四角色 subagent（architect / reviewer / qa / pm）+ 流程分級（輕軌/重軌）+ 後端化驗收證據 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）。
+可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級（輕軌/重軌）+ 後端化驗收證據 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）。
 
 v2 的核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。
 
@@ -23,9 +23,9 @@ v1 → v2 步驟對照：技術軌 T1–T5 → 輕軌 L1–L4；功能軌 F1–F
 kit/
   WORKFLOW.md          流程總控（分級、階段、回合上限、凍結原則、續作）
   acceptance-spec.md   驗收規約（checklist 格式、證據規則——人與腳本共同遵守）
-  templates/           checklist.md / plan.md 模板
-agents/                architect / reviewer / qa / pm 四角色定義
-skills/                learn（經驗擷取）/ evolve（週回顧精煉）
+  templates/           spec.md / checklist.md / plan.md 模板
+agents/                architect / reviewer / qa / pm / debugger 五角色定義
+skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
   post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢，失敗立即打回
@@ -70,17 +70,29 @@ cd claude-workflow
 L1 architect 判定 → L2 實作 → L3 pre-review + reviewer(≤2輪) → L4 go test 全綠即證據
 ```
 
-**重軌**（新 feature / 跨模組 / 改 API/DB / 關鍵寫入路徑 / 前端功能）：
+**重軌**（新 feature / 跨模組 / 改 API/DB / 關鍵寫入路徑 / 前端功能），SDD／TDD 融入版：
 
 ```
-R1 PM 凍結 checklist → R2 architect 方案+藍圖 → R3 實作
-→ R4 pre-review + reviewer(≤3輪)
+R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處與使用者確認到
+   雙方理解一致 → 商業規格寫入 spec.md
+→ R2 architect 先審規格（無法實作/有風險退回 PM，≤2輪）→ 出方案+藍圖 → 補技術規格
+   （API contract/資料型別/錯誤碼/架構/TDD seam/非功能門檻）→ spec.md 凍結
+   → PM 依 spec.md 展開並凍結 checklist（每條溯源 spec: S<n>）
+→ R3 實作（TDD seam 取自 spec.md）
+→ R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪）
 → R5 驗收：後端 = qa 逐條跑 cmd 收證據 + verify-evidence.ps1（PM 不參與）
-          前端 = qa browser 截圖 + PM 畫面驗證
+          前端 = qa browser 截圖 + PM 對照 spec.md 畫面驗證
+          qa 加一輪探索性測試，發現規格缺漏回報（不算條目失敗）
 → R6 回報 + /learn 沉澱
 ```
 
-任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`（詳見 `kit/acceptance-spec.md`）。
+任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`／`evidence/`（詳見 `kit/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
+
+**例外路徑**：除錯或審查/驗收迴圈連續打轉達 3 次仍失敗時，改派 `debugger`（唯讀根因分析），不是主流程的固定關卡，只在卡關時出場（見 `kit/WORKFLOW.md` 第 4 節）。
+
+## 其他 CLI 支援
+
+repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `kit/WORKFLOW.md` + 五角色定義對等，但把 hooks 硬護欄（git-guard 等）改寫成純行為約定——Codex 沒有對應的 hook 機制，靠條文自律。`install.ps1` 不處理 `AGENTS.md`，需要的話手動複製到你的 Codex 設定目錄。
 
 ## 客製化
 
