@@ -99,6 +99,17 @@ checklist.md 由 PM 依凍結的 spec.md 展開，每條驗收條目**必須**�
 - 證據=截圖檔，由 qa 以 browser 工具執行擷取，PM 人工核對
 - verify-evidence 對 ui 型只做檔案存在性與非空檢查，不做內容比對
 
+## plan.md 子任務分解表格式（R3 平行實作用，architect 協調模式於 R3a 填）
+
+重軌 R3 可拆成多個可獨立開發的 sub task 平行開發時，architect 協調模式在 `plan.md`（模板見 `kit/templates/plan.md`）填「子任務分解表」，供 orchestrator fan-out 與 R3c 彙整確認對照：
+
+- 每個 sub task 編號 `T<n>`（n 從 1 遞增）。**一律用 `T<n>` 前綴、不得用 `R<n>`**——`stop-check.ps1` 只把 `- [ ] R<n>` 視為未勾階段，`T<n>` 不會被誤報
+- 每個 sub task 必須標明**互斥的檔案/模組範圍**（按目錄/package 切分，不是只切單一檔案），確保多個實作 agent 平行寫入不會動到同一 package
+- 每個 sub task 溯源到 checklist 條目/規格書 `S<n>`，並註明取自 spec.md 技術規格的 TDD seam 與依賴（無強順序依賴才可平行）
+- status：`[ ]` 未完成、`[x]` 該 sub task 實作模式回報完成且經 R3c 確認
+- 拆不出 ≥2 個真正獨立的 sub task 時，分解表留空並註明「不拆，走單人序列 R3」，不得為求平行硬拆出範圍重疊或有依賴的 sub task
+- 此表與 R3 整合確認 checklist 供人類與 orchestrator 判讀，`verify-evidence.ps1` 不解析（不影響既有 PASS/FAIL 邏輯）
+
 ## 證據檔規則
 
 - 後端證據檔為指令輸出重導向，**首行**必須為：`# <ISO 8601 時間> $ <指令原文>`

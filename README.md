@@ -81,7 +81,10 @@ R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處�
 → R2 architect 先審規格（無法實作/有風險退回 PM，≤2輪）→ 出方案+藍圖 → 補技術規格
    （API contract/資料型別/錯誤碼/架構/TDD seam/非功能門檻）→ spec.md 凍結
    → PM 依 spec.md 展開並凍結 checklist（每條溯源 spec: S<n>）
-→ R3 實作（TDD seam 取自 spec.md）
+→ R3 實作（TDD seam 取自 spec.md）：可拆多 sub task 平行——architect 協調模式拆出
+   ≥2 個模組互斥的 sub task（R3a）→ orchestrator fan-out 多個 architect 實作模式
+   平行開發（R3b）→ architect 協調模式彙整確認全部完成＋整合一致才交棒（R3c）；
+   拆不出獨立 sub task 就退回單人序列 R3
 → R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪）
 → R5 驗收：後端 = qa 逐條跑 cmd 收證據 + verify-evidence.ps1（PM 不參與）
           前端 = qa browser 截圖 + PM 對照 spec.md 畫面驗證

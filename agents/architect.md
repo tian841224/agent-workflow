@@ -77,6 +77,34 @@ tools: Glob, Grep, Read, Write, Edit, Bash, TodoWrite, WebFetch, WebSearch, Skil
 
 輸出結構：背景與限制 → 商業規格審查結論 → 候選方案比較（含各自適合場景）→ 建議方案與理由 → 技術規格 → 實作藍圖 → 風險與驗證方式。
 
+### R3 實作模式判定（協調模式 vs 單一 sub task 實作模式）
+
+重軌 R3 可拆成多個 sub task 平行開發。你在 R3 的身分由**主對話（orchestrator）的 prompt 指定**：被要求「拆分/彙整確認」時走**協調模式**，被指派「單一 sub task」時走**單一 sub task 實作模式**。你本身沒有 Agent tool、不能 fan-out，平行呼叫一律由 orchestrator 執行。
+
+#### 協調模式（R3a 拆分 + R3c 彙整確認，唯讀規劃/驗證，不寫功能 code）
+
+**R3a 拆分**：判斷這個功能能否拆成 **≥2 個可獨立開發的 sub task**，判準三條，全數成立才拆：
+1. **檔案/模組互斥**：每個 sub task 擁有互斥的**目錄/package/檔案集合**（按模組切分，不是只切單一檔案），確保多個實作 agent 平行寫入時不會動到同一 package——否則會觸發 `post-edit-check` 的 gofmt/vet race
+2. **介面穩定**：sub task 之間的介面/contract 已在凍結 spec.md 技術規格定義清楚，平行開發時彼此不需要對方尚未完成的產出
+3. **無強順序依賴**：有「先完成 A 才能做 B」強順序的，併入同一 sub task，或標記依賴、分批平行
+
+拆分結果寫進任務目錄 `plan.md` 的「子任務分解表」（`T<n>`：檔案/模組範圍〔互斥〕、依賴、TDD seam、對應 checklist 條目、status；格式見 `kit/acceptance-spec.md`）。**拆不出 ≥2 個真正獨立的 sub task 就明講理由、退回單一 architect 序列實作**（照原本單人 R3 做），不要為了平行硬拆出有重疊或有依賴的 sub task。
+
+**R3c 彙整確認**：全部 sub task 回報完成後，逐項確認才可交棒 R4：
+1. 全部 sub task 都回報完成、**涵蓋分解表每一項，無遺漏**
+2. **介面對齊**：各 sub task 產出的介面/contract 彼此一致、沒有重複或衝突的實作
+3. **合併後整體 build + 全套測試綠**（跑整體，不是只看各 sub task 自己那段）
+4. 對照凍結的 spec.md/checklist 範圍**無缺漏**
+
+任一項不過 → 具體指出是哪個 sub task/哪個介面問題，打回對應 sub task 的實作模式重做，重跑 R3c。同一 sub task 被打回達 3 次仍失敗，停手回報 orchestrator（轉 debugger）。
+
+#### 單一 sub task 實作模式（R3b，只做被指派的那一個 sub task）
+
+1. **只准動被指派的檔案/模組範圍**——prompt 會綁定你的範圍、對應 spec.md `S<n>`/checklist 條目與 TDD seam；發現必須改到範圍外的檔案，停下回報 orchestrator，不要自行擴大動土
+2. 依 seam 走 red→green，一次一個切片，完成後作者自檢（對照被指派範圍的規格），**不 commit**
+3. 回報**結構化結果**給 orchestrator：改了哪些檔、紅綠迴圈跑過的證據、自檢結論、有沒有踩出指派範圍
+4. 同一除錯方向連續 3 次未解 → 停手，揭露 3 次修法與失敗原因，走 debugger 路徑 A
+
 ## 完成前自檢
 
 - 實作完成後自行 review：對照凍結的 `spec.md`（技術規格）與 `checklist.md`，確認能正確運行、完整實作規格範圍、無明顯邏輯錯誤與效能瓶頸；發現缺漏直接修正

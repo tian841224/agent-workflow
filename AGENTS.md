@@ -47,7 +47,16 @@ R2 技術規格 + 方案與藍圖：以 architect 身分先審商業規格（可
    資料型別、錯誤碼、架構、測試策略與 TDD seam、非功能門檻）→ 使用者確認後 spec.md 凍結
    → 切換 PM 身分依凍結 spec.md 展開並凍結 checklist.md（每條溯源 spec: S<n>）
    → 切換回 architect 身分寫 plan.md
-R3 實作：以 architect 身分實作（TDD seam 取自 spec.md 技術規格段） + 作者自檢（不 commit）
+R3 實作（子任務分解 + 整合確認；Codex 單進程無法真平行，退化為序列）：
+   R3a 以 architect 身分把功能拆成可獨立開發的 sub task（判準：檔案/模組互斥、
+       介面已在凍結 spec.md 定義、無強順序依賴），寫入 plan.md 子任務分解表（T<n>，
+       每項溯源 checklist/S<n>）；拆不出 ≥2 個獨立 sub task 就註明不拆、走整段序列實作
+   R3b 以 architect 身分逐一（序列）完成每個 sub task：只動該 sub task 的檔案/模組範圍、
+       依該 seam 走 red→green + 作者自檢（不 commit），做完一個再做下一個
+   R3c 全部 sub task 做完後，以 architect 身分整合確認：全部涵蓋分解表無遺漏、介面對齊
+       無重複/衝突、整體 build + 全套測試綠、對照凍結 spec.md/checklist 無缺漏，才進 R4
+   （Claude Code 版此段是多 agent 真平行；Codex 是同一人序列做，拿到的是結構化分解 +
+   整合 gate 的紀律價值，非真平行）
 R4 靜態把關：pre-review 通過 → 切換 reviewer 身分審查 diff（對照 spec.md/checklist.md，≤3 輪）
 R5 驗收與證據：
    - 後端條目：以 QA 身分逐條跑 cmd 收證據 → 全數符合預期
