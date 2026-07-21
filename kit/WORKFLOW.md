@@ -40,20 +40,30 @@ L4 證據：go test 全綠即證據（測試輸出留存於回報）
 
 PM、QA 不出場；不建 acceptance 目錄。
 
-## 3. 重軌（R1–R6）
+## 3. 重軌（R1–R6，SDD／TDD 融入版）
 
 ```
-R1 需求凍結：PM 整理需求 → 使用者確認 → 凍結 checklist.md（格式見 acceptance-spec.md）
-R2 方案與藍圖：architect 出 2-3 方案 → 使用者選定 → 寫 plan.md
-R3 實作：architect 實作 + 作者自檢（不 commit）
-R4 靜態把關：pre-review.ps1 通過 → reviewer 審查（≤3 輪）
+R1 商業規格書：PM 依 SDD 完整列舉規格條目（S<n>，含 Given-When-Then）→ 規格或功能
+   不明確處與使用者確認到雙方理解一致（開放問題清空）→ 商業規格寫入 spec.md（draft）
+   → 交 architect 審查
+R2 技術規格 + 方案與藍圖：architect 先審商業規格（可行性、風險）——
+   無法實作/有風險 → 退回 PM 修正（PM↔architect ≤2 輪）；技術面風險不經 PM，直報主對話。
+   審查通過 → 出 2-3 方案 → 使用者選定 → 補上 spec.md 技術規格部分（API contract、
+   資料型別、錯誤碼、架構、測試策略與 TDD seam、非功能門檻）→ 使用者確認後 spec.md 凍結
+   → PM 依凍結 spec.md 展開並凍結 checklist.md（每條溯源 spec: S<n>，格式見
+   acceptance-spec.md）→ architect 寫 plan.md
+R3 實作：architect 實作（TDD seam 取自 spec.md 技術規格段） + 作者自檢（不 commit）
+R4 靜態把關：pre-review.ps1 通過 → reviewer 審查 diff（對照 spec.md/checklist.md，≤3 輪）
 R5 驗收與證據：
    - 後端條目：qa 逐條跑 cmd 收證據 → verify-evidence.ps1 全 PASS（PM 不參與驗證）
-   - 前端條目：qa browser 操作+截圖 → PM 畫面驗證
+   - 前端條目：qa browser 操作+截圖 → PM 對照 spec.md/checklist.md 畫面驗證
+   - qa 清單跑完後加一輪探索性測試；發現規格沒寫到的問題標記「規格缺漏」回報，
+     不算條目失敗，由主對話評估是否回 R1 補規格
+   - checklist.md 與 spec.md 矛盾 → 回報使用者裁決，不自行認定以哪份為準
 R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式）＋ /learn 沉澱
 ```
 
-任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`（見 acceptance-spec.md）。
+任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，內含 `spec.md`／`checklist.md`／`plan.md`／`evidence/`（見 acceptance-spec.md）。
 主對話在每階段結束時勾選 plan.md 的階段 checkbox；漏勾由 stop-check hook 在 session 結束時提醒。
 
 ## 4. 回合上限
@@ -62,12 +72,13 @@ R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式）＋ /
 - PM ↔ architect（R1/R2 需求可行性往返）：≤2 輪；超限交使用者裁決
 - pre-review 失敗退回修正不計入 reviewer 輪數
 - 除錯同一方法最多 3 次；仍未解決即停止當前方向，轉交 `debugger` agent（唯讀）做根因分析，architect 依建議重新實作
+- 同一驗收條目在 R4/R5 被打回 architect 達 3 次仍失敗：改派 `debugger` agent 唯讀根因分析，architect 依建議重新實作後，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
 
 ## 5. 凍結原則
 
-- checklist 凍結後（`frozen:` 填日期）開發期間任何角色不得增刪修改條目
-- 需求變更 → 回 R1 重出清單，舊檔加 `.superseded` 字尾
-- 經使用者核准的修訂寫入 checklist 檔尾「修訂歷史」
+- spec.md（商業規格+技術規格）與 checklist.md 一併凍結（`frozen:` 填日期），開發期間任何角色不得增刪修改條目；checklist.md 是 spec.md 的延伸，兩者矛盾一律回報使用者裁決，不自行取捨
+- 需求變更 → 回 R1 重出 spec.md 與 checklist.md，舊檔加 `.superseded` 字尾
+- 經使用者核准的修訂寫入 spec.md 與 checklist.md 檔尾「修訂歷史」
 
 ## 6. 版本控制紀律
 

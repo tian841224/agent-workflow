@@ -1,6 +1,6 @@
 # claude-workflow v2
 
-可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級（輕軌/重軌）+ 後端化驗收證據 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ TDD 紅綠迴圈（tdd skill）。
+可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級（輕軌/重軌，重軌為 SDD／TDD 融入版）+ 後端化驗收證據 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ TDD 紅綠迴圈（tdd skill）。
 
 v2 的核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。
 
@@ -23,10 +23,10 @@ v1 → v2 步驟對照：技術軌 T1–T5 → 輕軌 L1–L4；功能軌 F1–F
 kit/
   WORKFLOW.md          流程總控（分級、階段、回合上限、凍結原則、續作）
   acceptance-spec.md   驗收規約（checklist 格式、證據規則——人與腳本共同遵守）
-  templates/           checklist.md / plan.md 模板
+  templates/           spec.md / checklist.md / plan.md 模板
 agents/                architect / reviewer / qa / pm / debugger 五角色定義
                         （模型固定：pm=opus、qa=haiku、architect/reviewer/debugger=sonnet，寫死於各檔 frontmatter `model:`）
-skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（紅綠迴圈參考，含 tests.md / mocking.md）
+skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律，含 tests.md / mocking.md，seam 取自 spec.md 技術規格）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
   post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢，失敗立即打回
@@ -63,7 +63,7 @@ cd claude-workflow
 
 注意：settings.json 經 PowerShell 5.1 的 ConvertTo-Json 寫回後，中文會轉為 `\uXXXX` 逸出，功能無損。`install.sh`（Linux/macOS）列為 roadmap，v2 目前以 Windows 為主。
 
-注意：`tdd` skill 目前僅為獨立技能檔（`skills/tdd/SKILL.md` + `tests.md` + `mocking.md`），會隨 `install.ps1` 一起裝到 `~/.claude/skills/tdd/`，但 kit 自身的 `agents/architect.md`、`kit/WORKFLOW.md` 尚未在流程中引用它——是否於 L2/R3 實作階段接上紅綠迴圈，屬於流程設計決策，目前未定案。
+`tdd` skill（`skills/tdd/SKILL.md` + `tests.md` + `mocking.md`）會隨 `install.ps1` 整資料夾裝到 `~/.claude/skills/tdd/`；重軌 R3 實作階段已接上紅綠迴圈，seam 直接取自 R2 凍結的 `spec.md` 技術規格「測試策略與 TDD seam」段，不需臨場另外確認（見 `agents/architect.md`）。
 
 ## 流程速覽
 
@@ -73,19 +73,33 @@ cd claude-workflow
 L1 architect 判定 → L2 實作 → L3 pre-review + reviewer(≤2輪) → L4 go test 全綠即證據
 ```
 
-**重軌**（新 feature / 跨模組 / 改 API/DB / 關鍵寫入路徑 / 前端功能）：
+**重軌**（新 feature / 跨模組 / 改 API/DB / 關鍵寫入路徑 / 前端功能），SDD／TDD 融入版：
 
 ```
-R1 PM 凍結 checklist → R2 architect 方案+藍圖 → R3 實作
-→ R4 pre-review + reviewer(≤3輪)
+R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處與使用者確認到
+   雙方理解一致 → 商業規格寫入 spec.md
+→ R2 architect 先審規格（無法實作/有風險退回 PM，≤2輪）→ 出方案+藍圖 → 補技術規格
+   （API contract/資料型別/錯誤碼/架構/TDD seam/非功能門檻）→ spec.md 凍結
+   → PM 依 spec.md 展開並凍結 checklist（每條溯源 spec: S<n>）
+→ R3 實作（TDD seam 取自 spec.md）
+→ R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪）
 → R5 驗收：後端 = qa 逐條跑 cmd 收證據 + verify-evidence.ps1（PM 不參與）
-          前端 = qa browser 截圖 + PM 畫面驗證
+          前端 = qa browser 截圖 + PM 對照 spec.md 畫面驗證
+          qa 加一輪探索性測試，發現規格缺漏回報（不算條目失敗）
 → R6 回報 + /learn 沉澱
 ```
 
-任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`（詳見 `kit/acceptance-spec.md`）。
+任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`／`evidence/`（詳見 `kit/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
 
-**除錯迴圈**：architect 對同一 bug 用同一解法連續嘗試 3 次仍未解決，即停手並揭露已嘗試的修法與失敗原因，轉交 `debugger` agent（唯讀）做根因分析；`debugger` 只蒐證與驗證假說、不改 code、不下修復方案，結論交回 architect 重新實作。
+**除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `kit/WORKFLOW.md` 第 4 節）：`debugger`（唯讀）有兩條出場路徑——
+- 路徑 A：architect 對同一 bug 用同一解法連續嘗試 3 次仍未解決，即停手並揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
+- 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
+
+兩條路徑 `debugger` 都只蒐證與驗證假說、不改 code、不下修復方案，結論交回 architect。
+
+## 其他 CLI 支援
+
+repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `kit/WORKFLOW.md` + 五角色定義對等，但把 hooks 硬護欄（git-guard 等）改寫成純行為約定——Codex 沒有對應的 hook 機制，靠條文自律。`install.ps1` 不處理 `AGENTS.md`，需要的話手動複製到你的 Codex 設定目錄。
 
 ### 回合上限（超限一律停下交使用者裁決，不自行加碼）
 
@@ -93,7 +107,8 @@ R1 PM 凍結 checklist → R2 architect 方案+藍圖 → R3 實作
 |---|---|---|---|
 | reviewer ↔ architect | 重軌 ≤3 輪、輕軌 ≤2 輪 | orchestrator | 列出爭點回報使用者裁決 |
 | PM ↔ architect（需求可行性往返） | ≤2 輪 | orchestrator | 回報使用者裁決 |
-| 同一 bug 內部修復嘗試 | 3 次 | architect 自己計數 | 轉交 `debugger` |
+| 同一 bug 內部修復嘗試 | 3 次 | architect 自己計數 | 轉交 `debugger`（路徑 A） |
+| 同一驗收條目在 R4/R5 被打回 architect | 3 次 | orchestrator | 轉交 `debugger`（路徑 B），修復後 R4→R5 全套重跑 |
 | pre-review 失敗退回 | 不計數 | — | 修正後重跑，不計入 reviewer 輪數 |
 
 ### 凍結原則（抉擇一旦定案不可中途變更）

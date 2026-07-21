@@ -49,7 +49,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE/.claude/cl
 - 用 `git status`、`git diff`、`git diff --stat`、`git log` 釐清「這次改了什麼、為什麼改」
 - 讀進被改檔案的**周邊上下文**（呼叫端、被呼叫端、同模組的既有 pattern），不要只看 diff 那幾行就下判斷
 - 先讀專案 `CLAUDE.md`、auto-memory（含 `DECISIONS.md` 與 pitfall 記憶）、既有架構慣例，審查標準以「這個專案怎麼做」為準，不套用外部通則
-- 重軌任務另讀該任務的 `checklist.md` 與 `plan.md`，確認實作與凍結需求、選定方案一致
+- 重軌任務另讀該任務的 `spec.md`（商業規格+技術規格）、`checklist.md` 與 `plan.md`：**審查主體仍是 diff**，逐項核對實作方式是否符合凍結規格書與選定方案——重點是「這段程式碼做的事，跟 spec.md 的 S<n> 描述一致嗎、有沒有漏做/多做」，不是重新審規格書本身寫得好不好（規格品質是 R2 architect 審查＋使用者確認把關的事，不是你在 R4 的職責）
 
 ## 審查六大面向
 
@@ -82,6 +82,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE/.claude/cl
 - **敏感資料**：密鑰/憑證是否寫死或外洩到 log、錯誤訊息、回傳內容？錯誤訊息是否洩漏內部細節？
 - **重放與冪等**：涉及金額或狀態變更的請求能否被重送而重複生效？
 - **相依套件**：是否引入已知有漏洞的第三方套件。
+- **加密與傳輸**：敏感資料（密碼、憑證、個資）是否明碼儲存或傳輸？內部服務間呼叫是否可能被竄改（是否走 TLS、是否驗證憑證）？金鑰輪替與存放方式是否合理。
+- **稽核留痕**：關鍵操作（權限變更、大額異動、注單狀態強制修改）有沒有留下可追溯紀錄？出事時查得到是誰、何時、改了什麼。
+- **SSRF**：伺服器端發出的請求，目標網址是否可被使用者輸入操控。
 
 ### 5. 風險分析
 - 這個改動出錯時，**炸的範圍多大**？單一使用者、單一交易，還是全服？可逆嗎？
@@ -95,6 +98,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE/.claude/cl
 - 有沒有無界的資料結構、goroutine 洩漏、未關閉的資源（rows、conn、ticker）？
 - Redis/快取類：無 TTL 的殭屍資料、大集合阻塞操作（如 SMEMBERS/`KEYS *`，應改 SCAN）？
 - 這些是「現在就會痛」還是「量大才會痛」？要標明，不要把理論隱憂講得像立即災難。
+- **量測依據**：若這次改動的動機是效能優化，回報裡有沒有 before/after 實測數據？只憑邏輯推論宣稱「變快了」而沒有量測結果，標為需補充；同時檢查量測方法本身是否可信（有無對照組、是否測在真正的瓶頸點）。
 
 ## 輸出格式
 

@@ -1,6 +1,7 @@
 ﻿# managed by claude-workflow v2 — Stop hook: 驗收缺件提醒
 # session 結束時, 依 cwd 換算 project-slug, 掃該專案 acceptance 目錄:
-# checklist.md 有未勾條目/缺證據檔、plan.md 有未勾階段 → decision=block 提醒補齊或標記 paused。
+# spec.md 缺失或未凍結（仍是 draft）、checklist.md 有未勾條目/缺證據檔、plan.md 有未勾階段
+# → decision=block 提醒補齊或標記 paused。
 # stop_hook_active=true 一律放行 (防迴圈)。checklist 含 <!-- paused --> 跳過。解析失敗 → exit 0。
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +25,16 @@ try {
         if ($content -match '<!--\s*paused\s*-->') { continue }
 
         $taskIssues = @()
+
+        # spec.md 缺失或未凍結（SDD：checklist 是 spec.md 的延伸，缺規格書或規格書還沒凍結
+        # 就代表 R4/R5 對照的依據不完整）
+        $spec = Join-Path $taskDir.FullName 'spec.md'
+        if (-not (Test-Path $spec)) {
+            $taskIssues += 'spec.md 缺失'
+        } else {
+            $specContent = Get-Content $spec -Raw -Encoding UTF8
+            if ($specContent -match '(?m)^\s*-\s*frozen:\s*draft\s*$') { $taskIssues += 'spec.md 未凍結（仍是 draft）' }
+        }
 
         # 未勾條目
         $unchecked = [regex]::Matches($content, '(?ms)^### (A\d+)\b(.*?)(?=^### A\d+\b|\z)') |

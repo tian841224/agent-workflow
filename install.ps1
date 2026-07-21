@@ -55,12 +55,12 @@ foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'agents') -Filter *.md)) {
 $agentCount = (Get-ChildItem (Join-Path $repoRoot 'agents') -Filter *.md).Count
 $summary += "agents $agentCount 檔 → $(Join-Path $Target 'agents')"
 
-# 1c. skills (learn/evolve 僅 SKILL.md；tdd 額外含 tests.md / mocking.md，整資料夾複製)
-foreach ($skill in @('learn', 'evolve')) {
-    Do-Copy (Join-Path $repoRoot "skills\$skill\SKILL.md") (Join-Path $Target "skills\$skill\SKILL.md")
-}
-foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'skills\tdd') -File)) {
-    Do-Copy $f.FullName (Join-Path $Target "skills\tdd\$($f.Name)")
+# 1c. skills（整個 skill 目錄複製，不只 SKILL.md——tdd 還有 tests.md/mocking.md 等被引用的參考檔）
+foreach ($skill in @('learn', 'evolve', 'tdd')) {
+    $skillSrcDir = Join-Path $repoRoot "skills\$skill"
+    foreach ($f in (Get-ChildItem $skillSrcDir -File)) {
+        Do-Copy $f.FullName (Join-Path $Target "skills\$skill\$($f.Name)")
+    }
 }
 $summary += "skills learn/evolve/tdd → $(Join-Path $Target 'skills')"
 
