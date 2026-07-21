@@ -16,11 +16,12 @@
 
 ## 階段進度
 
-- [ ] R1 需求凍結（PM：checklist.md frozen）
-- [ ] R2 方案與藍圖（architect：本檔完成、使用者選定方案）
+- [ ] R1 商業規格書（PM：spec.md 商業規格部分完成、開放問題清空）
+- [ ] R2 技術規格 + 方案與藍圖（architect：商業規格審查通過、spec.md 技術規格部分完成並凍結、
+      本檔完成、使用者選定方案；PM：checklist.md 依 spec.md 展開並凍結）
 - [ ] R3 實作（architect：程式碼完成+作者自檢）
 - [ ] R4 靜態把關（pre-review.ps1 通過 + reviewer 審查通過）
-- [ ] R5 驗收與證據（qa 逐條收證據 + verify-evidence.ps1 全 PASS）
+- [ ] R5 驗收與證據（qa 逐條收證據 + 探索性測試 + verify-evidence.ps1 全 PASS）
 - [ ] R6 收尾沉澱（回報使用者、/learn 沉澱）
 
 ## 續作備註
