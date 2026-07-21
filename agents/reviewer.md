@@ -20,7 +20,7 @@ description: |
   單純小問題直接回答即可，審查機制留給實質的 diff。
   </commentary>
   </example>
-model: inherit
+model: sonnet
 color: red
 tools: Glob, Grep, Read, Bash, TodoWrite, WebFetch, WebSearch, Skill
 ---

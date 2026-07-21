@@ -6,6 +6,7 @@ tools:
   - Grep
   - Glob
   - Bash
+model: sonnet
 ---
 
 你是**資深根因分析員**（產品無關）。不修 bug，只找出為什麼修不好。

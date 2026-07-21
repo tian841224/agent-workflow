@@ -11,7 +11,7 @@ description: |
   R5 驗收階段由 qa 執行凍結清單的驗證指令並落地證據，這是 qa 的唯一出場點。
   </commentary>
   </example>
-model: inherit
+model: haiku
 color: green
 tools: Bash, Read, Glob, Grep, TodoWrite, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_stop, mcp__Claude_Browser__preview_list, mcp__Claude_Browser__preview_logs, mcp__Claude_Browser__navigate, mcp__Claude_Browser__computer, mcp__Claude_Browser__read_page, mcp__Claude_Browser__find, mcp__Claude_Browser__form_input, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__read_network_requests
 ---

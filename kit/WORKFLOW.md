@@ -2,7 +2,17 @@
 
 # claude-workflow v2 — 開發流程總控
 
-主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm 四個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、pre-review、verify-evidence），本檔條文只管腳本管不到的判斷。
+主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、pre-review、verify-evidence），本檔條文只管腳本管不到的判斷。
+
+各 agent 使用的模型固定寫死於各自檔案的 frontmatter `model:` 欄位，orchestrator 呼叫時不得覆蓋：
+
+| Agent | 模型 | 理由 |
+|---|---|---|
+| pm | opus | 需求理解、可行性判斷與最終驗收涉及較多推理，用高階模型降低誤判 |
+| architect | sonnet | 標準實作與方案分析，日常主力模型 |
+| reviewer | sonnet | 靜態審查與 architect 對等抗衡，避免同模型自我審核的盲點但仍需具體程式理解力 |
+| debugger | sonnet | 根因分析需要程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
+| qa | haiku | 純執行凍結清單的驗證指令、收集證據，任務機械化、成本應最低 |
 
 ## 1. 流程分級
 
@@ -51,7 +61,7 @@ R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式）＋ /
 - reviewer ↔ architect：重軌 ≤3 輪、輕軌 ≤2 輪；超限停止，列出爭點交使用者裁決
 - PM ↔ architect（R1/R2 需求可行性往返）：≤2 輪；超限交使用者裁決
 - pre-review 失敗退回修正不計入 reviewer 輪數
-- 除錯同一方法最多 3 次；仍未解決即停止當前方向、重新分析根本原因
+- 除錯同一方法最多 3 次；仍未解決即停止當前方向，轉交 `debugger` agent（唯讀）做根因分析，architect 依建議重新實作
 
 ## 5. 凍結原則
 

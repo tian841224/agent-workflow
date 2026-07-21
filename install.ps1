@@ -52,13 +52,17 @@ foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'agents') -Filter *.md)) {
     }
     Do-Copy $f.FullName $dst
 }
-$summary += "agents 4 檔 → $(Join-Path $Target 'agents')"
+$agentCount = (Get-ChildItem (Join-Path $repoRoot 'agents') -Filter *.md).Count
+$summary += "agents $agentCount 檔 → $(Join-Path $Target 'agents')"
 
-# 1c. skills
+# 1c. skills (learn/evolve 僅 SKILL.md；tdd 額外含 tests.md / mocking.md，整資料夾複製)
 foreach ($skill in @('learn', 'evolve')) {
     Do-Copy (Join-Path $repoRoot "skills\$skill\SKILL.md") (Join-Path $Target "skills\$skill\SKILL.md")
 }
-$summary += "skills learn/evolve → $(Join-Path $Target 'skills')"
+foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'skills\tdd') -File)) {
+    Do-Copy $f.FullName (Join-Path $Target "skills\tdd\$($f.Name)")
+}
+$summary += "skills learn/evolve/tdd → $(Join-Path $Target 'skills')"
 
 # 1d. hooks → ~/.claude/hooks/claude-workflow/
 $hooksDstDir = Join-Path $Target 'hooks\claude-workflow'

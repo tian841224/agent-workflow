@@ -1,6 +1,6 @@
 # claude-workflow v2
 
-可攜的 Claude Code 開發流程 kit：四角色 subagent（architect / reviewer / qa / pm）+ 流程分級（輕軌/重軌）+ 後端化驗收證據 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）。
+可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級（輕軌/重軌）+ 後端化驗收證據 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ TDD 紅綠迴圈（tdd skill）。
 
 v2 的核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。
 
@@ -24,8 +24,9 @@ kit/
   WORKFLOW.md          流程總控（分級、階段、回合上限、凍結原則、續作）
   acceptance-spec.md   驗收規約（checklist 格式、證據規則——人與腳本共同遵守）
   templates/           checklist.md / plan.md 模板
-agents/                architect / reviewer / qa / pm 四角色定義
-skills/                learn（經驗擷取）/ evolve（週回顧精煉）
+agents/                architect / reviewer / qa / pm / debugger 五角色定義
+                        （模型固定：pm=opus、qa=haiku、architect/reviewer/debugger=sonnet，寫死於各檔 frontmatter `model:`）
+skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（紅綠迴圈參考，含 tests.md / mocking.md）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
   post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢，失敗立即打回
@@ -55,12 +56,14 @@ cd claude-workflow
 
 | 層 | 內容 | 行為 |
 |---|---|---|
-| kit 層 | `~/.claude/claude-workflow/`、`agents/` 四檔、`skills/{learn,evolve}`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋） |
+| kit 層 | `~/.claude/claude-workflow/`、`agents/` 五檔、`skills/{learn,evolve,tdd}`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋） |
 | 使用者層 | `CLAUDE.md` | 只 append 一個 `<!-- claude-workflow:begin/end -->` 區塊（含 `@claude-workflow/WORKFLOW.md` import） |
 | 使用者層 | `settings.json` | hooks 結構化合併：先移除 command 含 `hooks/claude-workflow` 的舊 entry 再加入新 entry，既有自有 hooks 不動；寫回前備份 |
 | 專案層 | `<project>/.claude/`、專案 CLAUDE.md | 完全不碰 |
 
 注意：settings.json 經 PowerShell 5.1 的 ConvertTo-Json 寫回後，中文會轉為 `\uXXXX` 逸出，功能無損。`install.sh`（Linux/macOS）列為 roadmap，v2 目前以 Windows 為主。
+
+注意：`tdd` skill 目前僅為獨立技能檔（`skills/tdd/SKILL.md` + `tests.md` + `mocking.md`），會隨 `install.ps1` 一起裝到 `~/.claude/skills/tdd/`，但 kit 自身的 `agents/architect.md`、`kit/WORKFLOW.md` 尚未在流程中引用它——是否於 L2/R3 實作階段接上紅綠迴圈，屬於流程設計決策，目前未定案。
 
 ## 流程速覽
 
@@ -81,6 +84,35 @@ R1 PM 凍結 checklist → R2 architect 方案+藍圖 → R3 實作
 ```
 
 任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`（詳見 `kit/acceptance-spec.md`）。
+
+**除錯迴圈**：architect 對同一 bug 用同一解法連續嘗試 3 次仍未解決，即停手並揭露已嘗試的修法與失敗原因，轉交 `debugger` agent（唯讀）做根因分析；`debugger` 只蒐證與驗證假說、不改 code、不下修復方案，結論交回 architect 重新實作。
+
+### 回合上限（超限一律停下交使用者裁決，不自行加碼）
+
+| 計數器 | 上限 | 誰維護 | 超過後動作 |
+|---|---|---|---|
+| reviewer ↔ architect | 重軌 ≤3 輪、輕軌 ≤2 輪 | orchestrator | 列出爭點回報使用者裁決 |
+| PM ↔ architect（需求可行性往返） | ≤2 輪 | orchestrator | 回報使用者裁決 |
+| 同一 bug 內部修復嘗試 | 3 次 | architect 自己計數 | 轉交 `debugger` |
+| pre-review 失敗退回 | 不計數 | — | 修正後重跑，不計入 reviewer 輪數 |
+
+### 凍結原則（抉擇一旦定案不可中途變更）
+
+- checklist 標記 `frozen:` 日期後，開發期間任何角色（含 PM 自己）不得增刪修改條目
+- 需求變更 → 回 R1 重新出清單，舊檔加 `.superseded` 字尾，不可就地覆蓋
+- 經使用者核准的修訂寫入 checklist 檔尾的「修訂歷史」，保留可追溯軌跡
+
+### Agent 模型固定表（寫死於各 agent frontmatter，orchestrator 不得覆蓋）
+
+| Agent | 模型 | 理由 |
+|---|---|---|
+| pm | opus | 需求理解、可行性判斷、最終驗收涉及較多推理，用高階模型降低誤判 |
+| architect | sonnet | 標準實作與方案分析，日常主力模型 |
+| reviewer | sonnet | 靜態審查需具體程式理解力，與 architect 對等但獨立審視 |
+| debugger | sonnet | 根因分析需程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
+| qa | haiku | 純執行凍結清單驗證指令、收集證據，任務機械化，成本應最低 |
+
+以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `kit/WORKFLOW.md`（模型固定表在前言之後、回合上限在 §4、凍結原則在 §5）；README 僅摘要供快速查閱，若與 `kit/WORKFLOW.md` 不一致，以 `kit/WORKFLOW.md` 為準。
 
 ## 客製化
 

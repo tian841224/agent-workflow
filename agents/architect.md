@@ -20,7 +20,7 @@ description: |
   明顯是簡單任務，主對話可先行套用 architect 的複雜度判斷，直接修即可。
   </commentary>
   </example>
-model: inherit
+model: sonnet
 color: blue
 tools: Glob, Grep, Read, Write, Edit, Bash, TodoWrite, WebFetch, WebSearch, Skill
 ---

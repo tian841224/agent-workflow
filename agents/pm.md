@@ -20,7 +20,7 @@ description: |
   後端驗收不經 PM；PM 的驗證只在前端功能修改時出場。
   </commentary>
   </example>
-model: inherit
+model: opus
 color: yellow
 tools: Glob, Grep, Read, TodoWrite, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_stop, mcp__Claude_Browser__preview_list, mcp__Claude_Browser__navigate, mcp__Claude_Browser__computer, mcp__Claude_Browser__read_page, mcp__Claude_Browser__find, mcp__Claude_Browser__get_page_text
 ---
