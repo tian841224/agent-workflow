@@ -16,8 +16,9 @@ agents/ skills/ rules/  共用角色、技能與規則
 scripts/ templates/     共用工具與模板
 hooks/                  共用 hook 實作
 adapters/shared/        manifest 與跨平台路徑 helper
-adapters/claude/       Claude CLAUDE.md 入口與 settings.json hooks schema
-adapters/codex/        Codex AGENTS.md 入口、hooks.json 與 execpolicy rules
+adapters/claude/       Claude settings.json hooks schema
+adapters/codex/        Codex hooks.json 與 execpolicy rules
+adapters/antigravity/  Antigravity GEMINI.md 入口說明
 examples/              驗收清單範例、專案層覆蓋機制說明
 tests/                  hook 與 installer acceptance tests
 install.ps1
@@ -28,7 +29,7 @@ install.ps1
 ```powershell
 git clone https://github.com/tian841224/claude-workflow
 cd claude-workflow
-.\install.ps1              # canonical 裝到 ~/.agents/core，並建立平台 adapter
+.\install.ps1              # canonical 裝到 ~/.agents，並建立平台 adapter
 .\install.ps1 -DryRun      # 先看會動哪些檔
 .\install.ps1 -Target D:\test\fake-home   # 測試安裝
 ```
@@ -48,10 +49,12 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 ```powershell
 .\install.ps1 -Agent Claude   # 只安裝 Claude Code 原生架構
 .\install.ps1 -Agent Codex    # 只安裝 Codex 原生架構
+.\install.ps1 -Agent Antigravity # 安裝 Antigravity global instructions
 .\install.ps1 -Agent Both     # 兩套都安裝（預設）
+.\install.ps1 -Agent All      # Claude、Codex、Antigravity 全部安裝
 ```
 
-`-Agent` 也可寫成 `-Platform`。Codex 模式會讓 `~/.codex/AGENTS.md` 指向 `~/.agents/AGENTS.md`，並安裝 Codex `hooks.json` 與 `rules/default.rules`；Claude 模式則讓 `~/.claude/CLAUDE.md` 指向同一份共用 `AGENTS.md`，再安裝 Claude `settings.json` hooks。
+`-Agent` 也可寫成 `-Platform`。Codex 模式會讓 `~/.codex/AGENTS.md` 指向 `~/.agents/AGENTS.md`，並安裝 Codex `hooks.json` 與 `rules/default.rules`；Claude 模式則讓 `~/.claude/CLAUDE.md` 指向同一份共用 `AGENTS.md`，再安裝 Claude `settings.json` hooks；Antigravity 模式則讓 `~/.gemini/GEMINI.md` 指向同一份共用 `AGENTS.md`。
 
 共用 workflow 會安裝到 `~/.agents/`。Claude 與 Codex 只連結 repo 管理的 agents、skills、rules 項目；目標目錄中其他既有 agent、skill、rule 與 Codex 原生檔案會保留，不會整個目錄替換：
 

@@ -4,7 +4,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $root = Join-Path $repo '.tmp-installer-tests'
 if (Test-Path $root) { Remove-Item -LiteralPath $root -Recurse -Force }
 New-Item -ItemType Directory -Force $root | Out-Null
-$claude = Join-Path $root 'claude'; $codex = Join-Path $root 'codex'; $canonical = Join-Path $root 'canonical'
+$claude = Join-Path $root 'claude'; $codex = Join-Path $root 'codex'; $antigravity = Join-Path $root 'gemini'; $canonical = Join-Path $root 'canonical'
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" }; Write-Output "[PASS] $Message" }
 function Run-Installer([string[]]$InstallerArgs) {
     $named = @{}
@@ -15,11 +15,14 @@ function Run-Installer([string[]]$InstallerArgs) {
 try {
     Run-Installer @('-TargetAgent','Both','-ClaudeTarget',$claude,'-CodexTarget',$codex,'-CanonicalTarget',$canonical)
     Assert (Test-Path (Join-Path $canonical 'workflow\WORKFLOW.md')) 'canonical shared workflow is installed once'
-    Assert ((Get-Item (Join-Path $claude 'agents')).LinkType -eq 'Junction') 'Claude agents points to canonical core'
-    Assert ((Get-Item (Join-Path $codex 'skills')).LinkType -eq 'Junction') 'Codex skills points to canonical core'
+    Assert (Test-Path (Join-Path $claude 'agents\architect.md')) 'Claude managed agent is installed without replacing other agents'
+    Assert (Test-Path (Join-Path $codex 'skills\tdd\SKILL.md')) 'Codex managed skill is installed without replacing other skills'
     Get-Content (Join-Path $claude 'settings.json') -Raw | ConvertFrom-Json | Out-Null
     Get-Content (Join-Path $codex 'hooks.json') -Raw | ConvertFrom-Json | Out-Null
     Assert ((Get-Content (Join-Path $codex 'hooks.json') -Raw) -notmatch '\{\{HOOKS_DIR\}\}') 'Codex hook path is expanded'
+    Run-Installer @('-TargetAgent','Antigravity','-AntigravityTarget',$antigravity,'-CanonicalTarget',$canonical)
+    Assert (Test-Path (Join-Path $antigravity 'GEMINI.md')) 'Antigravity GEMINI.md is installed'
+    Assert ((Get-Content (Join-Path $antigravity 'GEMINI.md') -Raw) -eq (Get-Content (Join-Path $canonical 'AGENTS.md') -Raw)) 'Antigravity uses canonical instructions'
     $before = (Get-ChildItem $canonical -Recurse -File | Measure-Object).Count
     Run-Installer @('-TargetAgent','Both','-ClaudeTarget',$claude,'-CodexTarget',$codex,'-CanonicalTarget',$canonical)
     $after = (Get-ChildItem $canonical -Recurse -File | Measure-Object).Count
