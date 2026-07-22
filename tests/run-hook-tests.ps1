@@ -108,8 +108,8 @@ Write-Output '=== stop-check.ps1 ==='
 $fakeCwd = 'C:\tmp\stopcheck-demo'
 $slug = ($fakeCwd -replace '[:\\/]', '-')
 $accTask = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance\demo"
-New-Item -ItemType Directory -Force (Join-Path $accTask 'evidence') | Out-Null
-$cl = "# demo`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- evidence: evidence/A1.txt`n- status: [ ]`n"
+New-Item -ItemType Directory -Force $accTask | Out-Null
+$cl = "# demo`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
 [System.IO.File]::WriteAllText((Join-Path $accTask 'checklist.md'), $cl, $enc)
 $stopJson = @{ cwd = $fakeCwd; stop_hook_active = $false } | ConvertTo-Json -Compress
 Assert-Case '缺件 → block' 'stop-check.ps1' $stopJson { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'A1' }
@@ -123,9 +123,8 @@ Assert-Case '壞 JSON → exit 0' 'stop-check.ps1' 'xxx' { param($r) $r.Stdout -
 
 # spec.md 檢查（SDD：checklist 是 spec.md 的延伸，缺規格書或規格書未凍結都要擋）
 $accTask2 = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance\demo2"
-New-Item -ItemType Directory -Force (Join-Path $accTask2 'evidence') | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $accTask2 'evidence\A1.txt'), "# 2026-07-20T00:00:00+08:00 `$ echo hi`nhi`n", $enc)
-$cl2 = "# demo2`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- evidence: evidence/A1.txt`n- status: [x]`n"
+New-Item -ItemType Directory -Force $accTask2 | Out-Null
+$cl2 = "# demo2`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [x]`n"
 [System.IO.File]::WriteAllText((Join-Path $accTask2 'checklist.md'), $cl2, $enc)
 $stopJson2 = @{ cwd = $fakeCwd; stop_hook_active = $false } | ConvertTo-Json -Compress
 Assert-Case 'spec.md 缺失 → block' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'spec\.md 缺失' }
@@ -133,6 +132,22 @@ Assert-Case 'spec.md 缺失 → block' 'stop-check.ps1' $stopJson2 { param($r) $
 Assert-Case 'spec.md 未凍結(draft) → block' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'draft' }
 [System.IO.File]::WriteAllText((Join-Path $accTask2 'spec.md'), "# demo2 spec`n- project: $fakeCwd`n- frozen: 2026-07-20`n", $enc)
 Assert-Case 'spec.md 已凍結 + checklist 全過 → 放行' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# mini-spec.md 檢查（標準軌：無 checklist.md，只有 mini-spec.md 單檔；不檢查 spec.md/plan.md）
+$accTask3 = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance\demo3"
+New-Item -ItemType Directory -Force $accTask3 | Out-Null
+$ms = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: draft`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
+[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $ms, $enc)
+$stopJson3 = @{ cwd = $fakeCwd; stop_hook_active = $false } | ConvertTo-Json -Compress
+Assert-Case 'mini-spec.md 未凍結(draft) → block' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'mini-spec\.md 未凍結' }
+$msFrozenUnchecked = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
+[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $msFrozenUnchecked, $enc)
+Assert-Case 'mini-spec.md 凍結但有未勾條目 → block' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'A1' }
+$msFrozenChecked = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [x]`n"
+[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $msFrozenChecked, $enc)
+Assert-Case 'mini-spec.md 凍結 + 全勾 → 放行' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), "<!-- paused -->`n$msFrozenUnchecked", $enc)
+Assert-Case 'mini-spec.md paused 標記 → 放行' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
 
 # 清理 stop-check fixture
 Remove-Item -Recurse -Force (Join-Path $env:USERPROFILE ".claude\projects\$slug") -ErrorAction SilentlyContinue

@@ -14,7 +14,6 @@
 - then: health 套件測試全數通過
 - cmd: `go test ./internal/health/... -run TestHealthz -v`
 - expect: `ok\s+`
-- evidence: evidence/A1.txt
 - status: [ ]
 
 ### A2 /healthz 回 200
@@ -26,7 +25,6 @@
 - setup: 需先啟動本地 server（port 8899）
 - cmd: `curl -s -o NUL -w "%{http_code}" http://127.0.0.1:8899/healthz`
 - expect: `200`
-- evidence: evidence/A2.txt
 - status: [ ]
 
 ### A3 依賴服務中斷時回 503（異常路徑範例）
@@ -38,7 +36,6 @@
 - setup: 需先啟動本地 server 並手動斷開資料庫連線
 - cmd: `curl -s -o NUL -w "%{http_code}" http://127.0.0.1:8899/healthz`
 - expect: `503`
-- evidence: evidence/A3.txt
 - status: [ ]
 
 ### A4 首頁顯示版本號（前端型範例）
@@ -50,7 +47,6 @@
 - type: ui
 - steps: 開啟 http://127.0.0.1:8899/ → 捲動到頁尾
 - expect: 頁尾顯示 v 開頭的版本字串
-- evidence: evidence/A4.png
 - status: [ ]
 
 ## 修訂歷史

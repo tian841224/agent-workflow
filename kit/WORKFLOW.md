@@ -2,7 +2,7 @@
 
 # claude-workflow v2 — 開發流程總控
 
-主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、pre-review、verify-evidence），本檔條文只管腳本管不到的判斷。
+主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、pre-review），本檔條文只管腳本管不到的判斷。
 
 各 agent 使用的模型固定寫死於各自檔案的 frontmatter `model:` 欄位，orchestrator 呼叫時不得覆蓋：
 
@@ -12,42 +12,74 @@
 | architect | sonnet | 標準實作與方案分析，日常主力模型 |
 | reviewer | sonnet | 靜態審查與 architect 對等抗衡，避免同模型自我審核的盲點但仍需具體程式理解力 |
 | debugger | sonnet | 根因分析需要程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
-| qa | haiku | 純執行凍結清單的驗證指令、收集證據，任務機械化、成本應最低 |
+| qa | haiku | 純執行凍結清單的驗證指令、當場判定，任務機械化、成本應最低 |
 
 ## 1. 流程分級
 
-任務開始時由 architect 判定軌別並向使用者宣告，使用者可否決；L0 例外——由主對話（orchestrator）先行套用判準直接判定，不 spawn architect。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕重之間判斷不出升重軌）。
+任務開始時由 architect 判定軌別並向使用者宣告，使用者可否決；L0 例外——由主對話（orchestrator）先行套用判準直接判定，不 spawn architect。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕軌與標準軌之間判斷不出升標準軌、標準軌與重軌之間判斷不出升重軌）。
 
 **L0 微軌**（全部符合才適用）：
 - 單一檔案、改動約 ≤10 行
 - 不新增/修改邏輯分支、不改介面/契約、不改 DB schema、不碰高風險關鍵寫入路徑
 - 類型限定：文案/註解/log 訊息、設定值調整、顯而易見的 typo 或一行修正、純樣式微調
 
-L0 執行方式：主對話直接修 + 自檢 + 跑對應驗證（既有測試或最小手動驗證），不出 reviewer、不建 acceptance 目錄；git-guard 的 commit ask 照常生效。護欄：任何猶豫 → 升輕軌；同一 session 同一範圍累計 ≥3 筆 L0 改動 → 視為一個輕軌任務，補走 reviewer 審查。
+L0 執行方式：主對話直接修 + 自檢 + 跑對應驗證（既有測試或最小手動驗證），不出 reviewer、不建 acceptance 目錄；git-guard 的 commit ask 照常生效。護欄：任何猶豫 → 升輕軌。
 
 **輕軌**（全部符合；低於此門檻的 trivial 改動走 L0）：
-- bug fix 或單模組小改
+- bug fix 或單一函式/檔案內的小改
 - 不改對外 API/WS 契約、不改 DB schema
+- 不涉及高風險關鍵寫入路徑
+
+**標準軌**（全部符合；規模超過輕軌但不到重軌門檻）：
+- 新 feature 或行為變更，但侷限**單一模組**（不跨模組/服務）
+- 不改對外 API/WS 契約、不改 DB schema
+- 需求本身明確，不需要 PM 多輪釐清即可動工
 - 不涉及高風險關鍵寫入路徑
 
 **重軌**（任一命中）：
 - 新 feature、跨模組改動
 - 改 API/WS 契約、改 DB schema
 - 觸及高風險關鍵寫入路徑（不可逆或高影響的資料異動，如帳務、交易、權限；具體範圍由各專案 CLAUDE.md 定義）
-- 前端功能修改（PM 需畫面驗證）
+
+**附加 gate：PM 畫面驗證**（不是獨立軌別，掛在其他軌別後面）——任一軌別的任務只要**含前端功能修改**（非純樣式微調，那屬於 L0），流程尾端一律追加一步 PM 畫面驗證：
+- L0/輕軌：PM 直接依變更說明用 browser 工具走一次使用者流程核對，不需凍結任何文件
+- 標準軌/重軌：qa 先執行 mini-spec.md／checklist.md 的 `type: ui` 條目、PM 再依此複核
+- 純樣式微調（顏色、間距等不影響行為的調整）不觸發此 gate，仍走 L0
+
+**中途升降軌**：實作途中發現命中更高軌判準（例如輕軌做到一半才發現要改對外契約），立即停手、向使用者宣告升軌理由，補走該軌缺的前置步驟（標準軌補 mini-spec、重軌補完整 spec.md 流程並凍結）後再繼續，不得邊做邊補、不得沿用低軌別的把關标準完成高軌別的改動。降軌（例如重軌判定後發現規模其實只需標準軌）需先取得使用者同意才能降級，不得自行決定。
 
 ## 2. 輕軌（L1–L4）
 
 ```
 L1 判定：architect 宣告軌別與定位（複雜度分類）
-L2 實作：architect 實作 + 作者自檢（不 commit）
-L3 把關：pre-review.ps1 通過 → reviewer 審查（≤2 輪）
-L4 證據：go test 全綠即證據（測試輸出留存於回報）
+L2 實作：architect 開工前先列 3–5 條「改完後用什麼指令驗證什麼行為」的微驗收清單
+   （至少一條異常/邊界情境，純回報層級、不落檔不凍結）→ 實作 + 作者自檢（不 commit）
+L3 把關：pre-review.ps1 通過（若輸出「跳過語言檢查」，reviewer 先人工補跑對應
+   build/test 指令）→ reviewer 審查（≤2 輪）
+L4 證據：依 L2 微驗收清單逐條執行、測試全綠即證據（測試輸出與微清單結果留存於回報）
 ```
 
-PM、QA 不出場；不建 acceptance 目錄。
+PM、QA 不出場（除非觸發上方「附加 gate：PM 畫面驗證」）；不建 acceptance 目錄。
 
-## 3. 重軌（R1–R6，SDD／TDD 融入版）
+## 3. 標準軌（M1–M4）
+
+填補輕軌與重軌之間的空隙：規模超過輕軌單檔小改，但不跨模組、不改契約/schema、需求已明確，不需要重軌整套 SDD 雙凍結與四次以上使用者往返。
+
+```
+M1 mini-spec：architect 直接寫一頁規格（`kit/templates/mini-spec.md` 模板）——目標、
+   非目標、TDD seam、3–6 條 A<n> 驗收條目（含 Given-When-Then + cmd/expect，或前端
+   type: ui + steps/expect）→ 使用者一次確認即凍結（`frozen:` 填日期）
+M2 實作：同輕軌 L2（TDD seam 取自凍結 mini-spec）→ 實作 + 作者自檢（不 commit）
+M3 把關：pre-review.ps1 通過（跳過語言檢查時 reviewer 先人工補跑 build/test）
+   → reviewer 審查 diff（對照 mini-spec.md，≤2 輪）
+M4 驗收：qa 依 mini-spec.md 條目逐條執行、當場對輸出比對 expect 判定 PASS/FAIL；
+   含前端條目時追加 PM 畫面驗證（見附加 gate）；qa 加一輪探索性測試
+   （前端條目：畫面探索；純後端：edge-case 探索），發現規格缺漏回報、不算條目失敗
+```
+
+任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（單檔，不建 spec.md/checklist.md/plan.md）。PM 不出場，除非觸發前端畫面驗證 gate。
+
+## 4. 重軌（R1–R6，SDD／TDD 融入版）
 
 ```
 R1 商業規格書：PM 依 SDD 完整列舉規格條目（S<n>，含 Given-When-Then）→ 規格或功能
@@ -55,10 +87,12 @@ R1 商業規格書：PM 依 SDD 完整列舉規格條目（S<n>，含 Given-When
    → 交 architect 審查
 R2 技術規格 + 方案與藍圖：architect 先審商業規格（可行性、風險）——
    無法實作/有風險 → 退回 PM 修正（PM↔architect ≤2 輪）；技術面風險不經 PM，直報主對話。
-   審查通過 → 出 2-3 方案 → 使用者選定 → 補上 spec.md 技術規格部分（API contract、
-   資料型別、錯誤碼、架構、測試策略與 TDD seam、非功能門檻）→ 使用者確認後 spec.md 凍結
-   → PM 依凍結 spec.md 展開並凍結 checklist.md（每條溯源 spec: S<n>，格式見
-   acceptance-spec.md）→ architect 寫 plan.md
+   審查通過 → 出 2-3 方案（解法唯一且無明顯 trade-off 時，說明理由後單方案徑行，
+   使用者仍可要求補列替代方案）→ 使用者選定 → 補上 spec.md 技術規格部分（API contract、
+   資料型別、錯誤碼、架構、測試策略與 TDD seam、非功能門檻）→ PM 隨即依技術規格 draft
+   展開 checklist.md draft（每條溯源 spec: S<n>）→ **使用者一次確認，spec.md 與
+   checklist.md 同時凍結**（不分兩次確認；PM 展開 checklist 盡量續用同一隻 pm agent，
+   不重複 spawn）→ architect 寫 plan.md
 R3 實作（預設單人序列；僅在符合平行門檻時拆多 sub task 平行，分 R3a/R3b/R3c）：
    R3a 拆分（architect 協調模式，唯讀規劃）：預設走單人序列 R3，平行是例外。
        判斷是否拆成 ≥2 個獨立 sub task 平行，判準四條全數成立才拆——
@@ -79,59 +113,68 @@ R3 實作（預設單人序列；僅在符合平行門檻時拆多 sub task 平�
        sub task 的檔案/模組範圍（只准動這些）、對應 spec.md S<n>/checklist 條目、
        TDD seam。每隻依 red→green 完成 + 作者自檢（不 commit），回報結構化結果
        （改了哪些檔、紅綠跑過、自檢結論、有無踩出範圍）。某 sub task 內部同一除錯方向
-       3 次未解 → 該隻停手走 debugger 路徑 A。（subagent 無 Agent tool，無法自己
-       spawn，fan-out 一律由 orchestrator 執行——符合「Workflow 觸發權只在 orchestrator 層」）
+       第 2 次仍失敗時，須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前
+       轉 debugger；連續 3 次未解（無論有無中途理由）一律停手走 debugger 路徑 A。
+       （subagent 無 Agent tool，無法自己 spawn，fan-out 一律由 orchestrator
+       執行——符合「Workflow 觸發權只在 orchestrator 層」）
    R3c 彙整確認（architect 協調模式）：全部 sub task 回報後，orchestrator 交回
        architect 協調模式確認——(1) 全部 sub task 完成、涵蓋分解表每一項無遺漏；
        (2) 介面對齊：各產出的介面/contract 一致、無重複或衝突實作；(3) 合併後整體
        build + 全套測試綠（不是只看各 sub task 自己那段）；(4) 對照凍結 spec.md/
        checklist 範圍無缺漏。通過 → 勾 plan.md R3、交棒 R4；不通過 → 指出哪個 sub task/
        介面問題，打回對應 sub task 的實作模式重做，重跑 R3c。
-R4 靜態把關：pre-review.ps1 通過 → reviewer 審查 diff（對照 spec.md/checklist.md，≤3 輪）
-R5 驗收與證據：
-   - 後端條目：qa 逐條跑 cmd 收證據 → verify-evidence.ps1 全 PASS（PM 不參與驗證）
-   - 前端條目：qa browser 操作+截圖 → PM 對照 spec.md/checklist.md 畫面驗證
-   - qa 清單跑完後加一輪探索性測試；發現規格沒寫到的問題標記「規格缺漏」回報，
+R4 靜態把關：pre-review.ps1 通過（跳過語言檢查時 reviewer 先人工補跑 build/test）
+   → reviewer 審查 diff（對照 spec.md/checklist.md，≤3 輪）
+R5 驗收：
+   - 後端條目：qa 逐條執行 cmd，當場對輸出比對 expect 判定 PASS/FAIL（不落地證據檔，PM 不參與驗證）
+   - 前端條目：qa browser 操作、當場觀察畫面 → PM 對照 spec.md/checklist.md 畫面驗證
+   - qa 清單跑完後加一輪探索性測試：前端條目做畫面探索（非清單操作順序、快速連續
+     操作、切換頁面再回來）；純後端任務做 edge-case 探索（清單外的異常輸入、
+     邊界值多打幾組）。發現規格沒寫到的問題標記「規格缺漏」回報，
      不算條目失敗，由主對話評估是否回 R1 補規格
    - checklist.md 與 spec.md 矛盾 → 回報使用者裁決，不自行認定以哪份為準
 R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式）＋ /learn 沉澱
 ```
 
-任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，內含 `spec.md`／`checklist.md`／`plan.md`／`evidence/`（見 acceptance-spec.md）。
+任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，內含 `spec.md`／`checklist.md`／`plan.md`（見 acceptance-spec.md）。
 主對話在每階段結束時勾選 plan.md 的階段 checkbox；漏勾由 stop-check hook 在 session 結束時提醒。
 
 **R3 平行實作護欄（本 kit 對「平行 agent 一律唯讀」原則的唯一寫入例外，權威來源在此）**：只有 R3b 的 architect 實作模式允許平行**寫入**，前提是 R3a 四判準（含規模門檻）全數成立，且必須同時滿足——(a) 每隻的檔案/模組範圍互斥（按目錄/package 切分，非只切單檔）；(b) 共用工作區、不建 worktree、不 merge（agent 一律不 commit，只用 Edit/Write 改各自互斥範圍）；(c) 由 architect 協調模式做單一彙整步（R3c）確認全部完成且整合一致才交棒。其餘所有平行 agent（分析、審查、探索）一律維持唯讀。使用者個人層若另有「平行 agent 預設唯讀」的編排護欄，本段即為其 R3 寫入例外的定義出處，不必在該處重複內文。
 
-## 4. 回合上限
+## 5. 回合上限
 
-- reviewer ↔ architect：重軌 ≤3 輪、輕軌 ≤2 輪；超限停止，列出爭點交使用者裁決
+- reviewer ↔ architect：重軌 ≤3 輪、輕軌/標準軌 ≤2 輪；超限停止，列出爭點交使用者裁決
 - PM ↔ architect（R1/R2 需求可行性往返）：≤2 輪；超限交使用者裁決
 - pre-review 失敗退回修正不計入 reviewer 輪數
-- 除錯同一方法最多 3 次；仍未解決即停止當前方向，轉交 `debugger` agent（唯讀）做根因分析，architect 依建議重新實作
+- 除錯同一方法最多 3 次；第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體
+  理由，寫不出即提前轉 debugger，理由成立可再試第 3 次；第 3 次仍未解決一律停止當前
+  方向，轉交 `debugger` agent（唯讀）做根因分析，architect 依建議重新實作
 - 同一驗收條目在 R4/R5 被打回 architect 達 3 次仍失敗：改派 `debugger` agent 唯讀根因分析，architect 依建議重新實作後，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
 - 同一 sub task 在 R3c 整合確認被打回對應實作模式達 3 次仍失敗：比照上一條，改派 `debugger` agent 唯讀根因分析，architect 依建議重新實作後重跑 R3c（orchestrator 計數）
+- 上述所有計數器每輪結束由 orchestrator 在 plan.md 的「回合記錄」段落補一行（見 templates/plan.md）；輪數判定以檔案記錄為準，不依賴對話記憶。標準軌無 plan.md，回合次數口頭在回報中列出即可（標準軌回合上限本就 ≤2 輪，流失風險低）
 
-## 5. 凍結原則
+## 6. 凍結原則
 
 - spec.md（商業規格+技術規格）與 checklist.md 一併凍結（`frozen:` 填日期），開發期間任何角色不得增刪修改條目；checklist.md 是 spec.md 的延伸，兩者矛盾一律回報使用者裁決，不自行取捨
-- 需求變更 → 回 R1 重出 spec.md 與 checklist.md，舊檔加 `.superseded` 字尾
-- 經使用者核准的修訂寫入 spec.md 與 checklist.md 檔尾「修訂歷史」
+- 標準軌的 mini-spec.md 是單一文件，使用者一次確認即凍結，無需雙文件分次凍結
+- 需求變更 → 回 R1（或標準軌回 M1）重出對應規格文件，舊檔加 `.superseded` 字尾
+- 經使用者核准的修訂寫入規格文件檔尾「修訂歷史」
 
-## 6. 版本控制紀律
+## 7. 版本控制紀律
 
 - **絕不自行 commit / push / 執行任何 git 寫入操作**；完成自審後停在原地等使用者指示
 - 實質防線為 git-guard hook（破壞性操作 deny、commit/push 每次 ask）；本條文為語意約定
 
-## 7. 中斷續作
+## 8. 中斷續作
 
-不維護獨立狀態檔。續作時讀三樣即可還原：
-1. `acceptance/<task-slug>/plan.md` 的階段 checkbox 與續作備註
-2. `checklist.md` 的 status 勾選
+不維護獨立狀態檔。續作時讀以下即可還原：
+1. 重軌：`acceptance/<task-slug>/plan.md` 的階段 checkbox、回合記錄與續作備註；標準軌：`mini-spec.md` 的條目 status 勾選
+2. `checklist.md`（重軌）或 `mini-spec.md`（標準軌）的 status 勾選
 3. 專案的 `git status` / `git diff`
 
-長期擱置的任務在 checklist 檔頭加 `<!-- paused -->`，stop-check hook 即不再提醒。
+長期擱置的任務在 checklist.md／mini-spec.md 檔頭加 `<!-- paused -->`，stop-check hook 即不再提醒。
 
-## 8. 專案層擴充
+## 9. 專案層擴充
 
 - 專案可放 `<project>/.claude/agents/<name>.md` 同名整檔覆蓋 kit 的 agent（Claude Code 原生機制）
 - 專案專屬審查重點、慣例、指令寫在專案 CLAUDE.md 或 auto-memory；kit 本身不含任何專案專屬內容
