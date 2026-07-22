@@ -16,17 +16,24 @@
 
 ## 1. 流程分級
 
-任務開始時由 architect 判定軌別並向使用者宣告，使用者可否決。判斷不出一律升重軌。
+任務開始時由 architect 判定軌別並向使用者宣告，使用者可否決；L0 例外——由主對話（orchestrator）先行套用判準直接判定，不 spawn architect。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕重之間判斷不出升重軌）。
 
-**輕軌**（全部符合）：
+**L0 微軌**（全部符合才適用）：
+- 單一檔案、改動約 ≤10 行
+- 不新增/修改邏輯分支、不改介面/契約、不改 DB schema、不碰高風險關鍵寫入路徑
+- 類型限定：文案/註解/log 訊息、設定值調整、顯而易見的 typo 或一行修正、純樣式微調
+
+L0 執行方式：主對話直接修 + 自檢 + 跑對應驗證（既有測試或最小手動驗證），不出 reviewer、不建 acceptance 目錄；git-guard 的 commit ask 照常生效。護欄：任何猶豫 → 升輕軌；同一 session 同一範圍累計 ≥3 筆 L0 改動 → 視為一個輕軌任務，補走 reviewer 審查。
+
+**輕軌**（全部符合；低於此門檻的 trivial 改動走 L0）：
 - bug fix 或單模組小改
 - 不改對外 API/WS 契約、不改 DB schema
-- 不涉及金流/餘額/注單等關鍵寫入路徑
+- 不涉及高風險關鍵寫入路徑
 
 **重軌**（任一命中）：
 - 新 feature、跨模組改動
 - 改 API/WS 契約、改 DB schema
-- 觸及金流/餘額/注單等關鍵寫入路徑
+- 觸及高風險關鍵寫入路徑（不可逆或高影響的資料異動，如帳務、交易、權限；具體範圍由各專案 CLAUDE.md 定義）
 - 前端功能修改（PM 需畫面驗證）
 
 ## 2. 輕軌（L1–L4）
@@ -52,16 +59,21 @@ R2 技術規格 + 方案與藍圖：architect 先審商業規格（可行性、�
    資料型別、錯誤碼、架構、測試策略與 TDD seam、非功能門檻）→ 使用者確認後 spec.md 凍結
    → PM 依凍結 spec.md 展開並凍結 checklist.md（每條溯源 spec: S<n>，格式見
    acceptance-spec.md）→ architect 寫 plan.md
-R3 實作（可拆多 sub task 平行，分 R3a/R3b/R3c）：
-   R3a 拆分（architect 協調模式，唯讀規劃）：判斷能否拆成 ≥2 個獨立 sub task，
-       獨立性判準三條——(1) 檔案/模組互斥：每個 sub task 擁有互斥的目錄/package/檔案
+R3 實作（預設單人序列；僅在符合平行門檻時拆多 sub task 平行，分 R3a/R3b/R3c）：
+   R3a 拆分（architect 協調模式，唯讀規劃）：預設走單人序列 R3，平行是例外。
+       判斷是否拆成 ≥2 個獨立 sub task 平行，判準四條全數成立才拆——
+       (1) 檔案/模組互斥：每個 sub task 擁有互斥的目錄/package/檔案
        集合（按模組切分，非僅單檔），避免平行寫入同一 package 觸發 post-edit-check
        的 gofmt/vet race；(2) 介面穩定：sub task 間介面/contract 已在凍結 spec.md
        技術規格定義，互不依賴對方尚未完成的產出；(3) 無強順序依賴：有「先 A 才能 B」
-       依賴的併入同一 sub task 或標記依賴分批。結果寫入 plan.md 的「子任務分解表」
-       （T<n>，見 templates/plan.md 與 acceptance-spec.md）。拆不出 ≥2 個真正獨立的
-       sub task → 明講理由、退回單一 architect 序列實作（走傳統單人 R3，不強制平行）。
-       architect 協調模式本身不寫 code、不 fan-out。
+       依賴的併入同一 sub task 或標記依賴分批；(4) 規模門檻：每個 sub task 本身
+       仍是有份量的獨立工作（各自擁有完整的目錄/package 級範圍、預估改動涉及多檔），
+       且平行可明顯縮短工期——數十行內就能序列完成的任務不啟用平行。
+       拆分結果寫入 plan.md 的「子任務分解表」
+       （T<n>，見 templates/plan.md 與 acceptance-spec.md）。任一判準不成立
+       → 明講理由、走單一 architect 序列實作（傳統單人 R3，不強制平行）。
+       architect 協調模式本身不寫 code、不 fan-out；決定平行時須在回報中明講
+       四判準各自成立的依據，orchestrator 確認後才執行 R3b。
    R3b 平行實作（orchestrator fan-out）：orchestrator 讀子任務分解表，在單一訊息內
        平行呼叫 N 個 architect（實作模式），一個 sub task 一隻，每隻 prompt 綁定該
        sub task 的檔案/模組範圍（只准動這些）、對應 spec.md S<n>/checklist 條目、
@@ -88,7 +100,7 @@ R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式）＋ /
 任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，內含 `spec.md`／`checklist.md`／`plan.md`／`evidence/`（見 acceptance-spec.md）。
 主對話在每階段結束時勾選 plan.md 的階段 checkbox；漏勾由 stop-check hook 在 session 結束時提醒。
 
-**R3 平行實作護欄（本 kit 對「平行 agent 一律唯讀」原則的唯一寫入例外，權威來源在此）**：只有 R3b 的 architect 實作模式允許平行**寫入**，且必須同時滿足——(a) 每隻的檔案/模組範圍互斥（按目錄/package 切分，非只切單檔）；(b) 共用工作區、不建 worktree、不 merge（agent 一律不 commit，只用 Edit/Write 改各自互斥範圍）；(c) 由 architect 協調模式做單一彙整步（R3c）確認全部完成且整合一致才交棒。其餘所有平行 agent（分析、審查、探索）一律維持唯讀。使用者個人層若另有「平行 agent 預設唯讀」的編排護欄，本段即為其 R3 寫入例外的定義出處，不必在該處重複內文。
+**R3 平行實作護欄（本 kit 對「平行 agent 一律唯讀」原則的唯一寫入例外，權威來源在此）**：只有 R3b 的 architect 實作模式允許平行**寫入**，前提是 R3a 四判準（含規模門檻）全數成立，且必須同時滿足——(a) 每隻的檔案/模組範圍互斥（按目錄/package 切分，非只切單檔）；(b) 共用工作區、不建 worktree、不 merge（agent 一律不 commit，只用 Edit/Write 改各自互斥範圍）；(c) 由 architect 協調模式做單一彙整步（R3c）確認全部完成且整合一致才交棒。其餘所有平行 agent（分析、審查、探索）一律維持唯讀。使用者個人層若另有「平行 agent 預設唯讀」的編排護欄，本段即為其 R3 寫入例外的定義出處，不必在該處重複內文。
 
 ## 4. 回合上限
 

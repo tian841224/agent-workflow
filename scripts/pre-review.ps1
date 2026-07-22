@@ -1,6 +1,9 @@
 ﻿# managed by claude-workflow v2 — pre-review 預檢腳本
 # 在受審專案根目錄執行。exit 0 = 通過, exit 1 = 失敗(退回實作者,不計 reviewer 回合)。
-# 檢查: gofmt (diff 檔案) → go vet ./... → go build ./... → go test ./...
+# 依專案類型分派檢查:
+#   Go (有 go.mod):     gofmt (diff 檔案) → go vet ./... → go build ./... → go test ./...
+#   Node (有 package.json): 依序跑 package.json scripts 裡存在的 lint / typecheck / build / test
+#   兩者都偵測不到 → 跳過語言檢查,只跑 .pre-review-extra.ps1(若有)
 # 專案可放 .pre-review-extra.ps1 於 repo root 追加自訂檢查。
 
 $ErrorActionPreference = 'Continue'
@@ -8,9 +11,12 @@ $failures = @()
 
 function Write-Section($name) { Write-Output "=== $name ===" }
 
-if (-not (Test-Path 'go.mod')) {
-    Write-Output "非 Go 專案 (無 go.mod),跳過 Go 檢查。"
-} else {
+$isGo = Test-Path 'go.mod'
+$isNode = Test-Path 'package.json'
+
+if (-not $isGo -and -not $isNode) {
+    Write-Output "未偵測到已支援的專案類型 (無 go.mod / package.json),跳過語言檢查。"
+} elseif ($isGo) {
     # gofmt: 只檢查本次 diff 涉及的 .go 檔;無 diff 則檢查全部
     Write-Section 'gofmt'
     $diffFiles = @()
@@ -49,6 +55,42 @@ if (-not (Test-Path 'go.mod')) {
         Write-Section 'golangci-lint'
         $lintOut = & golangci-lint run ./... 2>&1
         if ($LASTEXITCODE -ne 0) { $failures += 'golangci-lint 失敗'; Write-Output $lintOut } else { Write-Output 'OK' }
+    }
+} elseif ($isNode) {
+    $pkg = $null
+    try { $pkg = Get-Content 'package.json' -Raw -Encoding UTF8 | ConvertFrom-Json } catch {
+        $failures += 'package.json 解析失敗,無法讀取 scripts'
+    }
+    if ($pkg) {
+        $scripts = $pkg.scripts
+        $hasScript = { param($name) $scripts -and ($scripts.PSObject.Properties.Name -contains $name) }
+
+        # typecheck: 優先用專案自訂的 typecheck script,沒有就在裝了 typescript 時退而用 tsc --noEmit
+        $hasTypecheckScript = & $hasScript 'typecheck'
+        $hasTypescript = ($pkg.devDependencies -and $pkg.devDependencies.PSObject.Properties.Name -contains 'typescript') -or
+            ($pkg.dependencies -and $pkg.dependencies.PSObject.Properties.Name -contains 'typescript')
+
+        foreach ($name in @('lint', 'typecheck', 'build', 'test')) {
+            if ($name -eq 'typecheck' -and -not $hasTypecheckScript -and $hasTypescript) {
+                # 用專案本地已安裝的 tsc 執行檔,不透過 npx 自動下載(避免觸發網路安裝);沒裝就略過
+                $tscBin = Join-Path (Get-Location) 'node_modules\.bin\tsc.cmd'
+                if (-not (Test-Path $tscBin)) {
+                    Write-Output "略過 typecheck (typescript 已列在 package.json 但 node_modules 未安裝, 未執行 npm install?)"
+                    continue
+                }
+                Write-Section 'typecheck (tsc --noEmit)'
+                $out = & $tscBin --noEmit 2>&1
+                if ($LASTEXITCODE -ne 0) { $failures += 'typecheck (tsc --noEmit) 失敗'; Write-Output $out } else { Write-Output 'OK' }
+                continue
+            }
+            if (-not (& $hasScript $name)) {
+                Write-Output "略過 npm script '$name' (package.json 未定義)"
+                continue
+            }
+            Write-Section "npm run $name"
+            $out = & npm run $name --if-present 2>&1
+            if ($LASTEXITCODE -ne 0) { $failures += "npm run $name 失敗"; Write-Output $out } else { Write-Output 'OK' }
+        }
     }
 }
 

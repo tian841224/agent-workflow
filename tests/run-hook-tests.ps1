@@ -72,6 +72,37 @@ $editJson2 = @{ tool_name = 'Edit'; tool_input = @{ file_path = 'C:\tmp\note.md'
 Assert-Case '非 .go 檔 → 放行' 'post-edit-check.ps1' $editJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
 Assert-Case '壞 JSON → exit 0' 'post-edit-check.ps1' '{{{' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
 
+# fixture: .ts/prettier 分支 — 刻意用假 prettier.cmd 模擬本地安裝(見 post-edit-check.ps1 檔頭:
+# 不透過 npx 自動下載, 只認 node_modules/.bin 下已存在的執行檔), 不依賴真的網路安裝
+$nodeFixDir = Join-Path $PSScriptRoot 'fixtures\node-ts'
+$binDir = Join-Path $nodeFixDir 'node_modules\.bin'
+New-Item -ItemType Directory -Force $binDir | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $nodeFixDir 'package.json'), '{"name":"node-ts-fixture","prettier":{}}', $enc)
+$fakePrettier = "@echo off`r`nfindstr /C:`"BAD_FORMAT`" `"%2`" >nul`r`nif %ERRORLEVEL%==0 (`r`n  echo Code style issues found in %2`r`n  exit /b 1`r`n) else (`r`n  echo All matched files use fake-prettier code style!`r`n  exit /b 0`r`n)`r`n"
+[System.IO.File]::WriteAllText((Join-Path $binDir 'prettier.cmd'), $fakePrettier, $enc)
+[System.IO.File]::WriteAllText((Join-Path $nodeFixDir 'bad.ts'), "const x = 1;  // BAD_FORMAT`n", $enc)
+[System.IO.File]::WriteAllText((Join-Path $nodeFixDir 'good.ts'), "const x = 1;`n", $enc)
+$tsEditBad = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $nodeFixDir 'bad.ts') } } | ConvertTo-Json -Compress
+Assert-Case '.ts 未格式化(本地已裝 prettier) → block' 'post-edit-check.ps1' $tsEditBad { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'prettier' }
+$tsEditGood = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $nodeFixDir 'good.ts') } } | ConvertTo-Json -Compress
+Assert-Case '.ts 已格式化 → 放行' 'post-edit-check.ps1' $tsEditGood { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# fixture: 有 prettier 設定但本地未安裝(沒有 node_modules/.bin/prettier.cmd) → 放行,不觸發 npx 下載
+$noInstallDir = Join-Path $PSScriptRoot 'fixtures\node-ts-no-install'
+New-Item -ItemType Directory -Force $noInstallDir | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $noInstallDir 'package.json'), '{"name":"node-ts-no-install","prettier":{}}', $enc)
+[System.IO.File]::WriteAllText((Join-Path $noInstallDir 'bad.ts'), "const x = 1;  // BAD_FORMAT`n", $enc)
+$tsNoInstall = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $noInstallDir 'bad.ts') } } | ConvertTo-Json -Compress
+Assert-Case '有 prettier 設定但未本地安裝 → 放行(不觸發 npx 下載)' 'post-edit-check.ps1' $tsNoInstall { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# fixture: 無 prettier 設定(package.json 無 prettier 欄位、無 .prettierrc) → 放行
+$noConfigDir = Join-Path $PSScriptRoot 'fixtures\node-ts-no-config'
+New-Item -ItemType Directory -Force $noConfigDir | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $noConfigDir 'package.json'), '{"name":"node-ts-no-config"}', $enc)
+[System.IO.File]::WriteAllText((Join-Path $noConfigDir 'bad.ts'), "const x = 1;  // BAD_FORMAT`n", $enc)
+$tsNoConfig = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $noConfigDir 'bad.ts') } } | ConvertTo-Json -Compress
+Assert-Case '無 prettier 設定 → 放行' 'post-edit-check.ps1' $tsNoConfig { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
 Write-Output '=== stop-check.ps1 ==='
 # fixture: 假 acceptance 目錄 (用假 cwd 對應 slug)
 $fakeCwd = 'C:\tmp\stopcheck-demo'

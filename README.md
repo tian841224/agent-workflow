@@ -9,7 +9,7 @@ v2 的核心理念：**確定性下沉**——凡是能用腳本或 hook 保證�
 | v1 問題 | v2 對策 |
 |---|---|
 | 流程 gate 全靠模型自律 | 三支 hooks（git-guard / post-edit-check / stop-check）+ pre-review 寫死在 reviewer 第一步 |
-| 功能軌 F1–F10 對後端太重 | 流程分級：輕軌 4 階段（L1–L4）免 PM/QA；重軌 6 階段（R1–R6）才走完整凍結流程 |
+| 功能軌 F1–F10 對後端太重 | 流程分級三級：L0 微軌主對話直接修；輕軌 4 階段（L1–L4）免 PM/QA；重軌 6 階段（R1–R6）才走完整凍結流程 |
 | 證據=截圖、驗收語彙偏前端 | 前後端雙流程：後端驗收 = e2e 指令證據（go test / curl / SQL），不跑畫面；前端才做畫面驗證 |
 | state JSON checkpoint 靠模型維護 | 砍除。狀態 = acceptance 目錄本身（checklist 勾選 + evidence + plan.md），stop-check hook 掃檔案抓漏 |
 | inbox 學習中介與內建記憶重複 | 收編實戰版 learn / evolve skill（直接寫記憶檔、核准制升級），砍 inbox / rules/learning.md |
@@ -29,13 +29,15 @@ agents/                architect / reviewer / qa / pm / debugger 五角色定義
 skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律，含 tests.md / mocking.md，seam 取自 spec.md 技術規格）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
-  post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢，失敗立即打回
+  post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢；.ts/.tsx/.js/.jsx 檔在本地已裝 prettier 時跑 prettier --check（不透過 npx 觸發安裝）；失敗立即打回
   stop-check.ps1       Stop：session 結束前掃驗收缺件提醒
   weekly-review-check.ps1  SessionStart：週回顧到期提醒
   log-session.ps1      SessionEnd：工作日誌
   settings.hooks.json  hooks 註冊片段（install 時合併進 settings.json）
 scripts/
-  pre-review.ps1       gofmt + go vet + go build + go test（+ golangci-lint 選配）
+  pre-review.ps1       依專案類型分派：Go（gofmt + go vet + go build + go test，+ golangci-lint 選配）
+                        / Node（依 package.json scripts 跑 lint/typecheck/build/test）；
+                        兩者皆偵測不到則跳過語言檢查
   verify-evidence.ps1  驗收證據檢查（靜態模式 / -Rerun 重跑模式）
 examples/              驗收清單範例、專案層覆蓋機制說明
 tests/run-hook-tests.ps1  hooks 測試（stdin JSON 餵入、assert 輸出）
@@ -67,13 +69,20 @@ cd claude-workflow
 
 ## 流程速覽
 
-**輕軌**（bug fix / 單模組小改，不改契約與 schema、不涉關鍵寫入路徑）：
+**L0 微軌**（trivial 改動：單檔約 ≤10 行、不動邏輯分支/介面/schema，限文案/註解/設定值/typo/純樣式）：
+
+```
+主對話直接修 + 自檢 + 跑對應驗證，不 spawn agent、不出 reviewer；有疑慮升輕軌，
+同一 session 同一範圍累計 ≥3 筆視為一個輕軌任務補走 reviewer
+```
+
+**輕軌**（bug fix / 單模組小改，不改契約與 schema、不涉高風險關鍵寫入路徑）：
 
 ```
 L1 architect 判定 → L2 實作 → L3 pre-review + reviewer(≤2輪) → L4 go test 全綠即證據
 ```
 
-**重軌**（新 feature / 跨模組 / 改 API/DB / 關鍵寫入路徑 / 前端功能），SDD／TDD 融入版：
+**重軌**（新 feature / 跨模組 / 改 API/DB / 高風險關鍵寫入路徑 / 前端功能），SDD／TDD 融入版：
 
 ```
 R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處與使用者確認到
@@ -81,10 +90,10 @@ R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處�
 → R2 architect 先審規格（無法實作/有風險退回 PM，≤2輪）→ 出方案+藍圖 → 補技術規格
    （API contract/資料型別/錯誤碼/架構/TDD seam/非功能門檻）→ spec.md 凍結
    → PM 依 spec.md 展開並凍結 checklist（每條溯源 spec: S<n>）
-→ R3 實作（TDD seam 取自 spec.md）：可拆多 sub task 平行——architect 協調模式拆出
-   ≥2 個模組互斥的 sub task（R3a）→ orchestrator fan-out 多個 architect 實作模式
-   平行開發（R3b）→ architect 協調模式彙整確認全部完成＋整合一致才交棒（R3c）；
-   拆不出獨立 sub task 就退回單人序列 R3
+→ R3 實作（TDD seam 取自 spec.md）：預設單人序列；符合四判準（模組互斥、介面穩定、
+   無強順序依賴、規模門檻）才拆 ≥2 個 sub task 平行——architect 協調模式拆分（R3a）
+   → orchestrator fan-out 多個 architect 實作模式平行開發（R3b）→ architect 協調模式
+   彙整確認全部完成＋整合一致才交棒（R3c）；任一判準不成立就走單人序列 R3
 → R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪）
 → R5 驗收：後端 = qa 逐條跑 cmd 收證據 + verify-evidence.ps1（PM 不參與）
           前端 = qa browser 截圖 + PM 對照 spec.md 畫面驗證

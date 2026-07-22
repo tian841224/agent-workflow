@@ -54,13 +54,13 @@ checklist.md 由 PM 依凍結的 spec.md 展開，每條驗收條目**必須**�
 ### 條目格式 — 後端型（預設）
 
 ```markdown
-### A1 斷線重連後餘額不重複入帳
+### A1 重送請求後訂單不重複建立
 - spec: S3
 - test-type: 異常路徑
-- given: 使用者已下注且連線中斷
-- when: 10 秒內重新建立連線
-- then: 餘額與注單狀態與斷線前一致，不重複入帳
-- cmd: `go test ./domain/wagers/... -run TestReconnectIdempotent -v`
+- given: 使用者已送出建立訂單請求且連線中斷
+- when: 用同一 idempotency key 重送同一請求
+- then: 訂單只建立一筆，狀態與第一次請求一致，不重複建立
+- cmd: `go test ./domain/orders/... -run TestCreateOrderIdempotent -v`
 - expect: `ok\s+`
 - evidence: evidence/A1.txt
 - status: [ ]
