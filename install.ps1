@@ -1,10 +1,15 @@
 ﻿# claude-workflow v2 安裝腳本 (Windows)
 # 分層安裝: kit 層整檔覆蓋 / 使用者層最小侵入 (CLAUDE.md marker 區塊 + settings.json JSON 合併) / 專案層不碰
 # 冪等: 重跑 = 升級。
-# 用法: .\install.ps1 [-Target <dir>] [-DryRun]
+# 用法: .\install.ps1 [-ClaudeTarget <dir>] [-CodexTarget <dir>] [-DryRun]
 
 param(
-    [string]$Target = (Join-Path $env:USERPROFILE '.claude'),
+    [Alias('Agent', 'Platform')]
+    [ValidateSet('Claude', 'Codex', 'Both')]
+    [string]$TargetAgent = 'Both',
+    [Alias('Target')]
+    [string]$ClaudeTarget = (Join-Path $env:USERPROFILE '.claude'),
+    [string]$CodexTarget = (Join-Path $env:USERPROFILE '.codex'),
     [switch]$DryRun
 )
 
@@ -22,9 +27,64 @@ function Do-Copy($src, $dst) {
     Copy-Item $src $dst -Force
 }
 
-if (-not (Test-Path $Target)) {
+function Install-Codex {
+    Log '=== Codex 層 (可攜版流程) ==='
+    $codexKitDir = Join-Path $CodexTarget 'claude-workflow'
+    $codexFiles = @(
+        @{ Src = (Join-Path $repoRoot 'AGENTS.md'); Dst = (Join-Path $CodexTarget 'AGENTS.md') },
+        @{ Src = (Join-Path $repoRoot 'kit\WORKFLOW.md'); Dst = (Join-Path $codexKitDir 'WORKFLOW.md') },
+        @{ Src = (Join-Path $repoRoot 'kit\acceptance-spec.md'); Dst = (Join-Path $codexKitDir 'acceptance-spec.md') }
+    )
+    foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'kit\templates') -File)) {
+        $codexFiles += @{ Src = $f.FullName; Dst = (Join-Path $codexKitDir "templates\$($f.Name)") }
+    }
+    foreach ($dirName in @('agents', 'skills', 'rules')) {
+        $srcDir = Join-Path $repoRoot $dirName
+        foreach ($f in (Get-ChildItem $srcDir -Recurse -File)) {
+            $relative = $f.FullName.Substring($srcDir.Length).TrimStart('\')
+            $codexFiles += @{ Src = $f.FullName; Dst = (Join-Path $CodexTarget "$dirName\$relative") }
+        }
+    }
+    foreach ($f in $codexFiles) {
+        if ($f.Dst -eq (Join-Path $CodexTarget 'AGENTS.md') -and (Test-Path $f.Dst) -and -not (Select-String -Path $f.Dst -Pattern 'managed by claude-workflow' -Quiet)) {
+            $bak = "$($f.Dst).bak.$stamp"
+            if (-not $DryRun) { Copy-Item $f.Dst $bak -Force }
+            Log "警告: $($f.Dst) 為使用者檔案, 已備份至 $bak 後覆蓋"
+        }
+        Do-Copy $f.Src $f.Dst
+    }
+    $codexHookDir = Join-Path $CodexTarget 'hooks\claude-workflow'
+    foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'hooks') -Filter *.ps1 -File)) {
+        if ($f.Name -eq 'git-guard.ps1') { continue }
+        $dst = Join-Path $codexHookDir $f.Name
+        Do-Copy $f.FullName $dst
+        if (-not $DryRun) {
+            $hookText = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8) -replace '\.claude', '.codex'
+            [System.IO.File]::WriteAllText($dst, $hookText, (New-Object System.Text.UTF8Encoding($true)))
+        }
+    }
+    $codexHooksConfig = Join-Path $CodexTarget 'hooks.json'
+    Do-Copy (Join-Path $repoRoot 'hooks\codex.hooks.json') $codexHooksConfig
+    if (-not $DryRun) {
+        $hooksText = [System.IO.File]::ReadAllText($codexHooksConfig, [System.Text.Encoding]::UTF8)
+        $hooksText = $hooksText -replace '\{\{HOOKS_DIR\}\}', ($codexHookDir -replace '\\', '\\\\')
+        [System.IO.File]::WriteAllText($codexHooksConfig, $hooksText, $utf8NoBom)
+    }
+    $summary += "Codex 流程檔 → $CodexTarget"
+}
+
+if ($TargetAgent -in @('Codex', 'Both')) {
+    Install-Codex
+}
+
+$Target = $ClaudeTarget
+$InstallClaude = $TargetAgent -in @('Claude', 'Both')
+
+if ($InstallClaude -and -not (Test-Path $Target)) {
     if ($DryRun) { Log "[dry-run] 建立 $Target" } else { New-Item -ItemType Directory -Force $Target | Out-Null }
 }
+
+if ($InstallClaude) {
 
 # ---------- 1. kit 層: 整檔覆蓋 ----------
 Log '=== kit 層 (整檔覆蓋) ==='
@@ -168,11 +228,19 @@ if ($DryRun) {
     $summary += "settings.json hooks 已合併"
 }
 
+}
+
 # ---------- 摘要 ----------
 Log ''
 Log '=== 安裝摘要 ==='
 $summary | ForEach-Object { Log "- $_" }
 Log ''
 Log '驗證建議:'
-Log ("  echo '{{""tool_name"":""Bash"",""tool_input"":{{""command"":""git push --force""}}}}' | powershell -NoProfile -File `"{0}`"  應輸出 deny" -f (Join-Path $hooksDstDir 'git-guard.ps1'))
-Log '  (settings.json 的 ConvertTo-Json 會把中文轉為 \uXXXX 逸出,功能無損)'
+if ($TargetAgent -in @('Claude', 'Both')) {
+    Log ("  Claude git-guard.ps1 應攔截 git push --force: {0}" -f (Join-Path $hooksDstDir 'git-guard.ps1'))
+    Log '  (Claude settings.json 的 ConvertTo-Json 會把中文轉為 \uXXXX 逸出,功能無損)'
+}
+if ($TargetAgent -in @('Codex', 'Both')) {
+    Log ("  codex execpolicy check --rules `"{0}`" -- git push --force 應輸出 forbidden" -f (Join-Path $CodexTarget 'rules\default.rules'))
+    Log '  Codex hooks 請在 /hooks 審查並 Trust 後重新啟動工作階段'
+}

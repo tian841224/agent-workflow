@@ -46,6 +46,24 @@ cd claude-workflow
 .\install.ps1 -Target D:\test\fake-home   # 測試安裝
 ```
 
+安裝器可選擇目標 AI agent；預設 `Both` 以維持既有相容性：
+
+```powershell
+.\install.ps1 -Agent Claude   # 只安裝 Claude Code 原生架構
+.\install.ps1 -Agent Codex    # 只安裝 Codex 原生架構
+.\install.ps1 -Agent Both     # 兩套都安裝（預設）
+```
+
+`-Agent` 也可寫成 `-Platform`。Codex 模式會安裝 `AGENTS.md`、原生 agents TOML、`rules/default.rules`、Codex `hooks.json`、workflow、templates 與 scripts；Claude 模式則安裝 `CLAUDE.md`、`settings.json` hooks 與 Claude agents。
+
+同一支安裝器也支援 Codex。預設會將可攜版 `AGENTS.md`、agents、skills、rules 與 kit 安裝到 `~/.codex`；Claude Code 的 hooks/settings 不會寫入 Codex：
+
+```powershell
+.\install.ps1 -ClaudeTarget "$env:USERPROFILE\.claude" -CodexTarget "$env:USERPROFILE\.codex"
+```
+
+`-Target` 仍是 `-ClaudeTarget` 的相容別名。
+
 安裝行為（冪等，重跑 = 升級）：
 
 | 層 | 內容 | 行為 |

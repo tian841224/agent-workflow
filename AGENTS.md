@@ -1,7 +1,7 @@
 <!--
 這是 claude-workflow v2 的 Codex CLI 可攜版 AGENTS.md，內容與 kit/WORKFLOW.md + agents/*.md 對等。
-Codex 沒有 Claude Code 的 hooks 機制，git-guard / post-edit-check / stop-check / knowhow-check 這幾支
-PowerShell hook 在這裡改寫成純行為約定（條文自律），不是機器強制，見第 11 節對照表。Codex 也沒有 Claude
+Codex 透過 `~/.codex/hooks.json` 載入 lifecycle hooks；git-guard / post-edit-check / stop-check / knowhow-check 這幾支
+PowerShell hook 會由 Codex 執行，但未在 `/hooks` 審查信任前仍須遵守行為 fallback。Codex 也沒有 Claude
 Code 的專案記憶自動注入機制，第 9 節「know-how 沉澱」改用專案 repo 內記憶層存放。install.ps1 不處理本檔，
 需要的話手動複製到你的 Codex 設定目錄。
 -->
@@ -197,16 +197,16 @@ AGENTS.memory/
 
 專案專屬審查重點、慣例、指令寫在專案 AGENTS.md 或該專案自己的記憶機制；本檔不含任何專案專屬內容。
 
-## 11. Hooks 對應行為（Codex 沒有 hook 機制，這裡改為條文自律）
+## 11. Hooks 對應行為（Codex lifecycle hooks + 行為 fallback）
 
-claude-workflow v2 對 Claude Code 使用者用 PowerShell hooks 做機器強制；Codex 沒有對應機制，下列規則改為你自己每次都要記得做：
+claude-workflow v2 對 Claude Code 與 Codex 共用 PowerShell hooks；Codex 由 `~/.codex/hooks.json` 載入，並須在 `/hooks` 審查信任。尚未信任或 hook 失敗時，下列規則仍須手動遵守：
 
-- **git-guard**（原：攔截破壞性 git 操作、commit/push 每次詢問）→ 對應第 7 節版本控制紀律，純靠自律，不得有例外
-- **post-edit-check**（原：`.go` 檔編輯後自動跑 gofmt/go vet；`.ts`/`.tsx`/`.js`/`.jsx` 檔在本地已裝 prettier 時跑 prettier --check）→ 每次編輯上述檔案後，自己主動跑一次對應的格式化與靜態檢查指令，不要等到 reviewer 階段才發現
-- **stop-check**（原：session 結束前掃驗收缺件）→ session 結束前自己檢查 acceptance 目錄有沒有漏勾的 checkbox、有沒有承諾要做但沒做完的事
-- **knowhow-check**（原：session 有 ≥3 筆實質修改卻未宣告/未更新專案記憶層時機械提醒，見 §9）→ session 結束前自己檢查這次是否做過「沉澱三問」並在回報寫下「已沉澱」或「無可沉澱」，沒有 hook 會幫你抓漏，忘記做這次 know-how 就流失了
-- **weekly-review-check**（原：週回顧到期提醒）→ 不強制對應；若想要週期性 `/evolve` 沉澱，自行提醒使用者或用排程工具
-- **log-session**（原：session 結束時自動寫每日工作日誌）→ 不強制對應；若使用者需要工作日誌，session 結束前自行整理一段摘要供使用者留存
+- **git-guard**（攔截破壞性 git 操作、commit/push 每次詢問）→ 對應第 7 節版本控制紀律；hook 或手動規則均不得有例外
+- **post-edit-check**（`.go` 檔編輯後跑 gofmt/go vet；JS/TS 檔依本地 prettier 設定檢查）→ hook 自動執行；若未信任則手動執行
+- **stop-check**（session 結束前掃驗收缺件）→ hook 自動執行；若未信任則手動檢查 acceptance 目錄
+- **knowhow-check**（有實質修改卻未沉澱 know-how 時提醒）→ hook 自動提醒；session 結束仍必須回報「已沉澱」或「無可沉澱」
+- **weekly-review-check**（週回顧到期提醒）→ SessionStart hook 自動提醒
+- **log-session**（session 結束時寫每日工作日誌）→ SessionEnd hook 自動執行
 
 ## 角色定義
 
