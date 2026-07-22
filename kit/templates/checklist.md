@@ -1,5 +1,8 @@
 <!-- template: 複製到 ~/.claude/projects/<project-slug>/acceptance/<task-slug>/checklist.md -->
-<!-- 由 PM 依同目錄凍結的 spec.md 展開；每條必須溯源 spec: S<n>，格式規約見 kit/acceptance-spec.md -->
+<!-- 兩段式展開：PM 依 spec.md 商業規格寫 A<n> 條目（spec 溯源、test-type、given/when/then，不填 cmd/expect）；
+     architect 技術規格完成後補 cmd/expect（前端條目補 type: ui + steps/expect），不得增刪改 PM 的條目。
+     格式規約見 kit/acceptance-spec.md -->
+
 
 # <任務標題>
 - project: <專案根目錄絕對路徑>

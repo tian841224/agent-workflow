@@ -38,11 +38,11 @@
 - frozen: <YYYY-MM-DD>（商業規格與技術規格都補齊、經使用者確認後才填；之前是 draft）
 ```
 
-**凍結時機**：technical 規格補齊後，PM 隨即依此展開 checklist.md draft；spec.md（商業+技術規格）與 checklist.md **一併**於使用者單次確認後凍結（`frozen:` 填日期），不分次確認、不分次凍結——商業規格確認後只是「送審中」，尚未凍結，architect 仍可能因發現風險而退回修正；技術規格補齊也還不凍結，要等 checklist draft 一起送使用者一次確認過才凍結。凍結後與 checklist.md 同受第「凍結原則」章節規範。
+**凍結時機**：architect 可行性核對通過後，PM 隨即依**商業規格**展開 checklist.md draft 的驗收條目（不填 cmd/expect）；技術規格補齊後由 architect 逐條補上驗證手段（cmd/expect 或 ui 型 steps/expect）；spec.md（商業+技術規格）與 checklist.md **一併**於使用者單次確認後凍結（`frozen:` 填日期），不分次確認、不分次凍結——商業規格確認後只是「送審中」，尚未凍結，architect 仍可能因發現風險而退回修正；技術規格補齊也還不凍結，要等 checklist draft 一起送使用者一次確認過才凍結。凍結後與 checklist.md 同受第「凍結原則」章節規範。
 
 ## checklist.md 格式
 
-checklist.md 由 PM 依凍結的 spec.md 展開，每條驗收條目**必須**溯源到規格書的一條 `S<n>`，不得憑空新增規格書沒有的行為、也不得遺漏規格書裡的必驗行為（規格書每條 S\<n\> 至少對應一條驗收條目）。展開時比照下列七個測試設計層次檢查覆蓋率，不得只寫 happy path：規格逐條、Given-When-Then 驗收標準、邊界值分析、等價類劃分、異常／錯誤路徑、使用者情境（探索性測試回饋補入，見 R5）、非功能性需求。
+checklist.md 兩段式展開：PM 依 spec.md **商業規格**寫驗收條目（spec 溯源、test-type、given/when/then），architect 依**技術規格**補驗證手段（`cmd`/`expect`，前端條目 `type: ui`/`steps`/`expect`），architect 只補驗證手段、不得增刪改 PM 的條目。每條驗收條目**必須**溯源到規格書的一條 `S<n>`，不得憑空新增規格書沒有的行為、也不得遺漏規格書裡的必驗行為（規格書每條 S\<n\> 至少對應一條驗收條目）。展開時比照下列七個測試設計層次檢查覆蓋率，不得只寫 happy path：規格逐條、Given-When-Then 驗收標準、邊界值分析、等價類劃分、異常／錯誤路徑、使用者情境（探索性測試回饋補入，見 R5）、非功能性需求。
 
 ### 檔頭（必填）
 

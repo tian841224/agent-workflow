@@ -12,7 +12,7 @@ kit/
   acceptance-spec.md   驗收規約（checklist 格式——人與腳本共同遵守）
   templates/           spec.md / checklist.md / plan.md（重軌）、mini-spec.md（標準軌）模板
 agents/                architect / reviewer / qa / pm / debugger 五角色定義
-                        （模型固定：pm=opus、qa=haiku、architect/reviewer/debugger=sonnet，寫死於各檔 frontmatter `model:`）
+                        （模型固定：pm=opus、architect/reviewer/debugger/qa=sonnet，寫死於各檔 frontmatter `model:`）
 skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律，含 tests.md / mocking.md，seam 取自 spec.md 技術規格）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
@@ -64,9 +64,11 @@ cd claude-workflow
 **輕軌**（bug fix / 單一函式/檔案內的小改，不改契約與 schema、不涉高風險關鍵寫入路徑）：
 
 ```
-L1 architect 判定 → L2 開工前列 3–5 條微驗收清單（至少一條異常/邊界）→ 實作
-→ L3 pre-review + reviewer(≤2輪，跳過語言檢查時 reviewer 先人工補跑 build/test)
-→ L4 逐條跑微驗收清單、全綠即證據（結果留存於回報）
+L1 architect 判定 → L2 開工前列 3–5 條微驗收清單（至少一條異常/邊界，orchestrator 需
+   把清單全文帶入 L3/L4 的 prompt）→ 實作
+→ L3 pre-review + reviewer(≤2輪，跳過語言檢查時 reviewer 先人工補跑 build/test；
+   要求修正時全部微驗收清單重跑，非只跑被點名的幾條)
+→ L4 architect 逐條跑微驗收清單、全綠即證據（結果留存於回報）
 ```
 
 **標準軌**（新 feature/行為變更但侷限單一模組、不改契約與 schema、需求已明確、不涉高風險路徑——填補輕軌與重軌之間的空隙）：
@@ -77,18 +79,24 @@ M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗�
 → M2 實作（TDD seam 取自 mini-spec）→ 作者自檢
 → M3 pre-review + reviewer(≤2輪，對照 mini-spec)
 → M4 qa 逐條執行、當場判定 PASS/FAIL；含前端條目時追加 PM 畫面驗證；
-   qa 加一輪探索性測試（前端做畫面探索、純後端做 edge-case 探索）
+   qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題分
+   「規格缺漏」與「實作缺陷」（視同 FAIL）兩類，不得一律當規格缺漏帶過
 ```
 
 **重軌**（新 feature/跨模組改動 / 改 API/WS 契約 / 改 DB schema / 高風險關鍵寫入路徑），SDD／TDD 融入版：
 
 ```
-R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處與使用者確認到
-   雙方理解一致 → 商業規格寫入 spec.md
-→ R2 architect 先審規格（無法實作/有風險退回 PM，≤2輪）→ 出方案+藍圖（解法明顯唯一時
-   可單方案徑行）→ 補技術規格（API contract/資料型別/錯誤碼/架構/TDD seam/非功能門檻）
-   → PM 隨即依技術規格 draft 展開 checklist draft → 使用者**一次確認，spec.md 與
-   checklist.md 同時凍結**（每條溯源 spec: S<n>）
+R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-When-Then，條目數
+   明顯超量〔約 10–12 條以上〕建議拆分任務），規格不明確處與使用者確認到雙方理解
+   一致 → 商業規格寫入 spec.md
+→ R2 architect 先審規格（六維度：規格品質/架構相容性/影響面/技術風險/可測性/前置
+   條件與規模，需調整退回 PM ≤2輪、技術風險直報主對話）→ 全數判定沒問題後
+   orchestrator **平行**展開 PM 依商業規格展開 checklist draft 驗收條目（G-W-T/
+   test-type，不填 cmd/expect）與 architect 出方案+藍圖（解法明顯唯一時可單方案
+   徑行）——兩者互不依賴 → 使用者選定方案 → 補技術規格（API contract/資料型別/
+   錯誤碼/架構/TDD seam/非功能門檻）→ architect 依技術規格逐條補 checklist 的
+   cmd/expect（不得增刪改 PM 條目）→ orchestrator 附導讀摘要送使用者**一次確認，
+   spec.md 與 checklist.md 同時凍結**（每條溯源 spec: S<n>）
 → R3 實作（TDD seam 取自 spec.md）：預設單人序列；符合四判準（模組互斥、介面穩定、
    無強順序依賴、規模門檻）才拆 ≥2 個 sub task 平行——architect 協調模式拆分（R3a）
    → orchestrator fan-out 多個 architect 實作模式平行開發（R3b）→ architect 協調模式
@@ -97,9 +105,10 @@ R1 PM 依 SDD 完整列規格（S<n> + Given-When-Then），規格不明確處�
    reviewer 先人工補跑 build/test）
 → R5 驗收：後端 = qa 逐條執行 cmd、當場比對 expect 判定 PASS/FAIL（PM 不參與）
           前端 = qa browser 操作觀察畫面 + PM 對照 spec.md 畫面驗證
-          qa 加一輪探索性測試（前端做畫面探索、純後端做 edge-case 探索），
-          發現規格缺漏回報（不算條目失敗）
-→ R6 回報 + /learn 沉澱
+          qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題
+          分「規格缺漏」（回報不算失敗）與「實作缺陷」（視同 FAIL 打回 architect）；
+          FAIL 修正後須過 pre-review + reviewer 輕量複審（範圍限定）才回 R5 重驗
+→ R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ /learn 沉澱
 ```
 
 **附加 gate：PM 畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加 PM 走一次畫面驗證：L0/輕軌由 PM 直接用 browser 工具核對；標準軌/重軌由 qa 先執行 ui 條目、PM 再複核。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
@@ -136,6 +145,7 @@ repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `k
 - 標準軌：mini-spec.md 是單一文件，同樣經使用者一次確認即凍結
 - 需求變更 → 回 R1（或標準軌回 M1）重新出規格文件，舊檔加 `.superseded` 字尾，不可就地覆蓋
 - 經使用者核准的修訂寫入對應規格文件檔尾的「修訂歷史」，保留可追溯軌跡
+- **輕量修訂**（規格書本身寫錯，非需求變更，如技術規格欄位型別誤植）：使用者核准後直接修正並記入「修訂歷史」即可，不必回 R1/M1 重出整份文件；拿不準就當需求變更處理
 
 ### Agent 模型固定表（寫死於各 agent frontmatter，orchestrator 不得覆蓋）
 
@@ -145,7 +155,7 @@ repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `k
 | architect | sonnet | 標準實作與方案分析，日常主力模型 |
 | reviewer | sonnet | 靜態審查需具體程式理解力，與 architect 對等但獨立審視 |
 | debugger | sonnet | 根因分析需程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
-| qa | haiku | 純執行凍結清單驗證指令、當場判定 PASS/FAIL，任務機械化，成本應最低 |
+| qa | sonnet | 除執行凍結清單外還負責探索性測試，需要推理能力自行設計清單外的邊界組合與異常情境主動找 bug |
 
 以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `kit/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `kit/WORKFLOW.md` 不一致，以 `kit/WORKFLOW.md` 為準。
 
