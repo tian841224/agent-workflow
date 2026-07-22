@@ -1,10 +1,10 @@
-# claude-workflow v2
+# agent-workflow
 
-> 本 repo 現已採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
+> 本 repo 採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
 
-可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
+可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
-核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝走分層機制：kit 層整檔覆蓋、使用者層只 append marker 區塊、settings.json 走結構化 JSON 合併。
+核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
 
 多角色 workflow 僅適用於程式任務；文件、規格、需求、規劃、設定政策與一般文字工作均由單一主 agent 處理。混合請求只把實際程式碼部分送入多角色流程。
 
@@ -51,9 +51,9 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 .\install.ps1 -Agent Both     # 兩套都安裝（預設）
 ```
 
-`-Agent` 也可寫成 `-Platform`。Codex 模式會安裝 `AGENTS.md`、原生 agents TOML、`rules/default.rules`、Codex `hooks.json`、workflow、templates 與 scripts；Claude 模式則安裝 `CLAUDE.md`、`settings.json` hooks 與 Claude agents。
+`-Agent` 也可寫成 `-Platform`。Codex 模式會讓 `~/.codex/AGENTS.md` 指向 `~/.agents/AGENTS.md`，並安裝 Codex `hooks.json` 與 `rules/default.rules`；Claude 模式則讓 `~/.claude/CLAUDE.md` 指向同一份共用 `AGENTS.md`，再安裝 Claude `settings.json` hooks。
 
-同一支安裝器也支援 Codex。預設會將可攜版 `AGENTS.md`、agents、skills、rules 與 kit 安裝到 `~/.codex`；Claude Code 的 hooks/settings 不會寫入 Codex：
+共用 workflow 會安裝到 `~/.agents/`。Claude 與 Codex 只連結 repo 管理的 agents、skills、rules 項目；目標目錄中其他既有 agent、skill、rule 與 Codex 原生檔案會保留，不會整個目錄替換：
 
 ```powershell
 .\install.ps1 -ClaudeTarget "$env:USERPROFILE\.claude" -CodexTarget "$env:USERPROFILE\.codex"
@@ -65,9 +65,11 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 
 | 層 | 內容 | 行為 |
 |---|---|---|
-| kit 層 | `~/.claude/claude-workflow/`、`agents/` 五檔、`skills/{learn,evolve,tdd,systematic-debugging}`、`rules/learning.md`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋；`skills/tdd/` 下已淘汰的 `tests.md`/`mocking.md` 若在目標端殘留會被清掉） |
-| 使用者層 | `CLAUDE.md` | 只 append 一個 `<!-- claude-workflow:begin/end -->` 區塊（含 `@claude-workflow/WORKFLOW.md` import） |
-| 使用者層 | `settings.json` | hooks 結構化合併：先移除 command 含 `hooks/claude-workflow` 的舊 entry 再加入新 entry，既有自有 hooks 不動；寫回前備份 |
+| canonical 層 | `~/.agents/AGENTS.md`、`workflow/`、共用 `agents/`、`skills/`、`rules/`、`scripts/`、`templates/`、`hooks/` | 共用來源只有一份；repo 更新後重新執行 installer 同步 |
+| Claude 入口 | `~/.claude/CLAUDE.md` | symlink 指向 `~/.agents/AGENTS.md`；權限不足時 fallback 為複製，既有不同內容先備份 |
+| Codex 入口 | `~/.codex/AGENTS.md` | symlink 指向 `~/.agents/AGENTS.md`；權限不足時 fallback 為複製，既有不同內容先備份 |
+| 平台設定 | Claude `settings.json`、Codex `hooks.json`／`rules/default.rules` | 只合併或更新平台專屬受控設定，既有自有設定保留 |
+| 共用項目 | `~/.claude/agents/`、`~/.codex/agents/` 等 | 只管理 repo 同名項目，其他使用者或 Codex 原生項目不覆蓋 |
 | 專案層 | `<project>/.claude/`、專案 CLAUDE.md | 完全不碰 |
 
 注意：settings.json 經 PowerShell 5.1 的 ConvertTo-Json 寫回後，中文會轉為 `\uXXXX` 逸出，功能無損。`install.sh`（Linux/macOS）列為 roadmap，v2 目前以 Windows 為主。
@@ -154,7 +156,7 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 
 ## 其他 CLI 支援
 
-repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `kit/WORKFLOW.md` + 五角色定義對等，但把 hooks 硬護欄（git-guard 等）改寫成純行為約定——Codex 沒有對應的 hook 機制，靠條文自律。`install.ps1` 不處理 `AGENTS.md`，需要的話手動複製到你的 Codex 設定目錄。
+repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源，不再是 Codex 專屬副本。Claude/Codex 的入口檔只負責使用平台要求的固定檔名；hooks schema、execpolicy 與 settings merge 仍由 `adapters/claude/`、`adapters/codex/` 管理。`install.ps1` 會自動建立入口連結與平台設定。
 
 ### 回合上限（超限一律停下交使用者裁決，不自行加碼）
 
@@ -187,15 +189,6 @@ repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `k
 | qa | sonnet | 除執行凍結清單外還負責探索性測試，需要推理能力自行設計清單外的邊界組合與異常情境主動找 bug |
 
 以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `kit/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `kit/WORKFLOW.md` 不一致，以 `kit/WORKFLOW.md` 為準。
-
-## 客製化
-
-kit 不含任何專案專屬內容。專案專屬的審查重點與慣例：
-
-1. 小量補充 → 寫進專案 `CLAUDE.md` 或 auto-memory（reviewer 會主動讀取）
-2. 大幅改寫角色 → `<project>/.claude/agents/<name>.md` 同名整檔覆蓋
-
-詳見 `examples/project-overrides/README.md`。
 
 ## 測試
 
