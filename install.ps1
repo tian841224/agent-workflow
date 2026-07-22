@@ -55,14 +55,24 @@ foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'agents') -Filter *.md)) {
 $agentCount = (Get-ChildItem (Join-Path $repoRoot 'agents') -Filter *.md).Count
 $summary += "agents $agentCount 檔 → $(Join-Path $Target 'agents')"
 
-# 1c. skills（整個 skill 目錄複製，不只 SKILL.md——tdd 還有 tests.md/mocking.md 等被引用的參考檔）
-foreach ($skill in @('learn', 'evolve', 'tdd')) {
+# 1c. skills（整個 skill 目錄複製，不只 SKILL.md——systematic-debugging 還有 root-cause-tracing.md/
+#     defense-in-depth.md/condition-based-waiting.md 等被引用的參考檔）
+foreach ($skill in @('learn', 'evolve', 'tdd', 'systematic-debugging')) {
     $skillSrcDir = Join-Path $repoRoot "skills\$skill"
     foreach ($f in (Get-ChildItem $skillSrcDir -File)) {
         Do-Copy $f.FullName (Join-Path $Target "skills\$skill\$($f.Name)")
     }
 }
-$summary += "skills learn/evolve/tdd → $(Join-Path $Target 'skills')"
+# tdd 已改版為自包含單檔 SKILL.md；清掉舊機器上殘留的淘汰參考檔，避免失連引用
+foreach ($stale in @('tests.md', 'mocking.md')) {
+    $staleDst = Join-Path $Target "skills\tdd\$stale"
+    if (Test-Path $staleDst) {
+        if ($DryRun) { Log "[dry-run] 刪除已淘汰檔 $staleDst" }
+        else { Remove-Item $staleDst -Force }
+        $summary += "刪除已淘汰的 skills\tdd\$stale"
+    }
+}
+$summary += "skills learn/evolve/tdd/systematic-debugging → $(Join-Path $Target 'skills')"
 
 # 1d. hooks → ~/.claude/hooks/claude-workflow/
 $hooksDstDir = Join-Path $Target 'hooks\claude-workflow'

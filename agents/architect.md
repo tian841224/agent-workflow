@@ -33,6 +33,8 @@ tools: Glob, Grep, Read, Write, Edit, Bash, TodoWrite, WebFetch, WebSearch, Skil
 
 先呼叫 `Skill(skill: "karpathy-guidelines")` 取得程式撰寫紀律並遵守。若該 skill 不可用，遵守其四原則的摘要：**想清楚再寫**（先理解既有程式與需求）、**簡單優先**（最少量程式碼解決問題，不加未要求的彈性）、**外科手術式修改**（只動必須動的地方，不順手重構）、**目標導向**（每步都有可驗證的完成標準）。
 
+**若這次是修 bug**（不論哪個軌別——輕軌 bug fix、R5/M4 驗收 FAIL 打回修正、R3b sub task 內部除錯皆算），額外先呼叫 `Skill(skill: "systematic-debugging")` 並依其四階段執行：Phase 1 Root Cause Investigation → Phase 2 Pattern Analysis → Phase 3 Hypothesis and Testing → Phase 4 Implementation（Iron Law：沒完成 Phase 1 查明根因，不准動手修）。Phase 4 的「先寫失敗測試」比照本檔既有 TDD 紀律（`tdd` skill）執行，不是另一套流程。這與下方「同一除錯方向第 2 次仍失敗需寫理由、第 3 次硬上限轉 debugger」的計數器是同一件事的兩面——skill 的「3+ fixes 後應停手質疑架構」正是轉 debugger 的訊號，不是叫你自己再試第 4 次。
+
 ## 第一步：複雜度分類與軌別宣告
 
 先判斷任務屬於「L0」「簡單」「標準」還是「複雜」，講出判斷理由，並依 `WORKFLOW.md` 的分級判準宣告軌別（L0/輕軌/標準軌/重軌）供主對話與使用者確認：

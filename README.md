@@ -13,7 +13,10 @@ kit/
   templates/           spec.md / checklist.md / plan.md（重軌）、mini-spec.md（標準軌）模板
 agents/                architect / reviewer / qa / pm / debugger 五角色定義
                         （模型固定：pm=opus、architect/reviewer/debugger/qa=sonnet，寫死於各檔 frontmatter `model:`）
-skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律，含 tests.md / mocking.md，seam 取自 spec.md 技術規格）
+skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律，單檔自包含，seam 取自 spec.md 技術規格）/
+                        systematic-debugging（先查根因才准修的四階段方法論，含 root-cause-tracing.md /
+                        defense-in-depth.md / condition-based-waiting.md 三份支援檔；architect 修 bug 時走
+                        全四階段，debugger 只執行前三階段——蒐證／模式分析／假說驗證，修復動作仍由 architect 接手）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
   post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢；.ts/.tsx/.js/.jsx 檔在本地已裝 prettier 時跑 prettier --check（不透過 npx 觸發安裝）；失敗立即打回
@@ -44,14 +47,16 @@ cd claude-workflow
 
 | 層 | 內容 | 行為 |
 |---|---|---|
-| kit 層 | `~/.claude/claude-workflow/`、`agents/` 五檔、`skills/{learn,evolve,tdd}`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋） |
+| kit 層 | `~/.claude/claude-workflow/`、`agents/` 五檔、`skills/{learn,evolve,tdd,systematic-debugging}`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋；`skills/tdd/` 下已淘汰的 `tests.md`/`mocking.md` 若在目標端殘留會被清掉） |
 | 使用者層 | `CLAUDE.md` | 只 append 一個 `<!-- claude-workflow:begin/end -->` 區塊（含 `@claude-workflow/WORKFLOW.md` import） |
 | 使用者層 | `settings.json` | hooks 結構化合併：先移除 command 含 `hooks/claude-workflow` 的舊 entry 再加入新 entry，既有自有 hooks 不動；寫回前備份 |
 | 專案層 | `<project>/.claude/`、專案 CLAUDE.md | 完全不碰 |
 
 注意：settings.json 經 PowerShell 5.1 的 ConvertTo-Json 寫回後，中文會轉為 `\uXXXX` 逸出，功能無損。`install.sh`（Linux/macOS）列為 roadmap，v2 目前以 Windows 為主。
 
-`tdd` skill（`skills/tdd/SKILL.md` + `tests.md` + `mocking.md`）會隨 `install.ps1` 整資料夾裝到 `~/.claude/skills/tdd/`；重軌 R3 實作階段已接上紅綠迴圈，seam 直接取自 R2 凍結的 `spec.md` 技術規格「測試策略與 TDD seam」段，不需臨場另外確認（見 `agents/architect.md`）。
+`tdd` skill（單檔 `skills/tdd/SKILL.md`）會隨 `install.ps1` 裝到 `~/.claude/skills/tdd/`；重軌 R3 實作階段已接上紅綠迴圈，seam 直接取自 R2 凍結的 `spec.md` 技術規格「測試策略與 TDD seam」段，不需臨場另外確認（見 `agents/architect.md`）。
+
+`systematic-debugging` skill（`skills/systematic-debugging/SKILL.md` + 三份支援檔）同樣整資料夾裝到 `~/.claude/skills/systematic-debugging/`：`architect` 修 bug（任何軌別的第一手除錯、R5/M4 FAIL 打回修正、R3b 內部除錯）動手前先載入並走四階段（Root Cause → Pattern → Hypothesis → Implementation）；`debugger` 出場時只執行前三階段（蒐證／模式分析／假說驗證），第四階段的修復動作仍由 `architect` 接手——`debugger` 維持唯讀定位不變（見 `agents/architect.md`、`agents/debugger.md`）。
 
 ## 流程速覽
 
@@ -121,7 +126,7 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 - 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
 - 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
 
-兩條路徑 `debugger` 都只蒐證與驗證假說、不改 code、不下修復方案，結論交回 architect。回合計數（reviewer↔architect、PM↔architect、R4/R5 打回、R3c 打回）由 orchestrator 每輪結束記錄到 `plan.md` 的「回合記錄」段落，以檔案為準、不靠對話記憶（標準軌無 plan.md，回合次數在回報中口頭列出即可）。
+兩條路徑 `debugger` 都只執行 `systematic-debugging` skill 的前三階段（蒐證／模式分析／假說驗證）、不改 code、不下修復方案，結論交回 architect。回合計數（reviewer↔architect、PM↔architect、R4/R5 打回、R3c 打回）由 orchestrator 每輪結束記錄到 `plan.md` 的「回合記錄」段落，以檔案為準、不靠對話記憶（標準軌無 plan.md，回合次數在回報中口頭列出即可）。
 
 ## 其他 CLI 支援
 
