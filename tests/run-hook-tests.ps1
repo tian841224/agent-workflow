@@ -4,6 +4,8 @@
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $hooksDir = Join-Path $repoRoot 'hooks'
+$testWorkflowHome = Join-Path $repoRoot '.tmp-hook-home'
+$env:AI_WORKFLOW_HOME = $testWorkflowHome
 $script:failed = 0
 $script:passed = 0
 
@@ -107,7 +109,7 @@ Write-Output '=== stop-check.ps1 ==='
 # fixture: 假 acceptance 目錄 (用假 cwd 對應 slug)
 $fakeCwd = 'C:\tmp\stopcheck-demo'
 $slug = ($fakeCwd -replace '[:\\/]', '-')
-$accTask = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance\demo"
+$accTask = Join-Path $testWorkflowHome "projects\$slug\acceptance\demo"
 New-Item -ItemType Directory -Force $accTask | Out-Null
 $cl = "# demo`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
 [System.IO.File]::WriteAllText((Join-Path $accTask 'checklist.md'), $cl, $enc)
@@ -122,7 +124,7 @@ Assert-Case '無 acceptance 目錄 → 放行' 'stop-check.ps1' $stopJsonNoAcc {
 Assert-Case '壞 JSON → exit 0' 'stop-check.ps1' 'xxx' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
 
 # spec.md 檢查（SDD：checklist 是 spec.md 的延伸，缺規格書或規格書未凍結都要擋）
-$accTask2 = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance\demo2"
+$accTask2 = Join-Path $testWorkflowHome "projects\$slug\acceptance\demo2"
 New-Item -ItemType Directory -Force $accTask2 | Out-Null
 $cl2 = "# demo2`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [x]`n"
 [System.IO.File]::WriteAllText((Join-Path $accTask2 'checklist.md'), $cl2, $enc)
@@ -134,7 +136,7 @@ Assert-Case 'spec.md 未凍結(draft) → block' 'stop-check.ps1' $stopJson2 { p
 Assert-Case 'spec.md 已凍結 + checklist 全過 → 放行' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
 
 # mini-spec.md 檢查（標準軌：無 checklist.md，只有 mini-spec.md 單檔；不檢查 spec.md/plan.md）
-$accTask3 = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance\demo3"
+$accTask3 = Join-Path $testWorkflowHome "projects\$slug\acceptance\demo3"
 New-Item -ItemType Directory -Force $accTask3 | Out-Null
 $ms = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: draft`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
 [System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $ms, $enc)
@@ -150,7 +152,7 @@ Assert-Case 'mini-spec.md 凍結 + 全勾 → 放行' 'stop-check.ps1' $stopJson
 Assert-Case 'mini-spec.md paused 標記 → 放行' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
 
 # 清理 stop-check fixture
-Remove-Item -Recurse -Force (Join-Path $env:USERPROFILE ".claude\projects\$slug") -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $testWorkflowHome "projects\$slug") -ErrorAction SilentlyContinue
 
 Write-Output '=== knowhow-check.ps1 ==='
 # fixture: 假 cwd + 假 transcript JSONL(assistant tool_use 事件)
@@ -158,7 +160,7 @@ $khCwd = 'C:\tmp\knowhow-demo'
 $khSlug = ($khCwd -replace '[:\\/]', '-')
 $khFixDir = Join-Path $PSScriptRoot 'fixtures\knowhow'
 New-Item -ItemType Directory -Force $khFixDir | Out-Null
-$khMemDir = Join-Path $env:USERPROFILE ".claude\projects\$khSlug\memory"
+$khMemDir = Join-Path $testWorkflowHome "projects\$khSlug\memory"
 
 function New-KhEditLine($ts, $path) {
     return (@{ type = 'assistant'; timestamp = $ts; message = @{ content = @(@{ type = 'tool_use'; name = 'Edit'; input = @{ file_path = $path } }) } } | ConvertTo-Json -Compress -Depth 6)
@@ -231,6 +233,7 @@ Assert-Case 'memory 檔早於 session 起點 → block' 'knowhow-check.ps1' $khJ
 # 清理 knowhow-check fixture
 Remove-Item -Recurse -Force $khMemDir -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $khFixDir -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $testWorkflowHome -ErrorAction SilentlyContinue
 
 Write-Output ''
 Write-Output ("=== 結果: PASS {0} / FAIL {1} ===" -f $script:passed, $script:failed)

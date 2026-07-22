@@ -1,38 +1,25 @@
 # claude-workflow v2
 
+> 本 repo 現已採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
+
 可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
 核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝走分層機制：kit 層整檔覆蓋、使用者層只 append marker 區塊、settings.json 走結構化 JSON 合併。
 
+多角色 workflow 僅適用於程式任務；文件、規格、需求、規劃、設定政策與一般文字工作均由單一主 agent 處理。混合請求只把實際程式碼部分送入多角色流程。
+
 ## 目錄結構
 
 ```
-kit/
-  WORKFLOW.md          流程總控（分級、階段、回合上限、凍結原則、續作）
-  acceptance-spec.md   驗收規約（checklist 格式——人與腳本共同遵守）
-  templates/           spec.md / checklist.md / plan.md（重軌）、mini-spec.md（標準軌）模板
-agents/                architect / reviewer / qa / pm / debugger 五角色定義
-                        （模型固定：pm=opus、architect/reviewer/debugger/qa=sonnet，寫死於各檔 frontmatter `model:`）
-skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd（red→green 測試紀律，單檔自包含，seam 取自 spec.md 技術規格）/
-                        systematic-debugging（先查根因才准修的四階段方法論，含 root-cause-tracing.md /
-                        defense-in-depth.md / condition-based-waiting.md 三份支援檔；architect 修 bug 時走
-                        全四階段，debugger 只執行前三階段——蒐證／模式分析／假說驗證，修復動作仍由 architect 接手）
-rules/                 learning.md（自我學習迴圈權威定義：擷取/蒸餾/升級/修剪，索引+個別記憶檔格式，
-                        全域與專案記憶層同構）
-hooks/
-  git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
-  post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢；.ts/.tsx/.js/.jsx 檔在本地已裝 prettier 時跑 prettier --check（不透過 npx 觸發安裝）；失敗立即打回
-  stop-check.ps1       Stop：session 結束前掃驗收缺件提醒
-  knowhow-check.ps1    Stop：session 有實質修改（≥3 筆專案內 Edit/Write/MultiEdit）卻未沉澱 know-how 時提醒
-  weekly-review-check.ps1  SessionStart：週回顧到期提醒
-  log-session.ps1      SessionEnd：工作日誌
-  settings.hooks.json  hooks 註冊片段（install 時合併進 settings.json）
-scripts/
-  pre-review.ps1       依專案類型分派：Go（gofmt + go vet + go build + go test，+ golangci-lint 選配）
-                        / Node（依 package.json scripts 跑 lint/typecheck/build/test）；
-                        兩者皆偵測不到則跳過語言檢查
+workflow/               唯一共用流程來源
+agents/ skills/ rules/  共用角色、技能與規則
+scripts/ templates/     共用工具與模板
+hooks/                  共用 hook 實作
+adapters/shared/        manifest 與跨平台路徑 helper
+adapters/claude/       Claude CLAUDE.md 入口與 settings.json hooks schema
+adapters/codex/        Codex AGENTS.md 入口、hooks.json 與 execpolicy rules
 examples/              驗收清單範例、專案層覆蓋機制說明
-tests/run-hook-tests.ps1  hooks 測試（stdin JSON 餵入、assert 輸出）
+tests/                  hook 與 installer acceptance tests
 install.ps1
 ```
 
@@ -41,10 +28,20 @@ install.ps1
 ```powershell
 git clone https://github.com/tian841224/claude-workflow
 cd claude-workflow
-.\install.ps1              # 裝到 ~/.claude
+.\install.ps1              # canonical 裝到 ~/.agents/core，並建立平台 adapter
 .\install.ps1 -DryRun      # 先看會動哪些檔
 .\install.ps1 -Target D:\test\fake-home   # 測試安裝
 ```
+
+預設 canonical 目錄為 `~/.agents`。`~/.agents/` 下的 workflow、agents、skills、rules、scripts、templates、hooks 與 `AGENTS.md` 只有一份；平台目錄使用 junction/symlink 指向它，無法建立連結時才 fallback 為複製。可用以下指令檢查或修復：
+
+```powershell
+.\install.ps1 -Action Status
+.\install.ps1 -Action Repair
+.\install.ps1 -Action Uninstall
+```
+
+repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/codex/` 只放各平台的 hook schema、execpolicy 與設定合併格式。`~/.claude/CLAUDE.md` 與 `~/.codex/AGENTS.md` 直接指向 `~/.agents/AGENTS.md`；舊的 `claude-workflow` 路徑會保留為 deprecated compatibility junction，不應再直接編輯。
 
 安裝器可選擇目標 AI agent；預設 `Both` 以維持既有相容性：
 

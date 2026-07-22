@@ -1,0 +1,14 @@
+# claude-workflow v2 — Codex-native command policy
+# Git safety is enforced by Codex execpolicy; lifecycle hooks handle reminders and checks.
+
+prefix_rule(pattern=["git", "push", "--force"], decision="forbidden", justification="Force push is irreversible. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "push", "-f"], decision="forbidden", justification="Force push is irreversible. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "reset", "--hard"], decision="forbidden", justification="Hard reset can destroy work. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "clean", "-fd"], decision="forbidden", justification="Cleaning untracked files can destroy work. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "branch", "-D"], decision="forbidden", justification="Force deleting a branch can destroy recoverable work. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "checkout", "--"], decision="forbidden", justification="Discarding paths can destroy work. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "restore", "--worktree"], decision="forbidden", justification="Restoring paths can destroy work. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "stash", "drop"], decision="forbidden", justification="Dropping a stash can destroy recoverable work. Ask the user to perform it explicitly outside Codex.")
+prefix_rule(pattern=["git", "commit"], decision="prompt", justification="Commits change repository history. Confirm with the user before committing.")
+prefix_rule(pattern=["git", "push"], decision="prompt", justification="Pushing changes is an external repository mutation. Confirm with the user first.")
+prefix_rule(pattern=["git", "rebase"], decision="prompt", justification="Rebase rewrites history. Confirm with the user before running it.")

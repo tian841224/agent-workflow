@@ -17,7 +17,8 @@ try {
 
     # cwd → project-slug (Claude Code 慣例: 冒號與斜線轉連字號)
     $slug = ($cwd -replace '[:\\/]', '-')
-    $accDir = Join-Path $env:USERPROFILE ".claude\projects\$slug\acceptance"
+$workflowHome = if ($env:AI_WORKFLOW_HOME) { $env:AI_WORKFLOW_HOME } else { Join-Path $env:USERPROFILE '.claude' }
+$accDir = Join-Path $workflowHome "projects\$slug\acceptance"
     if (-not (Test-Path $accDir)) { exit 0 }
 
     function Get-UncheckedItems($content) {

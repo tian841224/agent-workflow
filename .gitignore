@@ -3,3 +3,5 @@
 !CLAUDE.md
 
 tests/fixtures/
+.tmp-a/
+.tmp-c/

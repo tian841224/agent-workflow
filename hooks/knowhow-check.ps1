@@ -54,7 +54,8 @@ try {
     }
 
     $slug = ($cwd -replace '[:\\/]', '-')
-    $memDir = Join-Path $env:USERPROFILE ".claude\projects\$slug\memory"
+$workflowHome = if ($env:AI_WORKFLOW_HOME) { $env:AI_WORKFLOW_HOME } else { Join-Path $env:USERPROFILE '.claude' }
+$memDir = Join-Path $workflowHome "projects\$slug\memory"
     if (Test-Path $memDir) {
         $latest = Get-ChildItem $memDir -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($latest -and $latest.LastWriteTime -ge $sessionStart) { exit 0 }

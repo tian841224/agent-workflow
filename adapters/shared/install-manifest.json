@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "canonicalDirectoryName": ".agents",
+  "sharedDirectories": ["workflow", "agents", "skills", "rules", "scripts", "templates", "hooks"],
+  "platforms": {
+    "Claude": { "adapter": "adapters/claude", "linkDirectories": ["agents", "skills", "rules"] },
+    "Codex": { "adapter": "adapters/codex", "linkDirectories": ["agents", "skills", "rules"] }
+  }
+}
