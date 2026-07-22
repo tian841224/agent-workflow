@@ -2,20 +2,7 @@
 
 可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ TDD 紅綠迴圈（tdd skill）。
 
-v2 的核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。
-
-## 與 v1 的差異
-
-| v1 問題 | v2 對策 |
-|---|---|
-| 流程 gate 全靠模型自律 | 三支 hooks（git-guard / post-edit-check / stop-check）+ pre-review 寫死在 reviewer 第一步 |
-| 功能軌 F1–F10 對後端太重 | 流程分級四級：L0 微軌主對話直接修；輕軌 4 階段（L1–L4）免 PM/QA；標準軌 4 階段（M1–M4）單檔 mini-spec、一次確認即凍結，填補輕重軌落差；重軌 6 階段（R1–R6）才走完整雙文件凍結流程 |
-| 證據=截圖、驗收語彙偏前端 | 前後端雙流程：後端驗收 = e2e 指令即時判定（go test / curl / SQL），不跑畫面；前端才做畫面驗證；兩者皆當場判定、不落地證據檔 |
-| state JSON checkpoint 靠模型維護 | 砍除。狀態 = acceptance 目錄本身（checklist 勾選 + plan.md），stop-check hook 掃檔案抓漏 |
-| inbox 學習中介與內建記憶重複 | 收編實戰版 learn / evolve skill（直接寫記憶檔、核准制升級），砍 inbox / rules/learning.md |
-| Merge-Markdown 按標題合併脆弱 | 分層安裝：kit 層整檔覆蓋、使用者層只 append marker 區塊、settings.json 走結構化 JSON 合併 |
-
-v1 → v2 步驟對照：技術軌 T1–T5 → 輕軌 L1–L4；功能軌 F1–F10 → 重軌 R1–R6（F9 併入驗收、F10 簡化為收尾）。
+核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由三支 hooks（git-guard / post-edit-check / stop-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝走分層機制：kit 層整檔覆蓋、使用者層只 append marker 區塊、settings.json 走結構化 JSON 合併。
 
 ## 目錄結構
 
@@ -158,7 +145,7 @@ repo 根目錄的 `AGENTS.md` 是給 Codex CLI 用的可攜版本，內容與 `k
 | architect | sonnet | 標準實作與方案分析，日常主力模型 |
 | reviewer | sonnet | 靜態審查需具體程式理解力，與 architect 對等但獨立審視 |
 | debugger | sonnet | 根因分析需程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
-| qa | haiku | 純執行凍結清單驗證指令、收集證據，任務機械化，成本應最低 |
+| qa | haiku | 純執行凍結清單驗證指令、當場判定 PASS/FAIL，任務機械化，成本應最低 |
 
 以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `kit/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `kit/WORKFLOW.md` 不一致，以 `kit/WORKFLOW.md` 為準。
 
@@ -176,9 +163,3 @@ kit 不含任何專案專屬內容。專案專屬的審查重點與慣例：
 ```powershell
 .\tests\run-hook-tests.ps1     # hooks 行為測試
 ```
-
-## 刻意排除
-
-- 無 watchdog 自動監控、無排程任務——續作靠讀 acceptance 目錄 + git status 還原
-- 無多產品索引（products/INDEX）——單人場景由各專案 CLAUDE.md 與 auto-memory 承擔
-- 無 promptcoach——與 learn 的 feedback 分類重疊
