@@ -1,8 +1,8 @@
 # claude-workflow v2
 
-可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ TDD 紅綠迴圈（tdd skill）。
+可攜的 Claude Code 開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
-核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由三支 hooks（git-guard / post-edit-check / stop-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝走分層機制：kit 層整檔覆蓋、使用者層只 append marker 區塊、settings.json 走結構化 JSON 合併。
+核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝走分層機制：kit 層整檔覆蓋、使用者層只 append marker 區塊、settings.json 走結構化 JSON 合併。
 
 ## 目錄結構
 
@@ -17,10 +17,13 @@ skills/                learn（經驗擷取）/ evolve（週回顧精煉）/ tdd
                         systematic-debugging（先查根因才准修的四階段方法論，含 root-cause-tracing.md /
                         defense-in-depth.md / condition-based-waiting.md 三份支援檔；architect 修 bug 時走
                         全四階段，debugger 只執行前三階段——蒐證／模式分析／假說驗證，修復動作仍由 architect 接手）
+rules/                 learning.md（自我學習迴圈權威定義：擷取/蒸餾/升級/修剪，索引+個別記憶檔格式，
+                        全域與專案記憶層同構）
 hooks/
   git-guard.ps1        PreToolUse：破壞性 git 操作 deny、commit/push 每次 ask
   post-edit-check.ps1  PostToolUse：.go 檔編輯後 gofmt/go vet 快檢；.ts/.tsx/.js/.jsx 檔在本地已裝 prettier 時跑 prettier --check（不透過 npx 觸發安裝）；失敗立即打回
   stop-check.ps1       Stop：session 結束前掃驗收缺件提醒
+  knowhow-check.ps1    Stop：session 有實質修改（≥3 筆專案內 Edit/Write/MultiEdit）卻未沉澱 know-how 時提醒
   weekly-review-check.ps1  SessionStart：週回顧到期提醒
   log-session.ps1      SessionEnd：工作日誌
   settings.hooks.json  hooks 註冊片段（install 時合併進 settings.json）
@@ -47,7 +50,7 @@ cd claude-workflow
 
 | 層 | 內容 | 行為 |
 |---|---|---|
-| kit 層 | `~/.claude/claude-workflow/`、`agents/` 五檔、`skills/{learn,evolve,tdd,systematic-debugging}`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋；`skills/tdd/` 下已淘汰的 `tests.md`/`mocking.md` 若在目標端殘留會被清掉） |
+| kit 層 | `~/.claude/claude-workflow/`、`agents/` 五檔、`skills/{learn,evolve,tdd,systematic-debugging}`、`rules/learning.md`、`hooks/claude-workflow/` | 整檔覆蓋（檔頭有 managed 標記；同名的使用者自有檔案先備份 `.bak` 再覆蓋；`skills/tdd/` 下已淘汰的 `tests.md`/`mocking.md` 若在目標端殘留會被清掉） |
 | 使用者層 | `CLAUDE.md` | 只 append 一個 `<!-- claude-workflow:begin/end -->` 區塊（含 `@claude-workflow/WORKFLOW.md` import） |
 | 使用者層 | `settings.json` | hooks 結構化合併：先移除 command 含 `hooks/claude-workflow` 的舊 entry 再加入新 entry，既有自有 hooks 不動；寫回前備份 |
 | 專案層 | `<project>/.claude/`、專案 CLAUDE.md | 完全不碰 |
@@ -57,6 +60,12 @@ cd claude-workflow
 `tdd` skill（單檔 `skills/tdd/SKILL.md`）會隨 `install.ps1` 裝到 `~/.claude/skills/tdd/`；重軌 R3 實作階段已接上紅綠迴圈，seam 直接取自 R2 凍結的 `spec.md` 技術規格「測試策略與 TDD seam」段，不需臨場另外確認（見 `agents/architect.md`）。
 
 `systematic-debugging` skill（`skills/systematic-debugging/SKILL.md` + 三份支援檔）同樣整資料夾裝到 `~/.claude/skills/systematic-debugging/`：`architect` 修 bug（任何軌別的第一手除錯、R5/M4 FAIL 打回修正、R3b 內部除錯）動手前先載入並走四階段（Root Cause → Pattern → Hypothesis → Implementation）；`debugger` 出場時只執行前三階段（蒐證／模式分析／假說驗證），第四階段的修復動作仍由 `architect` 接手——`debugger` 維持唯讀定位不變（見 `agents/architect.md`、`agents/debugger.md`）。
+
+### 專案 know-how 累積
+
+自我學習迴圈的擷取階段過去只靠條文自覺，容易被忘記。v2 把它接進流程骨架：輕軌 L4／標準軌 M4／重軌 R6 收尾時（`WORKFLOW.md` §9）必須回答「沉澱三問」（有沒有踩坑、有沒有方案轉彎、有沒有發現專案脈絡與既有認知不符），並在回報末尾明寫「已沉澱：<摘要>」或「無可沉澱：<理由>」。這兩句宣告是 `knowhow-check.ps1` hook 的機械放行訊號——若 session 對專案有 ≥3 筆實質修改卻既未宣告、專案記憶層（`~/.claude/projects/<slug>/memory/`）也沒更新，Stop 事件會被 block 一次提醒。
+
+專案記憶層結構：`MEMORY.md`（索引，Claude Code 原生自動注入）+ `overview.md`（專案概觀與歷史脈絡聚合檔，上限約 100 行，判軌前需先讀）+ `DECISIONS.md`（決策流水帳）+ 個別記憶檔（pitfall/project/reference/feedback）。全域記憶層（`~/.claude/memory/`）採同構格式，兩者格式定義的權威來源都在 `rules/learning.md`。
 
 ## 流程速覽
 

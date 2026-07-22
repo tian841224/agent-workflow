@@ -152,6 +152,86 @@ Assert-Case 'mini-spec.md paused 標記 → 放行' 'stop-check.ps1' $stopJson3 
 # 清理 stop-check fixture
 Remove-Item -Recurse -Force (Join-Path $env:USERPROFILE ".claude\projects\$slug") -ErrorAction SilentlyContinue
 
+Write-Output '=== knowhow-check.ps1 ==='
+# fixture: 假 cwd + 假 transcript JSONL(assistant tool_use 事件)
+$khCwd = 'C:\tmp\knowhow-demo'
+$khSlug = ($khCwd -replace '[:\\/]', '-')
+$khFixDir = Join-Path $PSScriptRoot 'fixtures\knowhow'
+New-Item -ItemType Directory -Force $khFixDir | Out-Null
+$khMemDir = Join-Path $env:USERPROFILE ".claude\projects\$khSlug\memory"
+
+function New-KhEditLine($ts, $path) {
+    return (@{ type = 'assistant'; timestamp = $ts; message = @{ content = @(@{ type = 'tool_use'; name = 'Edit'; input = @{ file_path = $path } }) } } | ConvertTo-Json -Compress -Depth 6)
+}
+function New-KhTextLine($ts, $text) {
+    return (@{ type = 'assistant'; timestamp = $ts; message = @{ content = @(@{ type = 'text'; text = $text }) } } | ConvertTo-Json -Compress -Depth 6)
+}
+
+# 3 筆專案內修改、無宣告、無 memory 目錄 → block
+$khLines1 = @(
+    (New-KhEditLine '2020-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
+    (New-KhEditLine '2020-01-01T00:00:01Z' (Join-Path $khCwd 'b.go')),
+    (New-KhEditLine '2020-01-01T00:00:02Z' (Join-Path $khCwd 'c.go'))
+)
+$khTranscript1 = Join-Path $khFixDir 'block.jsonl'
+[System.IO.File]::WriteAllLines($khTranscript1, $khLines1, $enc)
+Remove-Item -Recurse -Force $khMemDir -ErrorAction SilentlyContinue
+$khJson1 = @{ cwd = $khCwd; transcript_path = $khTranscript1; stop_hook_active = $false } | ConvertTo-Json -Compress
+Assert-Case '≥3 筆實質修改、無宣告、無 memory → block' 'knowhow-check.ps1' $khJson1 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match '無可沉澱' }
+
+Assert-Case 'stop_hook_active → 放行' 'knowhow-check.ps1' (@{ cwd = $khCwd; transcript_path = $khTranscript1; stop_hook_active = $true } | ConvertTo-Json -Compress) { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+Assert-Case '無 transcript_path → 放行' 'knowhow-check.ps1' (@{ cwd = $khCwd; stop_hook_active = $false } | ConvertTo-Json -Compress) { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+Assert-Case '壞 JSON → exit 0' 'knowhow-check.ps1' 'xxx' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# 僅 2 筆修改(低於門檻) → 放行
+$khLines2 = @(
+    (New-KhEditLine '2020-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
+    (New-KhEditLine '2020-01-01T00:00:01Z' (Join-Path $khCwd 'b.go'))
+)
+$khTranscript2 = Join-Path $khFixDir 'below-threshold.jsonl'
+[System.IO.File]::WriteAllLines($khTranscript2, $khLines2, $enc)
+$khJson2 = @{ cwd = $khCwd; transcript_path = $khTranscript2; stop_hook_active = $false } | ConvertTo-Json -Compress
+Assert-Case '僅 2 筆修改(低於門檻) → 放行' 'knowhow-check.ps1' $khJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# 2 筆專案內 + 2 筆 .claude 路徑下(應被排除，不計入門檻) → 放行
+$khLines3 = @(
+    (New-KhEditLine '2020-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
+    (New-KhEditLine '2020-01-01T00:00:01Z' (Join-Path $khCwd 'b.go')),
+    (New-KhEditLine '2020-01-01T00:00:02Z' (Join-Path $khCwd '.claude\c.go')),
+    (New-KhEditLine '2020-01-01T00:00:03Z' (Join-Path $khCwd '.claude\d.go'))
+)
+$khTranscript3 = Join-Path $khFixDir 'exclude-dotclaude.jsonl'
+[System.IO.File]::WriteAllLines($khTranscript3, $khLines3, $enc)
+$khJson3 = @{ cwd = $khCwd; transcript_path = $khTranscript3; stop_hook_active = $false } | ConvertTo-Json -Compress
+Assert-Case '.claude 路徑下修改不計入門檻 → 放行' 'knowhow-check.ps1' $khJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# 3 筆修改 + assistant text 含「已沉澱」 → 放行
+$khLines4 = $khLines1 + (New-KhTextLine '2020-01-01T00:00:03Z' '已沉澱：修正了 XX 邏輯（xx-pitfall.md）')
+$khTranscript4 = Join-Path $khFixDir 'declared.jsonl'
+[System.IO.File]::WriteAllLines($khTranscript4, $khLines4, $enc)
+$khJson4 = @{ cwd = $khCwd; transcript_path = $khTranscript4; stop_hook_active = $false } | ConvertTo-Json -Compress
+Assert-Case '3 筆修改 + 已宣告「已沉澱」 → 放行' 'knowhow-check.ps1' $khJson4 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# 3 筆修改 + memory 目錄下有檔案(mtime 晚於 session 起點) → 放行
+New-Item -ItemType Directory -Force $khMemDir | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $khMemDir 'MEMORY.md'), "# Memory Index`n", $enc)
+Assert-Case '3 筆修改 + memory 已更新 → 放行' 'knowhow-check.ps1' $khJson1 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
+
+# 3 筆修改，session 起點在未來(memory 檔相對更舊) + 無宣告 → block
+$khLinesFuture = @(
+    (New-KhEditLine '2030-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
+    (New-KhEditLine '2030-01-01T00:00:01Z' (Join-Path $khCwd 'b.go')),
+    (New-KhEditLine '2030-01-01T00:00:02Z' (Join-Path $khCwd 'c.go'))
+)
+$khTranscriptFuture = Join-Path $khFixDir 'future-session.jsonl'
+[System.IO.File]::WriteAllLines($khTranscriptFuture, $khLinesFuture, $enc)
+$khJsonFuture = @{ cwd = $khCwd; transcript_path = $khTranscriptFuture; stop_hook_active = $false } | ConvertTo-Json -Compress
+Assert-Case 'memory 檔早於 session 起點 → block' 'knowhow-check.ps1' $khJsonFuture { param($r) $r.Stdout -match '"decision":"block"' }
+
+# 清理 knowhow-check fixture
+Remove-Item -Recurse -Force $khMemDir -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $khFixDir -ErrorAction SilentlyContinue
+
 Write-Output ''
 Write-Output ("=== 結果: PASS {0} / FAIL {1} ===" -f $script:passed, $script:failed)
 if ($script:failed -gt 0) { exit 1 }

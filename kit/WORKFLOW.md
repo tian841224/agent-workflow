@@ -2,7 +2,7 @@
 
 # claude-workflow v2 — 開發流程總控
 
-主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、pre-review），本檔條文只管腳本管不到的判斷。
+主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、knowhow-check、pre-review），本檔條文只管腳本管不到的判斷。
 
 各 agent 使用的模型固定寫死於各自檔案的 frontmatter `model:` 欄位，orchestrator 呼叫時不得覆蓋：
 
@@ -16,7 +16,7 @@
 
 ## 1. 流程分級
 
-任務開始時由 architect 判定軌別並向使用者宣告，使用者可否決；使用者也可以在提出需求時直接指定軌別，跳過判定（architect 仍需檢查指定軌別是否明顯不符判準，不符時要提出疑慮，但不強迫改判）。L0 例外——由主對話（orchestrator）先行套用判準直接判定，不 spawn architect。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕軌與標準軌之間判斷不出升標準軌、標準軌與重軌之間判斷不出升重軌）。
+任務開始時由 architect 判定軌別並向使用者宣告，使用者可否決；使用者也可以在提出需求時直接指定軌別，跳過判定（architect 仍需檢查指定軌別是否明顯不符判準，不符時要提出疑慮，但不強迫改判）。L0 例外——由主對話（orchestrator）先行套用判準直接判定，不 spawn architect。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕軌與標準軌之間判斷不出升標準軌、標準軌與重軌之間判斷不出升重軌）。判軌前，若專案記憶索引（`~/.claude/projects/<project-slug>/memory/MEMORY.md`）含 `overview.md`，須先讀取以掌握專案脈絡與高風險區（此檔亦是判斷「高風險關鍵寫入路徑」的資訊來源之一，見 §9）。
 
 **L0 微軌**（全部符合才適用）：
 - 單一檔案、改動約 ≤10 行
@@ -60,6 +60,7 @@ L3 把關：pre-review.ps1 通過（若輸出「跳過語言檢查」，reviewer
    build/test 指令）→ reviewer 審查（≤2 輪）；reviewer 要求修正時，architect 修正後
    須把 L2 微驗收清單全部條目重跑一次（不是只跑被點名的那幾條）
 L4 證據：由 architect 依 L2 微驗收清單逐條執行、測試全綠即證據（測試輸出與微清單結果留存於回報）
+   ＋ know-how 沉澱檢查（§9）
 ```
 
 PM、QA 不出場（除非觸發上方「附加 gate：PM 畫面驗證」）；不建 acceptance 目錄。
@@ -78,7 +79,7 @@ M3 把關：pre-review.ps1 通過（跳過語言檢查時 reviewer 先人工補�
 M4 驗收：qa 依 mini-spec.md 條目逐條執行、當場對輸出比對 expect 判定 PASS/FAIL；
    含前端條目時追加 PM 畫面驗證（見附加 gate）；qa 加探索性測試（以主動找 bug 為
    目標——前端條目：畫面探索；純後端：edge-case 探索，細節同重軌 R5），
-   發現規格缺漏回報、不算條目失敗
+   發現規格缺漏回報、不算條目失敗；收尾執行 know-how 沉澱檢查（§9）
 ```
 
 任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（單檔，不建 spec.md/checklist.md/plan.md）。PM 不出場，除非觸發前端畫面驗證 gate。
@@ -164,7 +165,7 @@ R5 驗收：
      轉 debugger
    - checklist.md 與 spec.md 矛盾 → 回報使用者裁決，不自行認定以哪份為準
 R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式、流程統計——reviewer 幾輪、驗收
-   條目打回幾次、有無動用 debugger，彙整自 plan.md「回合記錄」）＋ /learn 沉澱
+   條目打回幾次、有無動用 debugger，彙整自 plan.md「回合記錄」）＋ know-how 沉澱檢查（§9）
 ```
 
 任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，內含 `spec.md`／`checklist.md`／`plan.md`（見 acceptance-spec.md）。
@@ -206,7 +207,30 @@ R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式、流�
 
 長期擱置的任務在 checklist.md／mini-spec.md 檔頭加 `<!-- paused -->`，stop-check hook 即不再提醒。
 
-## 9. 專案層擴充
+## 9. know-how 沉澱（收尾 gate）
+
+輕軌 L4／標準軌 M4／重軌 R6 收尾時，orchestrator 必答「沉澱三問」並在回報末尾明示結論：
+
+1. 本次是否踩到規格/文件沒寫的坑（→ pitfall）？
+2. 本次是否發生方案轉彎或多選一拍板（→ DECISIONS.md）？
+3. 本次是否發現專案結構、行為或歷史脈絡與既有認知不符（→ 更新 overview.md 或新增 project 記憶檔）？
+
+任一為「是」→ 依 /learn 寫入專案記憶層（`~/.claude/projects/<project-slug>/memory/`），回報末尾附「**已沉澱**：<摘要>（<檔名>）」。全部為「否」→ 回報末尾明寫「**無可沉澱**：<一句理由>」。不得為記而記——純執行既有清單、無新資訊的任務，一句理由即可跳過；但這兩句宣告是 `knowhow-check.ps1` hook 的機械偵測訊號，不寫會在 session 結束時被提醒一次。
+
+L0 微軌不強制此 gate（/learn 既有的自動觸發情境——被糾正、決策發生——仍照常適用）。
+
+**專案記憶層結構**（`~/.claude/projects/<project-slug>/memory/`，與 `~/.claude/rules/learning.md` 的全域記憶同構）：
+
+```
+MEMORY.md        # 索引（Claude Code 原生自動注入），固定分區：導覽/坑洞/高風險區與審查重點/專案知識/其他
+overview.md       # 專案概觀與歷史脈絡聚合檔，上限約 100 行：架構速覽/為什麼長這樣/高風險區與審查重點/慣例與常用指令指標
+DECISIONS.md      # 決策流水帳，append-only
+<topic-slug>.md   # 個別記憶檔（pitfall/project/reference/feedback），格式見 rules/learning.md §5
+```
+
+`overview.md` 是「導覽」索引固定連結的入口，超過上限時把細節下放個別記憶檔、此處只留索引行——這是 token 成本的主控閥。
+
+## 10. 專案層擴充
 
 - 專案可放 `<project>/.claude/agents/<name>.md` 同名整檔覆蓋 kit 的 agent（Claude Code 原生機制）
 - 專案專屬審查重點、慣例、指令寫在專案 CLAUDE.md 或 auto-memory；kit 本身不含任何專案專屬內容

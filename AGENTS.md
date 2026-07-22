@@ -1,8 +1,9 @@
 <!--
 這是 claude-workflow v2 的 Codex CLI 可攜版 AGENTS.md，內容與 kit/WORKFLOW.md + agents/*.md 對等。
-Codex 沒有 Claude Code 的 hooks 機制，git-guard / post-edit-check / stop-check 這幾支 PowerShell hook
-在這裡改寫成純行為約定（條文自律），不是機器強制，見第 10 節對照表。install.ps1 不處理本檔，需要的話
-手動複製到你的 Codex 設定目錄。
+Codex 沒有 Claude Code 的 hooks 機制，git-guard / post-edit-check / stop-check / knowhow-check 這幾支
+PowerShell hook 在這裡改寫成純行為約定（條文自律），不是機器強制，見第 11 節對照表。Codex 也沒有 Claude
+Code 的專案記憶自動注入機制，第 9 節「know-how 沉澱」改用專案 repo 內記憶層存放。install.ps1 不處理本檔，
+需要的話手動複製到你的 Codex 設定目錄。
 -->
 
 # claude-workflow v2 — 開發流程總控（Codex 版）
@@ -11,7 +12,7 @@ Codex 沒有 Claude Code 的 hooks 機制，git-guard / post-edit-check / stop-c
 
 ## 1. 流程分級
 
-任務開始時以 architect 身分判定軌別並向使用者宣告，使用者可否決；使用者也可以在提出需求時直接指定軌別，跳過判定（仍需檢查指定軌別是否明顯不符判準，不符時要提出疑慮，但不強迫改判）。L0 例外——不必切換身分，直接判定。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕軌與標準軌之間升標準軌、標準軌與重軌之間升重軌）。
+任務開始時以 architect 身分判定軌別並向使用者宣告，使用者可否決；使用者也可以在提出需求時直接指定軌別，跳過判定（仍需檢查指定軌別是否明顯不符判準，不符時要提出疑慮，但不強迫改判）。L0 例外——不必切換身分，直接判定。判斷不出一律往上升一級（L0 有疑慮升輕軌、輕軌與標準軌之間升標準軌、標準軌與重軌之間升重軌）。判軌前，若專案的 repo 內記憶層（見 §9）已有 `overview.md` 或等效的專案概觀檔，須先讀取以掌握專案脈絡與高風險區。
 
 **L0 微軌**（全部符合才適用）：
 - 單一檔案、改動約 ≤10 行
@@ -52,6 +53,7 @@ L3 把關：pre-review 通過（若跳過語言檢查，切換 reviewer 身分�
    → 切換 reviewer 身分審查（≤2 輪）；要求修正時，修正後把 L2 微驗收清單全部條目
    重跑一次，不是只跑被點名的幾條
 L4 證據：切回 architect 身分依 L2 微驗收清單逐條執行、全綠即證據（測試輸出與微清單結果留存於回報）
+   ＋ know-how 沉澱檢查（§9）
 ```
 
 PM、QA 身分不出場（除非觸發上方「附加 gate：畫面驗證」）；不建 acceptance 目錄。
@@ -68,7 +70,8 @@ M2 實作：以 architect 身分實作（TDD seam 取自凍結 mini-spec）→ �
 M3 把關：pre-review 通過（跳過語言檢查時人工補跑 build/test）→ 切換 reviewer 身分
    審查 diff（對照 mini-spec.md，≤2 輪）
 M4 驗收：以 QA 身分逐條執行、當場比對 expect 判定 PASS/FAIL；含前端條目時追加以 PM
-   身分做畫面驗證；QA 身分加一輪探索性測試（前端做畫面探索、純後端做 edge-case 探索）
+   身分做畫面驗證；QA 身分加一輪探索性測試（前端做畫面探索、純後端做 edge-case 探索）；
+   收尾執行 know-how 沉澱檢查（§9）
 ```
 
 任務目錄：`~/.Codex/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（單檔，不建 spec.md/checklist.md/plan.md）。PM 身分不出場，除非觸發前端畫面驗證 gate。
@@ -126,7 +129,7 @@ R5 驗收：
      3 次仍失敗，依 §5 回合上限切換 debugger 身分
    - checklist.md 與 spec.md 矛盾 → 交使用者裁決，不自行認定以哪份為準
 R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式、流程統計——reviewer 幾輪、驗收
-   條目打回幾次、有無動用 debugger）
+   條目打回幾次、有無動用 debugger）＋ know-how 沉澱檢查（§9）
 ```
 
 任務目錄：`~/.Codex/projects/<project-slug>/acceptance/<task-slug>/`，內含 `spec.md`／`checklist.md`／`plan.md`。**`<project-slug>` 沒有 Claude Code 那套自動路徑編碼機制可用**——Codex 版本請在任務一開始就與使用者約定一個固定 slug（建議直接用 repo 名稱），並在後續回報中沿用同一個值，不要每次自己重新決定。
@@ -164,17 +167,44 @@ R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式、流�
 
 長期擱置的任務在 checklist.md／mini-spec.md 檔頭加 `<!-- paused -->`。
 
-## 9. 專案層擴充
+## 9. know-how 沉澱（收尾自律）
+
+輕軌 L4／標準軌 M4／重軌 R6 收尾時，必答「沉澱三問」並在回報末尾明示結論：
+
+1. 本次是否踩到規格/文件沒寫的坑（→ pitfall）？
+2. 本次是否發生方案轉彎或多選一拍板（→ DECISIONS.md）？
+3. 本次是否發現專案結構、行為或歷史脈絡與既有認知不符（→ 更新 overview.md 或新增 project 記憶檔）？
+
+任一為「是」→ 寫入專案的 repo 內記憶層，回報末尾附「**已沉澱**：<摘要>（<檔名>）」。全部為「否」→ 回報末尾明寫「**無可沉澱**：<一句理由>」。不得為記而記——純執行既有清單、無新資訊的任務，一句理由即可跳過。
+
+L0 微軌不強制此 gate。
+
+**Codex 沒有 Claude Code 的專案記憶自動注入與 Stop hook**，這裡的沉澱純靠條文自律，session 結束前自己檢查有沒有做過這三問——沒有機械提醒會擋你，忘記做等同這次的 know-how 就此流失，不會有第二次機會提醒。
+
+**記憶層存放位置**：優先沿用該專案既有的 repo 內記憶慣例（如 `.agent/learning/`、`docs/decisions/`）；沒有既有慣例時，建議在專案根目錄建立 `AGENTS.memory/`（或與使用者確認一個固定路徑），結構比照 Claude Code 版：
+
+```
+AGENTS.memory/
+  MEMORY.md        # 索引：導覽/坑洞/高風險區與審查重點/專案知識/其他
+  overview.md       # 專案概觀與歷史脈絡聚合檔，上限約 100 行
+  DECISIONS.md      # 決策流水帳，append-only
+  <topic-slug>.md   # 個別記憶檔（pitfall/project/reference/feedback），frontmatter 格式同 Claude Code 版
+```
+
+因為沒有自動索引注入，每個 session 開場（或至少判軌前）要自己主動讀一次 `MEMORY.md` 索引與 `overview.md`，不能假設自己「應該記得」上次的內容。
+
+## 10. 專案層擴充
 
 專案專屬審查重點、慣例、指令寫在專案 AGENTS.md 或該專案自己的記憶機制；本檔不含任何專案專屬內容。
 
-## 10. Hooks 對應行為（Codex 沒有 hook 機制，這裡改為條文自律）
+## 11. Hooks 對應行為（Codex 沒有 hook 機制，這裡改為條文自律）
 
 claude-workflow v2 對 Claude Code 使用者用 PowerShell hooks 做機器強制；Codex 沒有對應機制，下列規則改為你自己每次都要記得做：
 
 - **git-guard**（原：攔截破壞性 git 操作、commit/push 每次詢問）→ 對應第 7 節版本控制紀律，純靠自律，不得有例外
 - **post-edit-check**（原：`.go` 檔編輯後自動跑 gofmt/go vet；`.ts`/`.tsx`/`.js`/`.jsx` 檔在本地已裝 prettier 時跑 prettier --check）→ 每次編輯上述檔案後，自己主動跑一次對應的格式化與靜態檢查指令，不要等到 reviewer 階段才發現
 - **stop-check**（原：session 結束前掃驗收缺件）→ session 結束前自己檢查 acceptance 目錄有沒有漏勾的 checkbox、有沒有承諾要做但沒做完的事
+- **knowhow-check**（原：session 有 ≥3 筆實質修改卻未宣告/未更新專案記憶層時機械提醒，見 §9）→ session 結束前自己檢查這次是否做過「沉澱三問」並在回報寫下「已沉澱」或「無可沉澱」，沒有 hook 會幫你抓漏，忘記做這次 know-how 就流失了
 - **weekly-review-check**（原：週回顧到期提醒）→ 不強制對應；若想要週期性 `/evolve` 沉澱，自行提醒使用者或用排程工具
 - **log-session**（原：session 結束時自動寫每日工作日誌）→ 不強制對應；若使用者需要工作日誌，session 結束前自行整理一段摘要供使用者留存
 

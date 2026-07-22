@@ -32,6 +32,11 @@
             "type": "command",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\stop-check.ps1\"",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\knowhow-check.ps1\"",
+            "timeout": 15
           }
         ]
       }

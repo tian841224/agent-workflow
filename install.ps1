@@ -76,10 +76,25 @@ $summary += "skills learn/evolve/tdd/systematic-debugging → $(Join-Path $Targe
 
 # 1d. hooks → ~/.claude/hooks/claude-workflow/
 $hooksDstDir = Join-Path $Target 'hooks\claude-workflow'
-foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'hooks') -Filter *.ps1)) {
+$hookFiles = @(Get-ChildItem (Join-Path $repoRoot 'hooks') -Filter *.ps1)
+foreach ($f in $hookFiles) {
     Do-Copy $f.FullName (Join-Path $hooksDstDir $f.Name)
 }
-$summary += "hooks 5 支 → $hooksDstDir"
+$summary += "hooks $($hookFiles.Count) 支 → $hooksDstDir"
+
+# 1e. rules（同名但無 managed 標記者先備份，同 1b agents 邏輯——使用者可能已有個人 learning.md）
+foreach ($f in (Get-ChildItem (Join-Path $repoRoot 'rules') -Filter *.md)) {
+    $dst = Join-Path $Target "rules\$($f.Name)"
+    if ((Test-Path $dst) -and -not (Select-String -Path $dst -Pattern 'managed by claude-workflow' -Quiet)) {
+        $bak = "$dst.bak.$stamp"
+        if (-not $DryRun) { Copy-Item $dst $bak -Force }
+        Log "警告: $dst 為使用者自有檔案,已備份至 $bak 後覆蓋"
+        $summary += "備份 $bak"
+    }
+    Do-Copy $f.FullName $dst
+}
+$ruleCount = (Get-ChildItem (Join-Path $repoRoot 'rules') -Filter *.md).Count
+$summary += "rules $ruleCount 檔 → $(Join-Path $Target 'rules')"
 
 # ---------- 2. 使用者層: CLAUDE.md marker 區塊 ----------
 Log '=== 使用者層: CLAUDE.md ==='
@@ -132,7 +147,7 @@ foreach ($eventProp in $fragment.hooks.PSObject.Properties) {
             foreach ($c in $cmds) { if ($c -like "*$marker*" -or $c -like '*hooks/claude-workflow*') { $isKit = $true } }
             # 同檔名的舊註冊 (裝在別的路徑) 印警告但不動
             foreach ($c in $cmds) {
-                foreach ($n in @('git-guard.ps1','post-edit-check.ps1','stop-check.ps1','weekly-review-check.ps1','log-session.ps1')) {
+                foreach ($n in @('git-guard.ps1','post-edit-check.ps1','stop-check.ps1','knowhow-check.ps1','weekly-review-check.ps1','log-session.ps1')) {
                     if ($c -like "*$n*" -and -not $isKit) { Log "警告: $eventName 已有非 kit 路徑的 $n 註冊,請手動擇一: $c" }
                 }
             }
