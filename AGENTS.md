@@ -228,7 +228,6 @@ claude-workflow v2 對 Claude Code 與 Codex 共用 PowerShell hooks；Codex 由
 - **post-edit-check**（`.go` 檔編輯後跑 gofmt/go vet；JS/TS 檔依本地 prettier 設定檢查）→ hook 自動執行；若未信任則手動執行
 - **stop-check**（session 結束前掃驗收缺件）→ hook 自動執行；若未信任則手動檢查 acceptance 目錄
 - **knowhow-check**（有實質修改卻未沉澱 know-how 時提醒）→ hook 自動提醒；session 結束仍必須回報「已沉澱」或「無可沉澱」
-- **weekly-review-check**（週回顧到期提醒）→ SessionStart hook 自動提醒
 - **log-session**（session 結束時寫每日工作日誌）→ SessionEnd hook 自動執行
 
 ## 角色定義

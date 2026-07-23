@@ -41,18 +41,6 @@
         ]
       }
     ],
-    "SessionStart": [
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\weekly-review-check.ps1\"",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
     "SessionEnd": [
       {
         "hooks": [
