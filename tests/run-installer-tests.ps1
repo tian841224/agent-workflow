@@ -29,7 +29,13 @@ try {
     Assert ($before -eq $after) 'second install keeps canonical file count stable'
     $dry = & (Join-Path $repo 'install.ps1') -DryRun -Agent Both -ClaudeTarget (Join-Path $root 'dry-claude') -CodexTarget (Join-Path $root 'dry-codex') -CanonicalTarget (Join-Path $root 'dry-canonical') | Out-String
     Assert (-not (Test-Path (Join-Path $root 'dry-canonical'))) 'DryRun does not create canonical directory'
-    Run-Installer @('-Action','Status','-ClaudeTarget',$claude,'-CodexTarget',$codex,'-CanonicalTarget',$canonical)
+    $statusOut = & (Join-Path $repo 'install.ps1') -Action Status -ClaudeTarget $claude -CodexTarget $codex -CanonicalTarget $canonical -AntigravityTarget $antigravity | Out-String
+    Assert ($statusOut -match 'AntigravityExists\s*:\s*True') 'Status reports AntigravityExists'
+    Assert ($statusOut -match 'AntigravityLinked\s*:\s*True') 'Status reports AntigravityLinked'
+    $missingAntigravity = Join-Path $root 'no-such-gemini'
+    $statusOut2 = & (Join-Path $repo 'install.ps1') -Action Status -ClaudeTarget $claude -CodexTarget $codex -CanonicalTarget $canonical -AntigravityTarget $missingAntigravity | Out-String
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "installer exit $LASTEXITCODE on missing antigravity target" }
+    Assert ($statusOut2 -match 'AntigravityExists\s*:\s*False') 'Status handles missing Antigravity target without throwing'
     Write-Output '=== installer tests: PASS ==='
 } finally {
     if (Test-Path $root) { Remove-Item -LiteralPath $root -Recurse -Force }
