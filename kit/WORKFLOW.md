@@ -2,7 +2,7 @@
 
 # claude-workflow v2 — 開發流程總控
 
-主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、knowhow-check、pre-review），本檔條文只管腳本管不到的判斷。
+主對話（orchestrator）依本檔分派 architect / reviewer / qa / pm / debugger 五個 subagent（另有 security-engineer / refactoring-expert 兩個不綁 workflow 的獨立顧問角色，見 §0 模型表下方說明）。流程骨架由本檔確定性控制，subagent 不得自行展開流程或跳過 gate。機械性檢查由腳本與 hooks 保證（git-guard、post-edit-check、stop-check、knowhow-check、pre-review），本檔條文只管腳本管不到的判斷。
 
 ## 0. 適用範圍 gate
 
@@ -21,6 +21,10 @@
 | reviewer | sonnet | 靜態審查與 architect 對等抗衡，避免同模型自我審核的盲點但仍需具體程式理解力 |
 | debugger | sonnet | 根因分析需要程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
 | qa | sonnet | 除機械執行凍結清單外，還負責探索性測試——需要推理能力自行設計清單外的邊界組合、異常路徑與操作情境來主動找 bug，haiku 等級不足以勝任 |
+| security-engineer | sonnet | 獨立顧問角色（見下），專項安全審計需要具體程式理解力與威脅推理 |
+| refactoring-expert | sonnet | 獨立顧問角色（見下），技術債診斷與重構規劃需要讀懂既有結構 |
+
+**獨立顧問角色（不綁 workflow）**：security-engineer（專項安全審計/威脅建模）與 refactoring-expert（技術債盤點/重構規劃）是 workflow 軌別之外的顧問角色——出場方式是使用者指名，或主對話判斷場景符合時建議呼叫，不參與軌別判定、不佔 reviewer 回合。兩者**全部唯讀**，只產出審計報告或重構計畫；因為是唯讀分析而非程式修改，不受 §0 多角色 gate 管轄，但其建議要落地修改時一律回到本 workflow 開任務、照常判軌。與既有角色的分工：reviewer 審「本次 diff」的資安面，security-engineer 審「模組/專案」的整體安全狀態；architect 執行重構，refactoring-expert 只出診斷與計畫。
 
 +## 0.1 角色專屬交接 prompt
 

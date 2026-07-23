@@ -2,7 +2,7 @@
 
 > 本 repo 採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
 
-可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
+可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
 核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
 
@@ -157,6 +157,15 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 
 兩條路徑 `debugger` 都只執行 `systematic-debugging` skill 的前三階段（蒐證／模式分析／假說驗證）、不改 code、不下修復方案，結論交回 architect。回合計數（reviewer↔architect、PM↔architect、R4/R5 打回、R3c 打回）由 orchestrator 每輪結束記錄到 `plan.md` 的「回合記錄」段落，以檔案為準、不靠對話記憶（標準軌無 plan.md，回合次數在回報中口頭列出即可）。
 
+## 獨立顧問角色（不綁 workflow）
+
+`security-engineer` 與 `refactoring-expert` 是 workflow 軌別之外的顧問角色，出場方式是使用者指名或主對話判斷場景符合時建議呼叫，不參與軌別判定、不佔 reviewer 回合。兩者**全部唯讀**，只產出報告與計畫；因為是唯讀分析而非程式修改，不受 §0 多角色 gate 管轄，但其建議要落地修改時一律回到 workflow 開任務、照常判軌。
+
+| 角色 | 職責 | 與既有角色的分工 |
+|---|---|---|
+| security-engineer | 專項安全審計：威脅建模、攻擊面盤點、OWASP Top 10 對照、Critical/High/Medium/Low 嚴重度分級 | reviewer 審「本次 diff」的資安面；security-engineer 審「模組/專案」的整體安全狀態 |
+| refactoring-expert | 重構評估：code smell 診斷、測試安全網評估、小步等價變換的分步計畫與預期收益 | architect 執行重構（行為不變是硬約束）；refactoring-expert 只出診斷與計畫，不為順手重構背書 |
+
 ## 其他 CLI 支援
 
 repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源，不再是 Codex 專屬副本。Claude/Codex 的入口檔只負責使用平台要求的固定檔名；hooks schema、execpolicy 與 settings merge 仍由 `adapters/claude/`、`adapters/codex/` 管理。`install.ps1` 會自動建立入口連結與平台設定。
@@ -190,6 +199,8 @@ repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源�
 | reviewer | sonnet | 靜態審查需具體程式理解力，與 architect 對等但獨立審視 |
 | debugger | sonnet | 根因分析需程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
 | qa | sonnet | 除執行凍結清單外還負責探索性測試，需要推理能力自行設計清單外的邊界組合與異常情境主動找 bug |
+| security-engineer | sonnet | 獨立顧問角色，專項安全審計需要具體程式理解力與威脅推理 |
+| refactoring-expert | sonnet | 獨立顧問角色，技術債診斷與重構規劃需要讀懂既有結構 |
 
 以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `kit/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `kit/WORKFLOW.md` 不一致，以 `kit/WORKFLOW.md` 為準。
 
