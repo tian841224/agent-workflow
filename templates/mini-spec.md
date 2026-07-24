@@ -1,7 +1,7 @@
 <!-- 僅供程式任務使用；一般規格由單一主 agent 處理，不建立 acceptance 文件。 -->
 <!-- template: 複製到 ~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md
      標準軌（M 軌）專用：單檔規格，不分商業/技術兩段、不另建 checklist.md/plan.md。
-     由 architect 一次寫完，使用者一次確認即凍結。格式規約見 kit/acceptance-spec.md -->
+     由 architect 一次寫完，使用者一次確認即凍結。格式規約見 workflow/acceptance-spec.md -->
 
 # <任務標題> — 標準軌規格（mini-spec.md）
 - project: <專案根目錄絕對路徑>

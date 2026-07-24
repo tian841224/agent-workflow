@@ -1,4 +1,4 @@
-<!-- 範例：與 checklist.md 同目錄的 SDD 規格書。實際使用時複製 kit/templates/spec.md 到
+<!-- 範例：與 checklist.md 同目錄的 SDD 規格書。實際使用時複製 templates/spec.md 到
      ~/.claude/projects/<project-slug>/acceptance/<task-slug>/spec.md -->
 
 # 範例任務：健康檢查端點 — 規格書（spec.md）

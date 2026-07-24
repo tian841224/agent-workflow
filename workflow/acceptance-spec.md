@@ -24,7 +24,7 @@
 
 `<project-slug>` 為 Claude Code 對專案路徑的編碼（例：`C--Users-jacky-Documents-myproject`），與該專案 auto-memory 同層。
 
-## spec.md 格式（SDD 規格書，用 `kit/templates/spec.md` 模板）
+## spec.md 格式（SDD 規格書，用 `templates/spec.md` 模板）
 
 規格書分兩部分、兩階段完成，是 checklist.md 的推導來源：
 
@@ -98,7 +98,7 @@ checklist.md 兩段式展開：PM 依 spec.md **商業規格**寫驗收條目（
 - `spec` / `test-type` / `given` / `when` / `then` 規則同後端型
 - qa 以 browser 工具操作、當場觀察畫面是否符合 `expect` 並判定 PASS/FAIL，PM 再依 checklist 走一次人工複核；不需要留存截圖檔
 
-## mini-spec.md 格式（標準軌，用 `kit/templates/mini-spec.md` 模板）
+## mini-spec.md 格式（標準軌，用 `templates/mini-spec.md` 模板）
 
 標準軌任務不分商業/技術兩段規格、不建 checklist.md/plan.md，architect 一次寫完單一檔案，使用者一次確認即凍結。內容包含：目標／範圍／非目標、TDD seam、3–6 條驗收條目。
 
@@ -115,7 +115,7 @@ checklist.md 兩段式展開：PM 依 spec.md **商業規格**寫驗收條目（
 
 ## plan.md 子任務分解表格式（R3 平行實作用，architect 協調模式於 R3a 填）
 
-重軌 R3 可拆成多個可獨立開發的 sub task 平行開發時，architect 協調模式在 `plan.md`（模板見 `kit/templates/plan.md`）填「子任務分解表」，供 orchestrator fan-out 與 R3c 彙整確認對照：
+重軌 R3 可拆成多個可獨立開發的 sub task 平行開發時，architect 協調模式在 `plan.md`（模板見 `templates/plan.md`）填「子任務分解表」，供 orchestrator fan-out 與 R3c 彙整確認對照：
 
 - 每個 sub task 編號 `T<n>`（n 從 1 遞增）。**一律用 `T<n>` 前綴、不得用 `R<n>`**——`stop-check.ps1` 只把 `- [ ] R<n>` 視為未勾階段，`T<n>` 不會被誤報
 - 每個 sub task 必須標明**互斥的檔案/模組範圍**（按目錄/package 切分，不是只切單一檔案），確保多個實作 agent 平行寫入不會動到同一 package

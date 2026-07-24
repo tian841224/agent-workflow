@@ -77,7 +77,7 @@ function Link-SharedDirectoryEntries([string]$Target, [string]$Source) {
     }
 }
 function Write-ManagedFile([string]$Source, [string]$Destination) {
-    if ((Test-Path -LiteralPath $Destination) -and -not (Select-String -LiteralPath $Destination -Pattern 'managed by ai-workflow' -Quiet)) { Backup-Path $Destination }
+    if ((Test-Path -LiteralPath $Destination) -and -not (Select-String -LiteralPath $Destination -Pattern 'claude-workflow' -Quiet)) { Backup-Path $Destination }
     if ($DryRun) { Log "[dry-run] copy $Source -> $Destination"; return }
     Ensure-Directory (Split-Path -Parent $Destination)
     Copy-Item -LiteralPath $Source -Destination $Destination -Force

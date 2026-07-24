@@ -1,6 +1,6 @@
-<!-- 範例：一個最小的重軌驗收清單。實際使用時複製 kit/templates/checklist.md 到
+<!-- 範例：一個最小的重軌驗收清單。實際使用時複製 templates/checklist.md 到
      ~/.claude/projects/<project-slug>/acceptance/<task-slug>/checklist.md
-     每條溯源同目錄 spec.md 的 S<n>，見 spec.md 範例與 kit/acceptance-spec.md -->
+     每條溯源同目錄 spec.md 的 S<n>，見 spec.md 範例與 workflow/acceptance-spec.md -->
 
 # 範例任務：健康檢查端點
 - project: C:\path\to\your\project

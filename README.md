@@ -95,10 +95,10 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 主對話直接修 + 自檢 + 跑對應驗證，不 spawn agent、不出 reviewer；任何猶豫 → 升輕軌
 ```
 
-**輕軌**（bug fix / 單一函式/檔案內的小改，不改契約與 schema、不涉高風險關鍵寫入路徑）：
+**輕軌**（bug fix〔可跨少數 2–3 個檔案〕/ 單一模組內的小規模改動，不改契約與 schema、不涉高風險關鍵寫入路徑）：
 
 ```
-L1 architect 判定 → L2 開工前列 3–5 條微驗收清單（至少一條異常/邊界，orchestrator 需
+L1 orchestrator 判定 → L2 開工前列 3–5 條微驗收清單（至少一條異常/邊界，orchestrator 需
    把清單全文帶入 L3/L4 的 prompt）→ 實作
 → L3 pre-review + reviewer(≤2輪，跳過語言檢查時 reviewer 先人工補跑 build/test；
    要求修正時全部微驗收清單重跑，非只跑被點名的幾條)
@@ -117,7 +117,7 @@ M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗�
    「規格缺漏」與「實作缺陷」（視同 FAIL）兩類，不得一律當規格缺漏帶過
 ```
 
-**重軌**（新 feature/跨模組改動 / 改 API/WS 契約 / 改 DB schema / 高風險關鍵寫入路徑），SDD／TDD 融入版：
+**重軌**（跨模組/跨服務的新 feature 或改動 / 改 API/WS 契約 / 改 DB schema / 高風險關鍵寫入路徑），SDD／TDD 融入版：
 
 ```
 R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-When-Then，條目數
@@ -145,13 +145,13 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 → R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ /learn 沉澱
 ```
 
-**附加 gate：PM 畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加 PM 走一次畫面驗證：L0/輕軌由 PM 直接用 browser 工具核對；標準軌/重軌由 qa 先執行 ui 條目、PM 再複核。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
+**附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對，PM 不出場；標準軌/重軌由 qa 先執行 ui 條目、PM 再複核。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
 
 **中途升降軌**：實作途中才發現命中更高軌判準，立即停手宣告升軌、補走該軌缺的前置步驟（標準軌補 mini-spec、重軌補完整 spec.md 流程並凍結）再繼續；降軌需使用者同意。
 
-任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌只有單檔 `mini-spec.md`（詳見 `kit/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
+任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
 
-**除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `kit/WORKFLOW.md` 第 5 節）：`debugger`（唯讀）有兩條出場路徑——
+**除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `workflow/WORKFLOW.md` 第 5 節）：`debugger`（唯讀）有兩條出場路徑——
 - 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
 - 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
 
@@ -202,7 +202,7 @@ repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源�
 | security-engineer | sonnet | 獨立顧問角色，專項安全審計需要具體程式理解力與威脅推理 |
 | refactoring-expert | sonnet | 獨立顧問角色，技術債診斷與重構規劃需要讀懂既有結構 |
 
-以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `kit/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `kit/WORKFLOW.md` 不一致，以 `kit/WORKFLOW.md` 為準。
+以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `workflow/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `workflow/WORKFLOW.md` 不一致，以 `workflow/WORKFLOW.md` 為準。
 
 ## 測試
 
