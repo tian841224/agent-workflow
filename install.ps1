@@ -41,9 +41,20 @@ function Test-LinkTo([string]$Path, [string]$Target) {
     $item = Get-Item -LiteralPath $Path -Force
     return (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and ($item.Target -contains $Target -or $item.Target -eq $Target))
 }
+function Get-DirectorySignature([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    $base = (Get-Item -LiteralPath $Path -Force).FullName
+    $entries = Get-ChildItem -LiteralPath $Path -Recurse -File -Force | Sort-Object FullName |
+        ForEach-Object { "$($_.FullName.Substring($base.Length))=$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" }
+    ($entries -join ';')
+}
 function Link-Or-CopyDirectory([string]$Target, [string]$Source) {
     if (Test-LinkTo $Target $Source) { return 'link' }
-    if (Test-Path -LiteralPath $Target) { Backup-Path $Target }
+    if (Test-Path -LiteralPath $Target) {
+        $item = Get-Item -LiteralPath $Target -Force
+        if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and (Get-DirectorySignature $Target) -eq (Get-DirectorySignature $Source)) { return 'copy' }
+        Backup-Path $Target
+    }
     $parent = Split-Path -Parent $Target; Ensure-Directory $parent
     if ($DryRun) { Log "[dry-run] junction $Target -> $Source"; return 'junction' }
     try {
