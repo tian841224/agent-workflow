@@ -2,23 +2,24 @@
 
 > 本 repo 採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
 
-可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 自我學習迴圈（learn / evolve）+ 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
+可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 內化的即時記憶整理 + 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
-核心理念：**確定性下沉**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
+核心理念（v3，依 Claude 5 世代 context engineering 原則調整）：**確定性下沉＋漸進式披露**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷；常駐層（`AGENTS.md`）只留判軌摘要與硬護欄（git 紀律、凍結制、升軌），流程細節下放 `skills/workflow/`（判軌細則＋各軌別分檔）與 `agents/*.md`（角色定義）按需載入，同一指令不在多處重複。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
 
 多角色 workflow 僅適用於程式任務；文件、規格、需求、規劃、設定政策與一般文字工作均由單一主 agent 處理。混合請求只把實際程式碼部分送入多角色流程。
 
 ## 目錄結構
 
 ```
-workflow/               唯一共用流程來源
+workflow/               acceptance 文件格式規約（WORKFLOW.md 為 v3 章節對照表）
+skills/workflow/        流程細節（判軌細則＋輕/標準/重軌分檔＋交接），按需載入
 agents/ skills/ rules/  共用角色、技能與規則
 scripts/ templates/     共用工具與模板
 hooks/                  共用 hook 實作
 adapters/shared/        manifest 與跨平台路徑 helper
 adapters/claude/       Claude settings.json hooks schema
 adapters/codex/        Codex hooks.json 與 execpolicy rules
-adapters/antigravity/  Antigravity GEMINI.md 入口說明
+adapters/antigravity/  Antigravity GEMINI.md 與 hooks.json adapter
 examples/              驗收清單範例、專案層覆蓋機制說明
 tests/                  hook 與 installer acceptance tests
 install.ps1
@@ -27,8 +28,8 @@ install.ps1
 ## 安裝（Windows）
 
 ```powershell
-git clone https://github.com/tian841224/claude-workflow
-cd claude-workflow
+git clone https://github.com/tian841224/agent-workflow
+cd agent-workflow
 .\install.ps1              # canonical 裝到 ~/.agents，並建立平台 adapter
 .\install.ps1 -DryRun      # 先看會動哪些檔
 .\install.ps1 -Target D:\test\fake-home   # 測試安裝
@@ -42,7 +43,7 @@ cd claude-workflow
 .\install.ps1 -Action Uninstall
 ```
 
-repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/codex/` 只放各平台的 hook schema、execpolicy 與設定合併格式。`~/.claude/CLAUDE.md` 與 `~/.codex/AGENTS.md` 直接指向 `~/.agents/AGENTS.md`；舊的 `claude-workflow` 路徑會保留為 deprecated compatibility junction，不應再直接編輯。
+repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/codex/` 只放各平台的 hook schema、execpolicy 與設定合併格式。`~/.claude/CLAUDE.md` 與 `~/.codex/AGENTS.md` 直接指向 `~/.agents/AGENTS.md`；舊的 `agent-workflow` 路徑會保留為 deprecated compatibility junction，不應再直接編輯。
 
 安裝器可選擇目標 AI agent；預設 `Both` 以維持既有相容性：
 
@@ -54,7 +55,7 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 .\install.ps1 -Agent All      # Claude、Codex、Antigravity 全部安裝
 ```
 
-`-Agent` 也可寫成 `-Platform`。Codex 模式會讓 `~/.codex/AGENTS.md` 指向 `~/.agents/AGENTS.md`，並安裝 Codex `hooks.json` 與 `rules/default.rules`；Claude 模式則讓 `~/.claude/CLAUDE.md` 指向同一份共用 `AGENTS.md`，再安裝 Claude `settings.json` hooks；Antigravity 模式則讓 `~/.gemini/GEMINI.md` 指向同一份共用 `AGENTS.md`。
+`-Agent` 也可寫成 `-Platform`。Codex 模式會讓 `~/.codex/AGENTS.md` 指向 `~/.agents/AGENTS.md`，並安裝 Codex `hooks.json` 與 `rules/default.rules`；Claude 模式則讓 `~/.claude/CLAUDE.md` 指向同一份共用 `AGENTS.md`，再安裝 Claude `settings.json` hooks；Antigravity 模式則讓 `~/.gemini/GEMINI.md` 指向同一份共用 `AGENTS.md`，並將 Antigravity hooks 合併至 `~/.gemini/config/hooks.json`。
 
 共用 workflow 會安裝到 `~/.agents/`。Claude 與 Codex 只連結 repo 管理的 agents、skills、rules 項目；目標目錄中其他既有 agent、skill、rule 與 Codex 原生檔案會保留，不會整個目錄替換：
 
@@ -71,7 +72,7 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 | canonical 層 | `~/.agents/AGENTS.md`、`workflow/`、共用 `agents/`、`skills/`、`rules/`、`scripts/`、`templates/`、`hooks/` | 共用來源只有一份；repo 更新後重新執行 installer 同步 |
 | Claude 入口 | `~/.claude/CLAUDE.md` | symlink 指向 `~/.agents/AGENTS.md`；權限不足時 fallback 為複製，既有不同內容先備份 |
 | Codex 入口 | `~/.codex/AGENTS.md` | symlink 指向 `~/.agents/AGENTS.md`；權限不足時 fallback 為複製，既有不同內容先備份 |
-| 平台設定 | Claude `settings.json`、Codex `hooks.json`／`rules/default.rules` | 只合併或更新平台專屬受控設定，既有自有設定保留 |
+| 平台設定 | Claude `settings.json`、Codex `hooks.json`／`rules/default.rules`、Antigravity `config/hooks.json`／`config/global_workflows/` | 只合併或更新平台專屬受控設定，既有自有設定保留 |
 | 共用項目 | `~/.claude/agents/`、`~/.codex/agents/` 等 | 只管理 repo 同名項目，其他使用者或 Codex 原生項目不覆蓋 |
 | 專案層 | `<project>/.claude/`、專案 CLAUDE.md | 完全不碰 |
 
@@ -83,13 +84,13 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 
 ### 專案 know-how 累積
 
-自我學習迴圈的擷取階段過去只靠條文自覺，容易被忘記。v2 把它接進流程骨架：輕軌 L4／標準軌 M4／重軌 R6 收尾時（`WORKFLOW.md` §9）必須回答「沉澱三問」（有沒有踩坑、有沒有方案轉彎、有沒有發現專案脈絡與既有認知不符），並在回報末尾明寫「已沉澱：<摘要>」或「無可沉澱：<理由>」。這兩句宣告是 `knowhow-check.ps1` hook 的機械放行訊號——若 session 對專案有 ≥3 筆實質修改卻既未宣告、專案記憶層（`~/.claude/projects/<slug>/memory/`）也沒更新，Stop 事件會被 block 一次提醒。
+自我學習已內化到記憶寫入流程與任務收尾：寫入前先查索引、同主題合併、驗證引用內容，達到證據門檻才提出規則／技能／全域升級。輕軌 L4／標準軌 M4／重軌 R6 收尾時（`skills/workflow/SKILL.md`「收尾」）仍必須回答「沉澱三問」，並在回報末尾明寫「已沉澱：<摘要>」或「無可沉澱：<理由>」。這兩句宣告是 `knowhow-check.ps1` hook 的機械放行訊號。
 
 專案記憶層結構：`MEMORY.md`（索引，Claude Code 原生自動注入）+ `overview.md`（專案概觀與歷史脈絡聚合檔，上限約 100 行，判軌前需先讀）+ `DECISIONS.md`（決策流水帳）+ 個別記憶檔（pitfall/project/reference/feedback）。全域記憶層（`~/.claude/memory/`）採同構格式，兩者格式定義的權威來源都在 `rules/learning.md`。
 
 ## 流程速覽
 
-判軌以**功能與影響範圍**為單位，不以模組/檔案/行數為單位：看「這次改動是不是單一功能」與「出錯時會波及多少既有功能（blast radius）」。乾淨架構下一個功能垂直跨多層/多模組仍屬單一功能；影響指的是「出錯時會壞到哪些功能」，行為不變的重構動到多功能共用路徑一樣算波及多功能（完整判準見 `workflow/WORKFLOW.md` §1）。
+判軌以**功能與影響範圍**為單位，不以模組/檔案/行數為單位：看「這次改動是不是單一功能」與「出錯時會波及多少既有功能（blast radius）」。乾淨架構下一個功能垂直跨多層/多模組仍屬單一功能；影響指的是「出錯時會壞到哪些功能」，行為不變的重構動到多功能共用路徑一樣算波及多功能（完整判準見 `skills/workflow/SKILL.md`）。
 
 **L0 微軌**（trivial 改動：不影響任何功能的可觀察行為、不動邏輯分支/介面/schema，限文案/註解/設定值/typo/純樣式；規模大到需逐條核對才能確認沒改到行為時升輕軌）：
 
@@ -144,7 +145,7 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
           qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題
           分「規格缺漏」（回報不算失敗）與「實作缺陷」（視同 FAIL 打回 architect）；
           FAIL 修正後須過 pre-review + reviewer 輕量複審（範圍限定）才回 R5 重驗
-→ R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ /learn 沉澱
+→ R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ 內化記憶整理
 ```
 
 **附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對，PM 不出場；標準軌/重軌由 qa 先執行 ui 條目、PM 再複核。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
@@ -153,7 +154,7 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 
 任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
 
-**除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `workflow/WORKFLOW.md` 第 5 節）：`debugger`（唯讀）有兩條出場路徑——
+**除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `skills/workflow/SKILL.md`「回合上限」）：`debugger`（唯讀）有兩條出場路徑——
 - 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
 - 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
 
@@ -170,7 +171,7 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 
 ## 其他 CLI 支援
 
-repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源，不再是 Codex 專屬副本。Claude/Codex 的入口檔只負責使用平台要求的固定檔名；hooks schema、execpolicy 與 settings merge 仍由 `adapters/claude/`、`adapters/codex/` 管理。`install.ps1` 會自動建立入口連結與平台設定。
+repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源，不再是 Codex 專屬副本。各平台入口檔只負責使用平台要求的固定檔名；hooks schema、execpolicy 與 settings merge 由各自 adapter 管理。`install.ps1` 會自動建立入口連結與平台設定。
 
 ### 回合上限（超限一律停下交使用者裁決，不自行加碼）
 
@@ -204,7 +205,7 @@ repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源�
 | security-engineer | sonnet | 獨立顧問角色，專項安全審計需要具體程式理解力與威脅推理 |
 | refactoring-expert | sonnet | 獨立顧問角色，技術債診斷與重構規劃需要讀懂既有結構 |
 
-以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義見 `workflow/WORKFLOW.md`（模型固定表在前言之後、流程分級與附加 gate 在 §1、回合上限在 §5、凍結原則在 §6）；README 僅摘要供快速查閱，若與 `workflow/WORKFLOW.md` 不一致，以 `workflow/WORKFLOW.md` 為準。
+以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義：回合上限與判軌在 `skills/workflow/SKILL.md`、凍結原則在 `skills/workflow/heavy.md`、模型固定表寫死於各 `agents/*.md` frontmatter；README 僅摘要供快速查閱，不一致時以上述檔案為準（舊「WORKFLOW.md §n」引用可查 `workflow/WORKFLOW.md` 章節對照表）。
 
 ## 測試
 

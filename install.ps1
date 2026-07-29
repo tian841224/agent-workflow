@@ -1,4 +1,4 @@
-﻿# AI Workflow installer: one canonical shared directory, platform-specific adapters.
+# AI Workflow installer: one canonical shared directory, platform-specific adapters.
 [CmdletBinding()]
 param(
     [Alias('Agent','Platform')][ValidateSet('Claude','Codex','Antigravity','Both','All')][string]$TargetAgent = 'Both',
@@ -61,7 +61,7 @@ function Link-Or-CopyDirectory([string]$Target, [string]$Source) {
         New-Item -ItemType Junction -Path $Target -Target $Source -ErrorAction Stop | Out-Null
         return 'junction'
     } catch {
-        Log "警告: 無法建立 junction ($($_.Exception.Message)); fallback 為同步複製。"
+        Log "junction unavailable ($($_.Exception.Message)); using copy fallback."
         Copy-Tree $Source $Target
         return 'copy'
     }
@@ -88,7 +88,7 @@ function Link-SharedDirectoryEntries([string]$Target, [string]$Source) {
     }
 }
 function Write-ManagedFile([string]$Source, [string]$Destination) {
-    if ((Test-Path -LiteralPath $Destination) -and -not (Select-String -LiteralPath $Destination -Pattern 'claude-workflow' -Quiet)) { Backup-Path $Destination }
+    if ((Test-Path -LiteralPath $Destination) -and -not (Select-String -LiteralPath $Destination -Pattern 'agent-workflow' -Quiet)) { Backup-Path $Destination }
     if ($DryRun) { Log "[dry-run] copy $Source -> $Destination"; return }
     Ensure-Directory (Split-Path -Parent $Destination)
     Copy-Item -LiteralPath $Source -Destination $Destination -Force
@@ -107,8 +107,8 @@ function Update-Claude {
     $claudeRulesDir = Join-Path $ClaudeTarget 'rules'; Ensure-Directory $claudeRulesDir
     $claudeRuleSource = if (Test-Path -LiteralPath (Join-Path $canonicalCore 'rules')) { Join-Path $canonicalCore 'rules' } else { Join-Path $repoRoot 'rules' }
     foreach ($rule in (Get-ChildItem -LiteralPath $claudeRuleSource -File)) { $mode = Link-Or-CopyFile (Join-Path $claudeRulesDir $rule.Name) $rule.FullName; $summary.Add("Claude rules/$($rule.Name) -> $mode") }
-    $workflowLink = Link-Or-CopyDirectory (Join-Path $ClaudeTarget 'claude-workflow') $canonicalCore
-    $summary.Add("Claude claude-workflow -> $workflowLink (deprecated compatibility path)")
+    $workflowLink = Link-Or-CopyDirectory (Join-Path $ClaudeTarget 'agent-workflow') $canonicalCore
+    $summary.Add("Claude agent-workflow -> $workflowLink (deprecated compatibility path)")
     $claudeMd = Join-Path $ClaudeTarget 'CLAUDE.md'; $mode = Link-Or-CopyFile $claudeMd (Join-Path $canonicalCore 'AGENTS.md'); $summary.Add("Claude CLAUDE.md -> $mode")
     $hooksDir = Join-Path $ClaudeTarget 'hooks\ai-workflow'; $mode = Link-Or-CopyDirectory $hooksDir (Join-Path $canonicalCore 'hooks'); $summary.Add("Claude hooks -> $mode")
     $settings = Join-Path $ClaudeTarget 'settings.json'; $fragmentRaw = Get-Content (Join-Path $repoRoot 'adapters\claude\settings.hooks.json') -Raw -Encoding UTF8
@@ -129,7 +129,7 @@ function Update-Codex {
     $codexRulesDir = Join-Path $CodexTarget 'rules'; Ensure-Directory $codexRulesDir
     $ruleSourceDir = if (Test-Path -LiteralPath (Join-Path $canonicalCore 'rules')) { Join-Path $canonicalCore 'rules' } else { Join-Path $repoRoot 'rules' }
     foreach ($rule in (Get-ChildItem -LiteralPath $ruleSourceDir -File)) { $mode = Link-Or-CopyFile (Join-Path $codexRulesDir $rule.Name) $rule.FullName; $summary.Add("Codex rules/$($rule.Name) -> $mode") }
-    $workflowLink = Link-Or-CopyDirectory (Join-Path $CodexTarget 'claude-workflow') $canonicalCore; $summary.Add("Codex claude-workflow -> $workflowLink (deprecated compatibility path)")
+    $workflowLink = Link-Or-CopyDirectory (Join-Path $CodexTarget 'agent-workflow') $canonicalCore; $summary.Add("Codex agent-workflow -> $workflowLink (deprecated compatibility path)")
     $codexMd = Join-Path $CodexTarget 'AGENTS.md'; $mode = Link-Or-CopyFile $codexMd (Join-Path $canonicalCore 'AGENTS.md'); $summary.Add("Codex AGENTS.md -> $mode")
     $codexRules = Join-Path $CodexTarget 'rules\default.rules'
     Write-ManagedFile (Join-Path $repoRoot 'adapters\codex\execpolicy.rules') $codexRules
@@ -142,6 +142,42 @@ function Update-Antigravity {
     $geminiMd = Join-Path $AntigravityTarget 'GEMINI.md'
     $mode = Link-Or-CopyFile $geminiMd (Join-Path $canonicalCore 'AGENTS.md')
     $summary.Add("Antigravity GEMINI.md -> $mode")
+    $configDir = Join-Path $AntigravityTarget 'config'; Ensure-Directory $configDir
+    $hooksPath = Join-Path $configDir 'hooks.json'
+    $hooksDir = Join-Path $canonicalCore 'hooks'
+    $hooksRaw = Get-Content (Join-Path $repoRoot 'adapters\antigravity\hooks.json') -Raw -Encoding UTF8
+    $hooksRaw = $hooksRaw -replace '\{\{HOOKS_DIR\}\}', (($hooksDir -replace '\\','\\'))
+    $managed = $hooksRaw | ConvertFrom-Json
+    $data = if (Test-Path -LiteralPath $hooksPath) { Get-Content $hooksPath -Raw -Encoding UTF8 | ConvertFrom-Json } else { [pscustomobject]@{} }
+    foreach ($hook in $managed.PSObject.Properties) {
+        $data | Add-Member NoteProperty $hook.Name $hook.Value -Force
+    }
+    if ($DryRun) { Log "[dry-run] merge $hooksPath" } else { [IO.File]::WriteAllText($hooksPath, ($data | ConvertTo-Json -Depth 20), $utf8NoBom) }
+    $summary.Add("Antigravity hooks -> $hooksPath")
+    $workflowSource = Join-Path $repoRoot 'adapters\antigravity\workflows'
+    $legacyWorkflowSource = Join-Path $canonicalCore 'workflow'
+    $workflowTargets = @((Join-Path $AntigravityTarget 'config\global_workflows'))
+    foreach ($workflowTarget in $workflowTargets) {
+        foreach ($legacyName in @('WORKFLOW.md','acceptance-spec.md')) {
+            $legacyTarget = Join-Path $workflowTarget $legacyName
+            $legacySource = Join-Path $legacyWorkflowSource $legacyName
+            if (Test-FileSynced $legacyTarget $legacySource) {
+                Backup-Path $legacyTarget
+                $summary.Add("Antigravity legacy workflow backup -> $legacyTarget")
+            }
+        }
+        $oldBrand = 'claude' + '-workflow'
+        $oldBrandWorkflow = Join-Path $workflowTarget ($oldBrand + '.md')
+        if (Test-Path -LiteralPath $oldBrandWorkflow) {
+            $oldBrandContent = Get-Content -LiteralPath $oldBrandWorkflow -Raw -Encoding UTF8
+            if ($oldBrandContent -match ('(?im)^#\s*/' + $oldBrand + '\s*$') -or $oldBrandContent -match ('(?i)shared\s+' + $oldBrand)) {
+                Backup-Path $oldBrandWorkflow
+                $summary.Add("Antigravity old brand workflow backup -> $oldBrandWorkflow")
+            }
+        }
+        $workflowModes = @(Link-SharedDirectoryEntries $workflowTarget $workflowSource)
+        $summary.Add("Antigravity global workflows -> $workflowTarget ($($workflowModes -join ','))")
+    }
     $summary.Add("Antigravity rules/skills -> canonical .agents")
 }
 function Test-FileSynced([string]$Target, [string]$Source) {
@@ -150,19 +186,19 @@ function Test-FileSynced([string]$Target, [string]$Source) {
     return (Get-FileHash -LiteralPath $Target).Hash -eq (Get-FileHash -LiteralPath $Source).Hash
 }
 function Show-Status {
-    [pscustomobject]@{ CanonicalCore=$canonicalCore; CanonicalExists=(Test-Path $canonicalCore); ClaudeExists=(Test-Path $ClaudeTarget); CodexExists=(Test-Path $CodexTarget); ClaudeWorkflow=(Test-LinkTo (Join-Path $ClaudeTarget 'claude-workflow') $canonicalCore); CodexWorkflow=(Test-LinkTo (Join-Path $CodexTarget 'claude-workflow') $canonicalCore); AntigravityExists=(Test-Path $AntigravityTarget); AntigravityLinked=(Test-FileSynced (Join-Path $AntigravityTarget 'GEMINI.md') (Join-Path $canonicalCore 'AGENTS.md')) } | Format-List
+    [pscustomobject]@{ CanonicalCore=$canonicalCore; CanonicalExists=(Test-Path $canonicalCore); ClaudeExists=(Test-Path $ClaudeTarget); CodexExists=(Test-Path $CodexTarget); ClaudeWorkflow=(Test-LinkTo (Join-Path $ClaudeTarget 'agent-workflow') $canonicalCore); CodexWorkflow=(Test-LinkTo (Join-Path $CodexTarget 'agent-workflow') $canonicalCore); AntigravityExists=(Test-Path $AntigravityTarget); AntigravityLinked=(Test-FileSynced (Join-Path $AntigravityTarget 'GEMINI.md') (Join-Path $canonicalCore 'AGENTS.md')) } | Format-List
 }
 function Remove-Installed {
-    foreach ($path in @((Join-Path $ClaudeTarget 'claude-workflow'),(Join-Path $CodexTarget 'claude-workflow'))) { if (Test-Path $path) { Backup-Path $path } }
+    foreach ($path in @((Join-Path $ClaudeTarget 'agent-workflow'),(Join-Path $CodexTarget 'agent-workflow'))) { if (Test-Path $path) { Backup-Path $path } }
     if (Test-Path $CanonicalTarget) { Backup-Path $CanonicalTarget }
-    Log '已將受控 canonical 與相容連結移至備份；使用者設定檔未刪除。'
+    Log 'Installer stopped managed content safely.'
 }
 
 if ($Action -eq 'Status') { Show-Status; exit 0 }
 if ($Action -eq 'Uninstall') { Remove-Installed; exit 0 }
 Install-Canonical
-if ($TargetAgent -in @('Claude','Both')) { Update-Claude }
-if ($TargetAgent -in @('Codex','Both')) { Update-Codex }
+if ($TargetAgent -in @('Claude','Both','All')) { Update-Claude }
+if ($TargetAgent -in @('Codex','Both','All')) { Update-Codex }
 if ($TargetAgent -in @('Antigravity','All')) { Update-Antigravity }
-Log ''; Log '=== 安裝摘要 ==='; $summary | ForEach-Object { Log "- $_" }
-Log "驗證: .\install.ps1 -Action Status -CanonicalTarget `"$CanonicalTarget`""
+Log ''; Log '=== install summary ==='; $summary | ForEach-Object { Log ('- ' + $_) }
+Log 'Status'

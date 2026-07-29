@@ -1,4 +1,4 @@
-﻿# managed by claude-workflow v2 — Stop hook: 驗收缺件提醒
+# managed by agent-workflow v2 — Stop hook: 驗收缺件提醒
 # session 結束時, 依 cwd 換算 project-slug, 掃該專案 acceptance 目錄:
 # 重軌任務（有 checklist.md）：spec.md 缺失或未凍結（仍是 draft）、checklist.md 有未勾條目、
 #   plan.md 有未勾階段 → decision=block 提醒補齊或標記 paused。
@@ -12,7 +12,7 @@ try {
     $raw = [Console]::In.ReadToEnd()
     $payload = $raw | ConvertFrom-Json
     if ($payload.stop_hook_active) { exit 0 }
-    $cwd = $payload.cwd
+    $cwd = if ($payload.workspacePaths) { @($payload.workspacePaths)[0] } else { $payload.cwd }
     if (-not $cwd) { exit 0 }
 
     # cwd → project-slug (Claude Code 慣例: 冒號與斜線轉連字號)

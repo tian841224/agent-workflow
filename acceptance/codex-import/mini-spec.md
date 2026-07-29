@@ -4,7 +4,7 @@ status: draft
 
 ## 目標
 
-讓現有 claude-workflow repo 能以同一支 PowerShell 安裝器，把可攜版流程規則與支援資產安裝到 Codex 使用者目錄，同時保留原本 Claude Code 安裝能力。
+讓現有 agent-workflow repo 能以同一支 PowerShell 安裝器，把可攜版流程規則與支援資產安裝到 Codex 使用者目錄，同時保留原本 Claude Code 安裝能力。
 
 ## 非目標
 
@@ -21,7 +21,7 @@ status: draft
 
 ### A1 — Codex 安裝內容
 
-Given 一個空的 Codex target，When 執行安裝器的 Codex 模式，Then `AGENTS.md`、`agents/`、`skills/`、`rules/`、`claude-workflow/` 皆存在且內容來自 repo。
+Given 一個空的 Codex target，When 執行安裝器的 Codex 模式，Then `AGENTS.md`、`agents/`、`skills/`、`rules/`、`agent-workflow/` 皆存在且內容來自 repo。
 
 cmd: `./install.ps1 -CodexTarget <temp> -ClaudeTarget <temp-claude>`
 expect: 指定檔案全部存在；Claude 與 Codex 目錄互不污染。

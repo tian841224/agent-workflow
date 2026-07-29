@@ -1,5 +1,5 @@
 {
-  "__comment": "claude-workflow v2 hooks 註冊片段。install.ps1 會把 {{HOOKS_DIR}} 展開為 ~/.claude/hooks/claude-workflow 的絕對路徑後合併進 settings.json。合併以 command 含 hooks/claude-workflow 為 marker: 先移除既有 marker entry 再 append (冪等)。",
+  "__comment": "agent-workflow v2 hooks 註冊片段。install.ps1 會把 {{HOOKS_DIR}} 展開為 ~/.claude/hooks/agent-workflow 的絕對路徑後合併進 settings.json。合併以 command 含 hooks/agent-workflow 為 marker: 先移除既有 marker entry 再 append (冪等)。",
   "hooks": {
     "PreToolUse": [
       {

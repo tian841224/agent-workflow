@@ -1,4 +1,4 @@
-# claude-workflow v2 — Codex-native command policy
+# agent-workflow v2 — Codex-native command policy
 # Git safety is enforced by Codex execpolicy; lifecycle hooks handle reminders and checks.
 
 prefix_rule(pattern=["git", "push", "--force"], decision="forbidden", justification="Force push is irreversible. Ask the user to perform it explicitly outside Codex.")

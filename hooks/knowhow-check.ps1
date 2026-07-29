@@ -1,4 +1,4 @@
-﻿# managed by claude-workflow v2 — Stop hook: know-how 沉澱缺件提醒
+# managed by agent-workflow v2 — Stop hook: know-how 沉澱缺件提醒
 # session 結束時, 掃 transcript 判斷本次 session 是否對專案(cwd 底下、排除 .claude\)有 >=3 筆
 # Edit/Write/MultiEdit 實質修改; 若有, 檢查是否已滿足下列任一條件才放行:
 #   (a) assistant 回覆文字含「已沉澱」或「無可沉澱」宣告(見 WORKFLOW.md §9 沉澱三問)
@@ -12,8 +12,8 @@ try {
     $payload = $raw | ConvertFrom-Json
     if ($payload.stop_hook_active) { exit 0 }
 
-    $cwd = $payload.cwd
-    $transcriptPath = $payload.transcript_path
+    $cwd = if ($payload.workspacePaths) { @($payload.workspacePaths)[0] } else { $payload.cwd }
+    $transcriptPath = if ($payload.transcriptPath) { $payload.transcriptPath } else { $payload.transcript_path }
     if (-not $cwd -or -not $transcriptPath -or -not (Test-Path $transcriptPath)) { exit 0 }
 
     $cwdNorm = $cwd.TrimEnd('\', '/').ToLowerInvariant()

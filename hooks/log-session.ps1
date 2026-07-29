@@ -5,13 +5,15 @@ try {
     $data = $raw | ConvertFrom-Json
 
     $projName = ''
-    if ($data.cwd) { $projName = Split-Path $data.cwd -Leaf }
+    $cwd = if ($data.workspacePaths) { @($data.workspacePaths)[0] } else { $data.cwd }
+    if ($cwd) { $projName = Split-Path $cwd -Leaf }
 
     # 從 transcript(JSONL)抓第一則使用者訊息前 100 字當摘要;失敗不阻斷
     $summary = ''
     try {
-        if ($data.transcript_path -and (Test-Path $data.transcript_path)) {
-            foreach ($line in [System.IO.File]::ReadLines($data.transcript_path)) {
+        $transcriptPath = if ($data.transcriptPath) { $data.transcriptPath } else { $data.transcript_path }
+        if ($transcriptPath -and (Test-Path $transcriptPath)) {
+            foreach ($line in [System.IO.File]::ReadLines($transcriptPath)) {
                 if ([string]::IsNullOrWhiteSpace($line)) { continue }
                 $entry = $null
                 try { $entry = $line | ConvertFrom-Json } catch { continue }

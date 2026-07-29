@@ -1,4 +1,4 @@
-﻿# managed by claude-workflow v2 — PostToolUse hook: 編輯後依副檔名快檢
+# managed by agent-workflow v2 — PostToolUse hook: 編輯後依副檔名快檢
 # matcher: Edit|Write|MultiEdit
 # .go 檔: 跑 gofmt -l 與該 package 的 go vet。
 # .ts/.tsx/.js/.jsx 檔(找得到 prettier 設定「且」node_modules 已本地安裝 prettier 時): 跑本地 prettier --check。
@@ -11,7 +11,10 @@ $ErrorActionPreference = 'Stop'
 try {
     $raw = [Console]::In.ReadToEnd()
     $payload = $raw | ConvertFrom-Json
-    $filePath = $payload.tool_input.file_path
+    $filePath = if ($payload.toolCall) {
+        $args = $payload.toolCall.args
+        if ($args.TargetFile) { $args.TargetFile } else { $args.AbsolutePath }
+    } else { $payload.tool_input.file_path }
     if (-not $filePath) { exit 0 }
     if (-not (Test-Path $filePath)) { exit 0 }
 

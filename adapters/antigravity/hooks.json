@@ -1,0 +1,17 @@
+{
+  "agent-workflow-git-guard": {
+    "PreToolUse": [{ "matcher": "run_command", "hooks": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\git-guard.ps1\"", "timeout": 15 }] }]
+  },
+  "agent-workflow-post-edit-check": {
+    "PostToolUse": [{ "matcher": "write_to_file|replace_file_content|multi_replace_file_content", "hooks": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\post-edit-check.ps1\"", "timeout": 30 }] }]
+  },
+  "agent-workflow-stop-check": {
+    "Stop": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\stop-check.ps1\"", "timeout": 15 }]
+  },
+  "agent-workflow-knowhow-check": {
+    "Stop": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\knowhow-check.ps1\"", "timeout": 15 }]
+  },
+  "agent-workflow-log-session": {
+    "PostInvocation": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\log-session.ps1\"", "timeout": 15 }]
+  }
+}

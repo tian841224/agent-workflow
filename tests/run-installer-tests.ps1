@@ -23,6 +23,16 @@ try {
     Run-Installer @('-TargetAgent','Antigravity','-AntigravityTarget',$antigravity,'-CanonicalTarget',$canonical)
     Assert (Test-Path (Join-Path $antigravity 'GEMINI.md')) 'Antigravity GEMINI.md is installed'
     Assert ((Get-Content (Join-Path $antigravity 'GEMINI.md') -Raw) -eq (Get-Content (Join-Path $canonical 'AGENTS.md') -Raw)) 'Antigravity uses canonical instructions'
+    $antigravityHooks = Join-Path $antigravity 'config\hooks.json'
+    Assert (Test-Path $antigravityHooks) 'Antigravity hooks.json is installed'
+    Get-Content $antigravityHooks -Raw | ConvertFrom-Json | Out-Null
+    Assert ((Get-Content $antigravityHooks -Raw) -notmatch '\{\{HOOKS_DIR\}\}') 'Antigravity hook path is expanded'
+    Assert ((Get-Content $antigravityHooks -Raw) -match 'agent-workflow-git-guard') 'Antigravity git guard is registered'
+    $globalWorkflowDir = Join-Path $antigravity 'config\global_workflows'
+    Assert (Test-Path (Join-Path $globalWorkflowDir 'agent-workflow.md')) 'Antigravity current global workflow is installed'
+    $agentWorkflow = Get-Content (Join-Path $globalWorkflowDir 'agent-workflow.md') -Raw
+    Assert ($agentWorkflow -match '(?s)^---\s+description:\s+.+?\s+---') 'Antigravity workflow has description frontmatter'
+    Assert ($agentWorkflow -eq (Get-Content (Join-Path $repo 'adapters\antigravity\workflows\agent-workflow.md') -Raw)) 'Antigravity current workflow uses native adapter content'
     $before = (Get-ChildItem $canonical -Recurse -File | Measure-Object).Count
     Run-Installer @('-TargetAgent','Both','-ClaudeTarget',$claude,'-CodexTarget',$codex,'-CanonicalTarget',$canonical)
     $after = (Get-ChildItem $canonical -Recurse -File | Measure-Object).Count

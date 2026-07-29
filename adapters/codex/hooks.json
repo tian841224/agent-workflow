@@ -1,5 +1,5 @@
 {
-  "description": "claude-workflow lifecycle hooks adapted for Codex",
+  "description": "agent-workflow lifecycle hooks adapted for Codex",
   "hooks": {
     "PostToolUse": [{ "matcher": "^Bash$|^apply_patch$", "hooks": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\post-edit-check.ps1\"", "timeout": 30, "statusMessage": "Checking formatting" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\stop-check.ps1\"", "timeout": 15, "statusMessage": "Checking workflow completion" }, { "type": "command", "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\knowhow-check.ps1\"", "timeout": 15, "statusMessage": "Checking know-how capture" }] }],
