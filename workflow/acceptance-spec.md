@@ -1,4 +1,4 @@
-<!-- managed by agent-workflow v2 — 整檔覆蓋，勿直接編輯；客製請用專案層覆蓋 -->
+<!-- managed by agent-workflow v3 — 整檔覆蓋；客製請用專案層覆蓋 -->
 
 # 驗收規約（acceptance-spec）
 

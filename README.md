@@ -88,6 +88,8 @@ repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/
 
 專案記憶層結構：`MEMORY.md`（索引，Claude Code 原生自動注入）+ `overview.md`（專案概觀與歷史脈絡聚合檔，上限約 100 行，判軌前需先讀）+ `DECISIONS.md`（決策流水帳）+ 個別記憶檔（pitfall/project/reference/feedback）。全域記憶層（`~/.claude/memory/`）採同構格式，兩者格式定義的權威來源都在 `rules/learning.md`。
 
+日常事件（使用者糾正、可概括的錯誤、方案拍板與任務收尾）直接在當下完成擷取、分類、去重與局部校準
+
 ## 流程速覽
 
 判軌以**功能與影響範圍**為單位，不以模組/檔案/行數為單位：看「這次改動是不是單一功能」與「出錯時會波及多少既有功能（blast radius）」。乾淨架構下一個功能垂直跨多層/多模組仍屬單一功能；影響指的是「出錯時會壞到哪些功能」，行為不變的重構動到多功能共用路徑一樣算波及多功能（完整判準見 `skills/workflow/SKILL.md`）。

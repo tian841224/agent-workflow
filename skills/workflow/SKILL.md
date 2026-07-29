@@ -55,4 +55,4 @@ description: 程式任務（新增/修改程式碼、修 bug、跑測試、code 
 
 ## 平台差異
 
-流程本身（判軌／三軌／回合上限／沉澱三問）跨平台通用，不重複寫。各平台的 hook 機械支援程度、記憶機制、身分扮演方式不同，只在需要時查 [platforms.md](platforms.md)——原則：**沉澱三問優先靠 hook 強制放行，該平台不支援 hook 時才退回條文自律**（Claude Code／Codex 有 hook，Antigravity 沒有）。
+流程本身（判軌／三軌／回合上限／沉澱三問）跨平台通用，不重複寫。各平台的 hook 機械支援程度、記憶機制、身分扮演方式不同，只在需要時查 [platforms.md](platforms.md)——原則：**沉澱三問優先靠 hook 強制放行，該平台不支援 hook 時才退回條文自律**（三平台皆有 knowhow-check hook；Codex 需先在 `/hooks` 信任、Antigravity 需啟用其 `hooks.json`）。

@@ -34,7 +34,7 @@ skills/workflow/（多檔漸進式披露）與 agents/*.md（角色定義），�
 
 累積 know-how 的機制依平台而異（分流與格式見 rules/learning.md；平台細節見 skills/workflow/platforms.md）：記憶在擷取當下即分類、去重與局部整理；**Claude Code** 用 auto-memory 與專案記憶層索引自動注入；**Codex/Antigravity** 無自動注入，session 開場主動讀專案記憶層的 `MEMORY.md` 索引與 `overview.md`。
 
-收尾三問（踩坑？拍板？認知落差？）**優先由 hook 機械強制放行**，該平台無 hook 支援時才退回條文自律：Claude Code／Codex／Antigravity 皆有 `knowhow-check` hook（Codex 需先在 `/hooks` 信任；Antigravity 需啟用其 `hooks.json`）。回報末尾明寫「**已沉澱**：<摘要>」或「**無可沉澱**：<一句理由>」——這是 hook 的放行訊號，不論該平台 hook 是否實際生效都要寫。任務收尾（輕軌 L4／標準軌 M4／重軌 R6）必答沉澱三問（踩坑？拍板？認知落差？），回報末尾明寫「**已沉澱**：<摘要>」或「**無可沉澱**：<一句理由>」——這是 knowhow-check hook 的放行訊號。
+任務收尾（輕軌 L4／標準軌 M4／重軌 R6）必答收尾三問（踩坑？拍板？認知落差？），回報末尾明寫「**已沉澱**：<摘要>」或「**無可沉澱**：<一句理由>」——這是 `knowhow-check` hook 的放行訊號，不論該平台 hook 是否實際生效都要寫。放行**優先由 hook 機械強制**，該平台無 hook 支援時才退回條文自律：Claude Code／Codex／Antigravity 皆有 knowhow-check hook（Codex 需先在 `/hooks` 信任；Antigravity 需啟用其 `hooks.json`）。
 
 ## 風格
 
