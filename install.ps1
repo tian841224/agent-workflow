@@ -70,7 +70,7 @@ function Link-Or-CopyFile([string]$Target, [string]$Source) {
     if (Test-Path -LiteralPath $Target) {
         $item = Get-Item -LiteralPath $Target -Force
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and ($item.Target -contains $Source -or $item.Target -eq $Source)) { return 'link' }
-        if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and (Get-FileHash -LiteralPath $Target).Hash -eq (Get-FileHash -LiteralPath $Source).Hash) { return 'copy' }
+        if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and (Test-Path -LiteralPath $Source) -and (Get-FileHash -LiteralPath $Target).Hash -eq (Get-FileHash -LiteralPath $Source).Hash) { return 'copy' }
         Backup-Path $Target
     }
     Ensure-Directory (Split-Path -Parent $Target)
