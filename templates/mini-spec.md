@@ -1,9 +1,9 @@
 <!-- 僅供程式任務使用；一般規格由單一主 agent 處理，不建立 acceptance 文件。 -->
 <!-- template: 複製到 ~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md
-     標準軌（M 軌）專用：單檔規格，不分商業/技術兩段、不另建 checklist.md/plan.md。
-     由 architect 一次寫完，使用者一次確認即凍結。格式規約見 workflow/acceptance-spec.md -->
+     標準軌（M 軌）／lite 軌共用：單檔規格，不分商業/技術兩段、不另建 checklist.md/plan.md。
+     標準軌由 architect、lite 由主對話一次寫完，使用者一次確認即凍結。格式規約見 workflow/acceptance-spec.md -->
 
-# <任務標題> — 標準軌規格（mini-spec.md）
+# <任務標題> — 規格（mini-spec.md）
 - project: <專案根目錄絕對路徑>
 - frozen: draft
 
@@ -15,6 +15,10 @@
 
 - 範圍: <要動什麼，侷限單一功能（實作可垂直跨多模組/分層）>
 - 非目標: <明確不做什麼，防 scope creep>
+
+## 設計分析（lite 軌選填；標準軌不用）
+
+<功能模式：商業規格要點（條目化規格與輸入/輸出/邊界錯誤定義）；修正模式：選定做法與理由、六大面向自審結論摘要。中斷續作只讀本檔，分析結論靠本段回復脈絡>
 
 ## TDD seam
 

@@ -20,7 +20,7 @@ skills/workflow/（多檔漸進式披露）與 agents/*.md（角色定義），�
 - **輕軌**：單一功能內的 bug fix 或小改，波及侷限自身 → 微驗收清單＋審查＋逐條驗證。
 - **標準軌**：單一功能的新增/變更（可垂直跨多層），需求明確 → mini-spec 凍結＋審查＋QA 驗收。
 - **重軌**：波及多功能、改既有對外 API/WS 契約或 DB schema、觸及高風險寫入路徑 → 完整 SDD 流程（spec.md＋checklist.md 雙凍結，R1–R6）。
-- **lite**（使用者指定才啟用，不自動判入）：重軌等級任務的單對話精簡模式 → 單檔 mini-spec 凍結＋主對話實作＋唯讀 reviewer/qa 平行把關。
+- **lite**（使用者指定才啟用，不自動判入）：重軌等級任務的單對話單人模式 → 單檔 mini-spec 凍結（依任務性質分功能/修正雙模式）＋主對話單人實作＋唯讀 reviewer→qa 序列把關；唯讀查證 fan-out 用最低階模型。
 - **附加 gate**：含前端功能修改的任務，流程尾端追加畫面驗證。
 
 判定後載入細節：Claude Code 由 `workflow` skill 載入；Codex/Antigravity 直接讀設定目錄 `skills/workflow/` 對應檔（SKILL.md 判軌細則 → light/standard/heavy/lite 各軌流程）。角色職責與做法在 `agents/*.md`。

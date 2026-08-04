@@ -2,7 +2,7 @@
 
 # 驗收規約（acceptance-spec）
 
-本檔定義程式任務的重軌規格書、驗收清單格式，以及標準軌的 mini-spec.md 格式。文件、規格、需求與規劃本身不建立本檔所述 acceptance 文件，直接由單一主 agent 處理。**格式為嚴格規約**：`stop-check.ps1` 與 qa/pm/architect agent 都依此 parse，不得自創變體。
+本檔定義程式任務的重軌規格書、驗收清單格式，以及標準軌／lite 軌共用的 mini-spec.md 格式。文件、規格、需求與規劃本身不建立本檔所述 acceptance 文件，直接由單一主 agent 處理。**格式為嚴格規約**：`stop-check.ps1` 與 qa/pm/architect agent 都依此 parse，不得自創變體。
 
 ## 目錄結構
 
@@ -15,7 +15,7 @@
 └── plan.md            # architect 藍圖 + 階段進度（見 templates/plan.md）
 ```
 
-**標準軌**（單檔，見下方「mini-spec.md 格式」）：
+**標準軌／lite**（單檔，見下方「mini-spec.md 格式」）：
 
 ```
 ~/.claude/projects/<project-slug>/acceptance/<task-slug>/
@@ -98,9 +98,9 @@ checklist.md 兩段式展開：PM 依 spec.md **商業規格**寫驗收條目（
 - `spec` / `test-type` / `given` / `when` / `then` 規則同後端型
 - qa 以 browser 工具操作、當場觀察畫面是否符合 `expect` 並判定 PASS/FAIL，qa 判定即為結果；模糊項（畫面與 expect 有落差）由主對話整理交使用者裁決；不需要留存截圖檔
 
-## mini-spec.md 格式（標準軌，用 `templates/mini-spec.md` 模板）
+## mini-spec.md 格式（標準軌／lite 共用，用 `templates/mini-spec.md` 模板）
 
-標準軌任務不分商業/技術兩段規格、不建 checklist.md/plan.md，architect 一次寫完單一檔案，使用者一次確認即凍結。內容包含：目標／範圍／非目標、TDD seam、3–6 條驗收條目。
+標準軌任務不分商業/技術兩段規格、不建 checklist.md/plan.md，architect 一次寫完單一檔案，使用者一次確認即凍結。內容包含：目標／範圍／非目標、TDD seam、3–6 條驗收條目。lite 軌共用本格式，由主對話寫完（條數不受 3–6 條限制、可加「設計分析」選填段，見 `skills/workflow/lite.md`），凍結與機械欄位規則相同。
 
 **檔頭**：
 ```markdown
@@ -127,9 +127,9 @@ checklist.md 兩段式展開：PM 依 spec.md **商業規格**寫驗收條目（
 ## 凍結原則
 
 - spec.md（商業規格+技術規格）與 checklist.md 一併於使用者**單次**確認後凍結（`frozen:` 填日期），開發期間任何角色不得增刪修改條目
-- 標準軌的 mini-spec.md 是單一文件，同樣經使用者一次確認後凍結，不需要雙文件分次確認
+- 標準軌／lite 的 mini-spec.md 是單一文件，同樣經使用者一次確認後凍結，不需要雙文件分次確認
 - checklist.md 是 spec.md 的延伸、兩者不得衝突：驗收或審查時若發現 checklist.md 與 spec.md 矛盾，回報主對話交使用者裁決，**不得自行認定以哪一份為準**（矛盾代表凍結時展開有誤，需要人判斷怎麼修，不是機械地選一邊）
-- 需求變更 → 回 R1（或標準軌回 M1）重出對應規格文件，舊檔改名加 `.superseded` 字尾保留
+- 需求變更 → 回 R1（標準軌回 M1、lite 回 LT1）重出對應規格文件，舊檔改名加 `.superseded` 字尾保留
 - **輕量修訂**（規格書本身寫錯，非需求變更——如欄位型別誤植、cmd 打錯）：停手回報 → 使用者核准 → 直接修正並在「修訂歷史」記一行，不必重出整份文件。拿不準是寫錯還是需求變更時，一律當需求變更處理
 - 凍結後的修訂（經使用者核准）須在對應規格文件檔尾「修訂歷史」段落記錄一行：日期、改了什麼、核准依據
 - architect 在 R3 實作過程中若同步更新了目標專案自己的常駐規格文件（例如專案 docs 路由指向的規格檔），那是另一份文件、僅供該專案長期參考，不是本節的 spec.md，不能拿來取代或凌駕凍結的 spec.md/checklist.md

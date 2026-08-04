@@ -151,17 +151,18 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 → R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ 內化記憶整理
 ```
 
-**lite**（不是獨立判軌級別——重軌等級任務、使用者主動指定才啟用的單對話精簡模式）：
+**lite**（不是獨立判軌級別——重軌等級任務、使用者主動指定才啟用的單對話單人模式）：
 
 ```
-LT1 主對話直接寫單檔 mini-spec（目標/技術決策/TDD seam/驗收條目含邊界與異常路徑）
-   + 三項必答自審（影響面附證據/技術風險/可測性）→ 釐清+選方案+凍結一次確認
-→ LT2 主對話 TDD 實作（寫入不拆平行；唯讀調查可平行）
-→ LT3 pre-review → reviewer + qa 唯讀平行把關（blocker 與 FAIL 合併一批修正）
+LT1 依任務性質分流（修正模式=架構分析＋六大面向裁量自審；功能模式=商業規格）
+   → 主對話寫單檔 mini-spec（完成條件＋測試條件，含邊界與異常路徑）
+   + 規格自審紀律（凍結即題目/機械防線強制/證據硬規則）→ 釐清+選方案+凍結一次確認
+→ LT2 主對話 TDD 實作（寫入不拆平行；唯讀調查 fan-out 用最低階模型）
+→ LT3 pre-review → reviewer（≤2 輪）→ qa 驗收＋探索測試（序列同 R4→R5，FAIL 一批打回）
 → LT4 回報（含流程統計）+ 沉澱三問
 ```
 
-品質規則同重軌（探索性測試、批次打回、輕量複審、debugger 轉出、硬護欄），省的是文件數（單檔取代三檔）、角色 spawn 與確認往返（3+ 個確認點 → 1 個）。詳見 `skills/workflow/lite.md`。
+品質規則同重軌（探索性測試、批次打回、輕量複審、debugger 轉出、硬護欄），把關鏈與標準軌同構（reviewer→qa 序列）；省的是 PM／architect spawn（規格與實作主對話單人）、文件數（單檔取代三檔）與確認往返（3+ 個確認點 → 1 個）。詳見 `skills/workflow/lite.md`。
 
 **附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對；標準軌/重軌由 qa 執行 ui 條目並判定。模糊項或疑似規格缺漏由主對話整理交使用者裁決；PM 不參與畫面驗證。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
 
@@ -220,7 +221,7 @@ repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源�
 | security-engineer | sonnet | 獨立顧問角色，專項安全審計需要具體程式理解力與威脅推理 |
 | refactoring-expert | sonnet | 獨立顧問角色，技術債診斷與重構規劃需要讀懂既有結構 |
 
-以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義：回合上限與判軌在 `skills/workflow/SKILL.md`、凍結原則在 `skills/workflow/heavy.md`、模型固定表寫死於各 `agents/*.md` frontmatter；README 僅摘要供快速查閱，不一致時以上述檔案為準（舊「WORKFLOW.md §n」引用可查 `workflow/WORKFLOW.md` 章節對照表）。
+以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義：回合上限與判軌在 `skills/workflow/SKILL.md`、凍結原則在 `workflow/acceptance-spec.md`、模型固定表寫死於各 `agents/*.md` frontmatter；README 僅摘要供快速查閱，不一致時以上述檔案為準（舊「WORKFLOW.md §n」引用可查 `workflow/WORKFLOW.md` 章節對照表）。
 
 ## 測試
 

@@ -42,7 +42,7 @@
 
 - [ ] R1 商業規格書（PM：spec.md 商業規格部分完成、開放問題清空）
 - [ ] R2 技術規格 + 方案與藍圖（architect：商業規格審查通過、spec.md 技術規格部分完成、
-      本檔完成、使用者選定方案；PM 隨即依技術規格展開 checklist.md draft；
+      本檔完成、使用者選定方案；PM 隨即依商業規格展開 checklist.md draft；
       spec.md 與 checklist.md 經使用者一次確認後同時凍結）
 - [ ] R3 實作（可平行，見子任務分解表；R3a 拆分 → R3b 平行實作 → R3c 彙整確認全部完成）
 - [ ] R4 靜態把關（pre-review.ps1 通過 + reviewer 審查通過）
