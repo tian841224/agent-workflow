@@ -8,7 +8,7 @@ LT1 規格與凍結（單一確認點）：先讀專案既有文件與現況行�
     → 用 templates/mini-spec.md 寫單檔：目標／非目標、關鍵技術決策（契約、型別、
     錯誤碼——有才寫）、TDD seam、A<n> 驗收條目（G-W-T＋test-type＋cmd/expect，
     前端條目 type: ui＋steps/expect；涵蓋邊界值／等價類／異常路徑各至少一條，
-    不只 happy path，不適用需註明理由；條數依規模不受標準軌 3–6 條限制，約 15 條
+    不只 happy path，不適用需註明理由；條數依規模不受標準軌 3–6 條限制，約 12 條
     以上建議拆任務或改走完整重軌）→ 三項必答自審（見下）→ 開放問題（不得用
     「照既有行為 1:1」自答）＋方案 trade-off（解法明顯唯一時說明理由後單方案徑行）
     ＋自審結論一次送使用者：釐清、選方案、凍結一次完成（frozen: 填日期）
@@ -34,4 +34,4 @@ LT4 收尾：回報使用者（改了什麼、驗收結果、複驗方式、流�
 
 ## 文件與邊界
 
-任務目錄同標準軌單檔：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（stop-check hook 自動把關凍結與未勾條目）。凍結後增刪與輕量修訂循 heavy.md 凍結原則；回合上限見 SKILL.md，計數口頭列在回報中。升軌訊號：規格反覆翻案、影響面比自審認定的大、規模大到需要平行寫入 → 停手建議轉完整重軌，補齊該軌前置步驟再繼續。Codex／Antigravity 單進程無法平行，LT3 退化為序列（先 reviewer 後 qa），切換身分照常宣告。
+任務目錄同標準軌單檔：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（stop-check hook 自動把關凍結與未勾條目）。凍結後增刪與輕量修訂循 `workflow/acceptance-spec.md` 凍結原則；回合上限見 SKILL.md，計數口頭列在回報中。升軌訊號：規格反覆翻案、影響面比自審認定的大、規模大到需要平行寫入 → 停手建議轉完整重軌，補齊該軌前置步驟再繼續。Codex／Antigravity 單進程無法平行，LT3 退化為序列（先 reviewer 後 qa），切換身分照常宣告。

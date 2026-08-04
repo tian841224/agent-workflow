@@ -126,7 +126,7 @@ M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗�
 
 ```
 R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-When-Then，條目數
-   明顯超量〔約 10–12 條以上〕建議拆分任務），規格不明確處與使用者確認到雙方理解
+   明顯超量〔約 12 條以上〕建議拆分任務），規格不明確處與使用者確認到雙方理解
    一致 → 商業規格寫入 spec.md
 → R2 architect 先審規格（六維度：規格品質/架構相容性/影響面/技術風險/可測性/前置
    條件與規模，需調整退回 PM ≤2輪、技術風險直報主對話）→ 全數判定沒問題後
@@ -171,7 +171,7 @@ LT1 主對話直接寫單檔 mini-spec（目標/技術決策/TDD seam/驗收條�
 
 **除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `skills/workflow/SKILL.md`「回合上限」）：`debugger`（唯讀）有兩條出場路徑——
 - 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
-- 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
+- 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，修復 diff 過 pre-review＋reviewer 輕量複審，qa 重驗 FAIL 與波及條目（與 R5 批次原則一致）
 
 兩條路徑 `debugger` 都只執行 `systematic-debugging` skill 的前三階段（蒐證／模式分析／假說驗證）、不改 code、不下修復方案，結論交回 architect。回合計數（reviewer↔architect、PM↔architect、R4/R5 打回、R3c 打回）由 orchestrator 每輪結束記錄到 `plan.md` 的「回合記錄」段落，以檔案為準、不靠對話記憶（標準軌無 plan.md，回合次數在回報中口頭列出即可）。
 
@@ -195,7 +195,7 @@ repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源�
 | reviewer ↔ architect | 重軌 ≤3 輪、輕軌/標準軌 ≤2 輪 | orchestrator | 列出爭點回報使用者裁決 |
 | PM ↔ architect（需求可行性往返） | ≤2 輪 | orchestrator | 回報使用者裁決 |
 | 同一 bug 內部修復嘗試 | 2 次未解需寫理由才續試，3 次硬上限 | architect 自己計數 | 轉交 `debugger`（路徑 A） |
-| 同一驗收條目在 R4/R5 被打回 architect | 3 次 | orchestrator | 轉交 `debugger`（路徑 B），修復後 R4→R5 全套重跑 |
+| 同一驗收條目在 R4/R5 被打回 architect | 3 次 | orchestrator | 轉交 `debugger`（路徑 B），修復後過 pre-review＋輕量複審，qa 重驗 FAIL 與波及條目 |
 | pre-review 失敗退回 | 不計數 | — | 修正後重跑，不計入 reviewer 輪數 |
 
 上述計數器（除 pre-review 退回）每輪結束由 orchestrator 記錄到重軌 `plan.md` 的「回合記錄」段落，輪數判定以檔案為準；標準軌無 plan.md，回合次數口頭列在回報中即可（上限本就 ≤2 輪，流失風險低）。

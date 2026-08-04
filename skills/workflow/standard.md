@@ -16,4 +16,4 @@ M4 驗收：qa 逐條執行、當場比對 expect 判定 PASS/FAIL；前端模�
    收尾執行 know-how 沉澱三問（見 SKILL.md）
 ```
 
-任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（單檔，不建 spec.md/checklist.md/plan.md；Codex 以約定的固定 slug 對應路徑）。凍結後的增刪循 SKILL.md 回合上限與 heavy.md 凍結原則（mini-spec 適用同一套：需求變更回 M1 重出、寫錯走輕量修訂）。
+任務目錄：`~/.claude/projects/<project-slug>/acceptance/<task-slug>/mini-spec.md`（單檔，不建 spec.md/checklist.md/plan.md；Codex 以約定的固定 slug 對應路徑）。凍結後的增刪循 SKILL.md 回合上限與 `workflow/acceptance-spec.md` 凍結原則（mini-spec 適用同一套：需求變更回 M1 重出、寫錯走輕量修訂）。

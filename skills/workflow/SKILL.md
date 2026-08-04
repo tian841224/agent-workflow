@@ -42,7 +42,7 @@ description: 程式任務（新增/修改程式碼、修 bug、跑測試、code 
 | reviewer ↔ architect | 重軌 ≤3 輪、輕軌/標準軌/lite ≤2 輪 | 列爭點交使用者裁決 |
 | PM ↔ architect（需求可行性） | ≤2 輪 | 交使用者裁決 |
 | 同一 bug 同一方向修復嘗試 | 第 2 次失敗須寫出「為什麼再試會不同」的理由才續試；3 次硬上限 | 轉 debugger（唯讀根因分析） |
-| 同一驗收條目被打回 architect | 3 次 | 轉 debugger，修復後 R4→R5 全套重跑 |
+| 同一驗收條目被打回 architect | 3 次 | 轉 debugger，修復後過 pre-review＋reviewer 輕量複審，qa 重驗 FAIL 與波及條目 |
 | pre-review 失敗退回 | 不計數 | 修正後重跑 |
 
 重軌的計數每輪記入 plan.md「回合記錄」，以檔案為準；標準軌/輕軌/lite 口頭列在回報中即可。
