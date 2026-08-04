@@ -2,7 +2,7 @@
 
 > 本 repo 採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
 
-可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 內化的即時記憶整理 + 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
+可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版；另有使用者指定才啟用的 lite 模式——重軌等級任務的單對話精簡替代）+ 後端化驗收判定 + hooks 硬護欄 + 內化的即時記憶整理 + 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
 核心理念（v3，依 Claude 5 世代 context engineering 原則調整）：**確定性下沉＋漸進式披露**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷；常駐層（`AGENTS.md`）只留判軌摘要與硬護欄（git 紀律、凍結制、升軌），流程細節下放 `skills/workflow/`（判軌細則＋各軌別分檔）與 `agents/*.md`（角色定義）按需載入，同一指令不在多處重複。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
 
@@ -151,11 +151,23 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 → R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ 內化記憶整理
 ```
 
+**lite**（不是獨立判軌級別——重軌等級任務、使用者主動指定才啟用的單對話精簡模式）：
+
+```
+LT1 主對話直接寫單檔 mini-spec（目標/技術決策/TDD seam/驗收條目含邊界與異常路徑）
+   + 三項必答自審（影響面附證據/技術風險/可測性）→ 釐清+選方案+凍結一次確認
+→ LT2 主對話 TDD 實作（寫入不拆平行；唯讀調查可平行）
+→ LT3 pre-review → reviewer + qa 唯讀平行把關（blocker 與 FAIL 合併一批修正）
+→ LT4 回報（含流程統計）+ 沉澱三問
+```
+
+品質規則同重軌（探索性測試、批次打回、輕量複審、debugger 轉出、硬護欄），省的是文件數（單檔取代三檔）、角色 spawn 與確認往返（3+ 個確認點 → 1 個）。詳見 `skills/workflow/lite.md`。
+
 **附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對；標準軌/重軌由 qa 執行 ui 條目並判定。模糊項或疑似規格缺漏由主對話整理交使用者裁決；PM 不參與畫面驗證。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
 
 **中途升降軌**：實作途中才發現命中更高軌判準，立即停手宣告升軌、補走該軌缺的前置步驟（標準軌補 mini-spec、重軌補完整 spec.md 流程並凍結）再繼續；降軌需使用者同意。
 
-任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
+任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌與 lite 只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
 
 **除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `skills/workflow/SKILL.md`「回合上限」）：`debugger`（唯讀）有兩條出場路徑——
 - 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析

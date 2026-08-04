@@ -1,4 +1,4 @@
-# managed by agent-workflow v2 — PreToolUse hook: git 寫入攔截
+﻿# managed by agent-workflow v2 — PreToolUse hook: git 寫入攔截
 # matcher: Bash|PowerShell
 # 破壞性/不可逆操作 → deny; commit/push/rebase/merge 等寫入 → ask (每次由使用者確認)
 # 其他指令 → exit 0 不干預。任何解析失敗 → exit 0 (hook 壞掉不得癱瘓正常工作)。

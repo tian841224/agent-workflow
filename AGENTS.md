@@ -20,9 +20,10 @@ skills/workflow/（多檔漸進式披露）與 agents/*.md（角色定義），�
 - **輕軌**：單一功能內的 bug fix 或小改，波及侷限自身 → 微驗收清單＋審查＋逐條驗證。
 - **標準軌**：單一功能的新增/變更（可垂直跨多層），需求明確 → mini-spec 凍結＋審查＋QA 驗收。
 - **重軌**：波及多功能、改既有對外 API/WS 契約或 DB schema、觸及高風險寫入路徑 → 完整 SDD 流程（spec.md＋checklist.md 雙凍結，R1–R6）。
+- **lite**（使用者指定才啟用，不自動判入）：重軌等級任務的單對話精簡模式 → 單檔 mini-spec 凍結＋主對話實作＋唯讀 reviewer/qa 平行把關。
 - **附加 gate**：含前端功能修改的任務，流程尾端追加畫面驗證。
 
-判定後載入細節：Claude Code 由 `workflow` skill 載入；Codex/Antigravity 直接讀設定目錄 `skills/workflow/` 對應檔（SKILL.md 判軌細則 → light/standard/heavy 各軌流程）。角色職責與做法在 `agents/*.md`。
+判定後載入細節：Claude Code 由 `workflow` skill 載入；Codex/Antigravity 直接讀設定目錄 `skills/workflow/` 對應檔（SKILL.md 判軌細則 → light/standard/heavy/lite 各軌流程）。角色職責與做法在 `agents/*.md`。
 
 ## 硬護欄（不因精簡而放寬）
 
@@ -34,7 +35,7 @@ skills/workflow/（多檔漸進式披露）與 agents/*.md（角色定義），�
 
 累積 know-how 的機制依平台而異（分流與格式見 rules/learning.md；平台細節見 skills/workflow/platforms.md）：記憶在擷取當下即分類、去重與局部整理；**Claude Code** 用 auto-memory 與專案記憶層索引自動注入；**Codex/Antigravity** 無自動注入，session 開場主動讀專案記憶層的 `MEMORY.md` 索引與 `overview.md`。
 
-任務收尾（輕軌 L4／標準軌 M4／重軌 R6）必答收尾三問（踩坑？拍板？認知落差？），回報末尾明寫「**已沉澱**：<摘要>」或「**無可沉澱**：<一句理由>」——這是 `knowhow-check` hook 的放行訊號，不論該平台 hook 是否實際生效都要寫。放行**優先由 hook 機械強制**，該平台無 hook 支援時才退回條文自律：Claude Code／Codex／Antigravity 皆有 knowhow-check hook（Codex 需先在 `/hooks` 信任；Antigravity 需啟用其 `hooks.json`）。
+任務收尾（輕軌 L4／標準軌 M4／重軌 R6／lite LT4）必答收尾三問（踩坑？拍板？認知落差？），回報末尾明寫「**已沉澱**：<摘要>」或「**無可沉澱**：<一句理由>」——這是 `knowhow-check` hook 的放行訊號，不論該平台 hook 是否實際生效都要寫。放行**優先由 hook 機械強制**，該平台無 hook 支援時才退回條文自律：Claude Code／Codex／Antigravity 皆有 knowhow-check hook（Codex 需先在 `/hooks` 信任；Antigravity 需啟用其 `hooks.json`）。
 
 ## 風格
 

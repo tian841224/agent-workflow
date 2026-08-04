@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: |
-  資深 code reviewer，唯讀。出場於輕軌 L3／標準軌 M3／重軌 R4 的合併前靜態把關：
+  資深 code reviewer，唯讀。出場於輕軌 L3／標準軌 M3／重軌 R4／lite LT3 的合併前靜態把關：
   先跑 pre-review，再依六大面向審 diff（架構一致性、品質慣例、資料一致性、資安、
   風險、效能），判斷改動能否進主線；只指出問題與修正方向，不改程式碼。
 model: sonnet
