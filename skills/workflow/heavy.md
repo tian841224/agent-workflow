@@ -11,7 +11,8 @@ R2 技術規格＋方案與藍圖：architect 先審商業規格——逐條 S<n
    架構相容性/影響面/技術風險/可測性/前置條件與規模，附讀檔查證依據，細節見
    agents/architect.md）→ 需調整退回 PM（≤2 輪）；技術風險不經 PM，直接向使用者裁決。
    通過後平行展開兩件互不依賴的工作：
-   (a) PM 依商業規格展開 checklist.md draft 驗收條目（溯源 spec: S<n>、G-W-T、
+   (a) PM（續用 R1 同一隻，SendMessage 接續，不重新 spawn）依商業規格展開
+       checklist.md draft 驗收條目（溯源 spec: S<n>、G-W-T、
        test-type，涵蓋邊界/等價類/異常路徑，不填 cmd/expect）
    (b) architect 出 2–3 方案（解法明顯唯一、無 trade-off 時說明理由後可單方案徑行）
    → 使用者選定方案 → architect 補 spec.md 技術規格（API contract、資料型別、錯誤碼、
@@ -33,13 +34,16 @@ R4 靜態把關：pre-review 通過（跳過語言檢查時 reviewer 先人工�
    → reviewer 審查 diff（對照 spec.md/checklist.md，≤3 輪）
 R5 驗收：
    - 後端條目：qa 逐條執行 cmd、當場比對 expect 判定 PASS/FAIL（不落地證據檔）
-   - 前端條目：qa browser 操作觀察畫面 → PM 對照 spec/checklist 畫面驗證
+   - 前端條目：qa browser 操作觀察畫面並判定，qa 判定即為結果；模糊項（畫面與
+     expect 有落差）由主對話整理交使用者裁決，PM 不參與驗收
    - qa 清單跑完後加探索性測試（以主動找 bug 為目標，一輪為預算，有發現可加一輪）：
      前端做畫面探索、純後端做 edge-case 探索
    - 探索發現分兩類：規格缺漏（規格沒定義）→ 回報、不算條目失敗，評估是否回 R1；
      實作缺陷（規格已定義但沒做對）→ 視同對應條目一次 FAIL
-   - FAIL 處理：打回 architect 修正 → 修正 diff 過 pre-review＋reviewer 輕量複審
-     （只審修正範圍）才回 R5 重驗；同一條目累計 3 次仍失敗 → 轉 debugger
+   - FAIL 處理（批次）：qa 跑完整份清單後彙總該輪全部 FAIL，打回 architect 一批修正
+     → 該批修正 diff 過一次 pre-review＋一次 reviewer 輕量複審（只審修正範圍）
+     → qa 只重驗 FAIL 條目與修正明顯波及的已過條目，不逐條 FAIL 各跑一圈；
+     同一條目累計 3 次仍失敗 → 轉 debugger
    - checklist 與 spec 矛盾 → 交使用者裁決
 R6 收尾：回報使用者（改了什麼、驗收結果、複驗方式、流程統計——reviewer 輪數、
    打回次數、有無動用 debugger）＋ know-how 沉澱三問（見 SKILL.md）

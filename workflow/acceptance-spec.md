@@ -96,7 +96,7 @@ checklist.md 兩段式展開：PM 依 spec.md **商業規格**寫驗收條目（
 規則：
 - `type: ui` 為前端型識別標記；`steps` 為 browser 操作描述、`expect` 為畫面預期
 - `spec` / `test-type` / `given` / `when` / `then` 規則同後端型
-- qa 以 browser 工具操作、當場觀察畫面是否符合 `expect` 並判定 PASS/FAIL，PM 再依 checklist 走一次人工複核；不需要留存截圖檔
+- qa 以 browser 工具操作、當場觀察畫面是否符合 `expect` 並判定 PASS/FAIL，qa 判定即為結果；模糊項（畫面與 expect 有落差）由主對話整理交使用者裁決；不需要留存截圖檔
 
 ## mini-spec.md 格式（標準軌，用 `templates/mini-spec.md` 模板）
 

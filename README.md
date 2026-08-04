@@ -117,7 +117,7 @@ M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗�
    → 使用者一次確認即凍結
 → M2 實作（TDD seam 取自 mini-spec）→ 作者自檢
 → M3 pre-review + reviewer(≤2輪，對照 mini-spec)
-→ M4 qa 逐條執行、當場判定 PASS/FAIL；含前端條目時追加 PM 畫面驗證；
+→ M4 qa 逐條執行、當場判定 PASS/FAIL；前端模糊項由主對話整理交使用者裁決；
    qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題分
    「規格缺漏」與「實作缺陷」（視同 FAIL）兩類，不得一律當規格缺漏帶過
 ```
@@ -143,14 +143,15 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 → R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪，跳過語言檢查時
    reviewer 先人工補跑 build/test）
 → R5 驗收：後端 = qa 逐條執行 cmd、當場比對 expect 判定 PASS/FAIL（PM 不參與）
-          前端 = qa browser 操作觀察畫面 + PM 對照 spec.md 畫面驗證
+          前端 = qa browser 操作觀察畫面並判定（模糊項交使用者裁決，PM 不參與）
           qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題
           分「規格缺漏」（回報不算失敗）與「實作缺陷」（視同 FAIL 打回 architect）；
-          FAIL 修正後須過 pre-review + reviewer 輕量複審（範圍限定）才回 R5 重驗
+          FAIL 批次處理：整輪彙總一批修正，過一次 pre-review + reviewer 輕量複審
+          （範圍限定）後只重驗 FAIL 與波及條目
 → R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ 內化記憶整理
 ```
 
-**附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對，PM 不出場；標準軌/重軌由 qa 先執行 ui 條目、PM 再複核。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
+**附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對；標準軌/重軌由 qa 執行 ui 條目並判定。模糊項或疑似規格缺漏由主對話整理交使用者裁決；PM 不參與畫面驗證。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
 
 **中途升降軌**：實作途中才發現命中更高軌判準，立即停手宣告升軌、補走該軌缺的前置步驟（標準軌補 mini-spec、重軌補完整 spec.md 流程並凍結）再繼續；降軌需使用者同意。
 
