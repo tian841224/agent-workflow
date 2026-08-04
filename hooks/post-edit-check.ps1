@@ -1,4 +1,4 @@
-# managed by agent-workflow v2 — PostToolUse hook: 編輯後依副檔名快檢
+﻿# managed by agent-workflow v2 — PostToolUse hook: 編輯後依副檔名快檢
 # matcher: Edit|Write|MultiEdit
 # .go 檔: 跑 gofmt -l 與該 package 的 go vet。
 # .ts/.tsx/.js/.jsx 檔(找得到 prettier 設定「且」node_modules 已本地安裝 prettier 時): 跑本地 prettier --check。

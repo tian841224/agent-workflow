@@ -2,7 +2,7 @@
 
 > 本 repo 採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
 
-可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版）+ 後端化驗收判定 + hooks 硬護欄 + 內化的即時記憶整理 + 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
+可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版；另有使用者指定才啟用的 lite 模式——重軌等級任務的單對話精簡替代）+ 後端化驗收判定 + hooks 硬護欄 + 內化的即時記憶整理 + 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
 
 核心理念（v3，依 Claude 5 世代 context engineering 原則調整）：**確定性下沉＋漸進式披露**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷；常駐層（`AGENTS.md`）只留判軌摘要與硬護欄（git 紀律、凍結制、升軌），流程細節下放 `skills/workflow/`（判軌細則＋各軌別分檔）與 `agents/*.md`（角色定義）按需載入，同一指令不在多處重複。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
 
@@ -117,7 +117,7 @@ M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗�
    → 使用者一次確認即凍結
 → M2 實作（TDD seam 取自 mini-spec）→ 作者自檢
 → M3 pre-review + reviewer(≤2輪，對照 mini-spec)
-→ M4 qa 逐條執行、當場判定 PASS/FAIL；含前端條目時追加 PM 畫面驗證；
+→ M4 qa 逐條執行、當場判定 PASS/FAIL；前端模糊項由主對話整理交使用者裁決；
    qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題分
    「規格缺漏」與「實作缺陷」（視同 FAIL）兩類，不得一律當規格缺漏帶過
 ```
@@ -126,7 +126,7 @@ M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗�
 
 ```
 R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-When-Then，條目數
-   明顯超量〔約 10–12 條以上〕建議拆分任務），規格不明確處與使用者確認到雙方理解
+   明顯超量〔約 12 條以上〕建議拆分任務），規格不明確處與使用者確認到雙方理解
    一致 → 商業規格寫入 spec.md
 → R2 architect 先審規格（六維度：規格品質/架構相容性/影響面/技術風險/可測性/前置
    條件與規模，需調整退回 PM ≤2輪、技術風險直報主對話）→ 全數判定沒問題後
@@ -143,22 +143,35 @@ R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-Wh
 → R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪，跳過語言檢查時
    reviewer 先人工補跑 build/test）
 → R5 驗收：後端 = qa 逐條執行 cmd、當場比對 expect 判定 PASS/FAIL（PM 不參與）
-          前端 = qa browser 操作觀察畫面 + PM 對照 spec.md 畫面驗證
+          前端 = qa browser 操作觀察畫面並判定（模糊項交使用者裁決，PM 不參與）
           qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題
           分「規格缺漏」（回報不算失敗）與「實作缺陷」（視同 FAIL 打回 architect）；
-          FAIL 修正後須過 pre-review + reviewer 輕量複審（範圍限定）才回 R5 重驗
+          FAIL 批次處理：整輪彙總一批修正，過一次 pre-review + reviewer 輕量複審
+          （範圍限定）後只重驗 FAIL 與波及條目
 → R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ 內化記憶整理
 ```
 
-**附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對，PM 不出場；標準軌/重軌由 qa 先執行 ui 條目、PM 再複核。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
+**lite**（不是獨立判軌級別——重軌等級任務、使用者主動指定才啟用的單對話精簡模式）：
+
+```
+LT1 主對話直接寫單檔 mini-spec（目標/技術決策/TDD seam/驗收條目含邊界與異常路徑）
+   + 三項必答自審（影響面附證據/技術風險/可測性）→ 釐清+選方案+凍結一次確認
+→ LT2 主對話 TDD 實作（寫入不拆平行；唯讀調查可平行）
+→ LT3 pre-review → reviewer + qa 唯讀平行把關（blocker 與 FAIL 合併一批修正）
+→ LT4 回報（含流程統計）+ 沉澱三問
+```
+
+品質規則同重軌（探索性測試、批次打回、輕量複審、debugger 轉出、硬護欄），省的是文件數（單檔取代三檔）、角色 spawn 與確認往返（3+ 個確認點 → 1 個）。詳見 `skills/workflow/lite.md`。
+
+**附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對；標準軌/重軌由 qa 執行 ui 條目並判定。模糊項或疑似規格缺漏由主對話整理交使用者裁決；PM 不參與畫面驗證。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
 
 **中途升降軌**：實作途中才發現命中更高軌判準，立即停手宣告升軌、補走該軌缺的前置步驟（標準軌補 mini-spec、重軌補完整 spec.md 流程並凍結）再繼續；降軌需使用者同意。
 
-任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
+任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌與 lite 只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
 
 **除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `skills/workflow/SKILL.md`「回合上限」）：`debugger`（唯讀）有兩條出場路徑——
 - 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
-- 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，該條目所屬的 R4→R5 全套重跑（不可只重跑最後一步）
+- 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，修復 diff 過 pre-review＋reviewer 輕量複審，qa 重驗 FAIL 與波及條目（與 R5 批次原則一致）
 
 兩條路徑 `debugger` 都只執行 `systematic-debugging` skill 的前三階段（蒐證／模式分析／假說驗證）、不改 code、不下修復方案，結論交回 architect。回合計數（reviewer↔architect、PM↔architect、R4/R5 打回、R3c 打回）由 orchestrator 每輪結束記錄到 `plan.md` 的「回合記錄」段落，以檔案為準、不靠對話記憶（標準軌無 plan.md，回合次數在回報中口頭列出即可）。
 
@@ -182,7 +195,7 @@ repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源�
 | reviewer ↔ architect | 重軌 ≤3 輪、輕軌/標準軌 ≤2 輪 | orchestrator | 列出爭點回報使用者裁決 |
 | PM ↔ architect（需求可行性往返） | ≤2 輪 | orchestrator | 回報使用者裁決 |
 | 同一 bug 內部修復嘗試 | 2 次未解需寫理由才續試，3 次硬上限 | architect 自己計數 | 轉交 `debugger`（路徑 A） |
-| 同一驗收條目在 R4/R5 被打回 architect | 3 次 | orchestrator | 轉交 `debugger`（路徑 B），修復後 R4→R5 全套重跑 |
+| 同一驗收條目在 R4/R5 被打回 architect | 3 次 | orchestrator | 轉交 `debugger`（路徑 B），修復後過 pre-review＋輕量複審，qa 重驗 FAIL 與波及條目 |
 | pre-review 失敗退回 | 不計數 | — | 修正後重跑，不計入 reviewer 輪數 |
 
 上述計數器（除 pre-review 退回）每輪結束由 orchestrator 記錄到重軌 `plan.md` 的「回合記錄」段落，輪數判定以檔案為準；標準軌無 plan.md，回合次數口頭列在回報中即可（上限本就 ≤2 輪，流失風險低）。

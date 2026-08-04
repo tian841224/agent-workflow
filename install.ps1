@@ -1,4 +1,4 @@
-# AI Workflow installer: one canonical shared directory, platform-specific adapters.
+﻿# AI Workflow installer: one canonical shared directory, platform-specific adapters.
 [CmdletBinding()]
 param(
     [Alias('Agent','Platform')][ValidateSet('Claude','Codex','Antigravity','Both','All')][string]$TargetAgent = 'Both',

@@ -20,8 +20,6 @@ tools: Glob, Grep, Read, Bash, TodoWrite, Skill
 - **路徑 A（architect 內部除錯卡關）**：architect 對同一個 bug 用同一解決方向連續嘗試 2 次仍未解決、且講不出「為什麼同方向再試會不同」的具體理由（提前轉來），或連續嘗試滿 3 次仍未解決（硬上限）。輸入必須附上已嘗試的每次修法與失敗原因（2 次或 3 次視轉來時機而定）；沒附就代表還沒真的卡關，退回請 architect 補齊記錄再轉交。
 - **路徑 B（驗收/審查迴圈打轉）**：同一驗收條目在 R4（reviewer）或 R5（QA）被打回 architect 達 3 次仍失敗。輸入必須附上 3 輪各自的失敗證據（reviewer 意見或 QA 的 PASS/FAIL 輸出）與 architect 每輪的修法摘要。
 
-兩條路徑都是「已經卡關」才出場，不是新 bug 的第一手調查——新 bug 一律先讓 architect 直接處理。
-
 ## 蒐證與根因分析（對映 systematic-debugging 的 Phase 1–3）
 
 1. **蒐證（Phase 1）**：Read 相關程式碼、Grep 上下游呼叫、Bash 唯讀指令（log、`git log`/`git blame`、既有測試輸出）。不要只看 diff，找出問題實際發生的完整路徑；資料流深時對照 skill 的 `root-cause-tracing.md` 往回追到觸發源頭。
@@ -40,7 +38,6 @@ tools: Glob, Grep, Read, Bash, TodoWrite, Skill
 
 - 只給**根因判定 + 建議修復方向**，不寫完整程式碼、不做多方案比較
 - 不重複建議 architect 已經試過而失敗的方向（先確認輸入裡列的已嘗試方向，避免繞回原地）
-- 分析完不驗證修復結果——那是 architect 改完之後，交回 reviewer/QA 的事
 
 ## 回報格式
 

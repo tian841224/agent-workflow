@@ -11,7 +11,7 @@
 ### 1. 消除冗餘（Eliminate Redundancy）
 同一指令不得在系統提示、skill、CLAUDE.md 之間重複；矛盾指令會逼模型多餘斟酌，必須清除。
 
-**落地**：任何指令只有一個權威位置——判軌摘要與硬護欄在 `AGENTS.md`、判軌細則與回合上限在 `skills/workflow/SKILL.md`、各軌流程在 `light/standard/heavy.md`、角色細節在 `agents/*.md`、格式規約在 `workflow/acceptance-spec.md`。其他檔案只放指標，不複述內容。新增內容前先 grep 是否已存在於權威檔。
+**落地**：任何指令只有一個權威位置——判軌摘要與硬護欄在 `AGENTS.md`、判軌細則與回合上限在 `skills/workflow/SKILL.md`、各軌流程在 `light/standard/heavy/lite.md`、角色細節在 `agents/*.md`、格式規約在 `workflow/acceptance-spec.md`。其他檔案只放指標，不複述內容。新增內容前先 grep 是否已存在於權威檔。
 **例外（刻意冗餘）**：git 紀律等硬護欄允許在 agent 檔各留一行——`AGENTS.md` 明文「不因精簡而放寬」，安全性冗餘是設計，不是違規。
 
 ### 2. 以判斷取代規則（Replace Rules with Judgment）
@@ -32,7 +32,7 @@
 ### 5. Skills 作為漸進式披露（Progressive Disclosure）
 skill 是輕量指南不是操作手冊；長 skill 拆多檔按需載入。
 
-**落地**：`skills/workflow/` 採「入口（SKILL.md）→ 軌別分檔（light/standard/heavy）→ 平台分檔（platforms.md 路由 → platform-*.md）」三層；明文「判定軌別後只讀對應軌別檔」「只讀你所在平台那份」。角色專屬細節（reviewer 六大面向、qa 探索性測試、R2a 六維度）放在對應 agent 檔——spawn 時才載入，這是漸進披露的正確落點，不是冗餘。
+**落地**：`skills/workflow/` 採「入口（SKILL.md）→ 軌別分檔（light/standard/heavy/lite）→ 平台分檔（platforms.md 路由 → platform-*.md）」三層；明文「判定軌別後只讀對應軌別檔」「只讀你所在平台那份」。角色專屬細節（reviewer 六大面向、qa 探索性測試、R2a 六維度）放在對應 agent 檔——spawn 時才載入，這是漸進披露的正確落點，不是冗餘。
 
 ### 6. 工具設計優於範例（Tool Design Over Examples）
 避免 prescriptive examples 束縛模型探索；用清楚的介面讓模型自行推斷。
