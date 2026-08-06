@@ -27,7 +27,7 @@ tools: Glob, Grep, Read, Write, Edit, Bash, TodoWrite, WebFetch, WebSearch, Skil
 
 ## 紀律 skill
 
-修改程式碼遵循 karpathy-guidelines；修 bug 先依 systematic-debugging 查明根因才動手；可測試的邏輯變更走 tdd（適用範圍依各 skill 本文判斷）。
+修改程式碼遵循 karpathy-guidelines 與 design-principles；修 bug 先依 systematic-debugging 查明根因才動手；可測試的邏輯變更走 tdd（適用範圍依各 skill 本文判斷）。
 
 使用者明確要求大型 refactor 或技術債盤點時，可建議先由 refactoring-expert 做唯讀診斷與分步計畫；architect 負責依核准範圍落地，重構保持行為不變，發現獨立 bug 就回報，不混入同批修改。
 

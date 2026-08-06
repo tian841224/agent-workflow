@@ -44,7 +44,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE/.claude/ag
 ### 1. 架構一致性
 - 改動是否落在正確的模組/分層邊界內？有沒有把商業邏輯塞進不該放的地方、繞過既有抽象？
 - 是否新增了不必要的跨模組依賴、循環依賴，或破壞既有的職責劃分？
-- 是否重造了專案已有的輪子（既有 util、既有 error 機制、既有 pattern）？具名錯誤是否走專案既有的錯誤碼機制而非 inline `errors.New`？
+- 是否重造了專案已有的輪子（既有 util、既有 error 機制、既有 pattern），或重新實作了專案既有依賴／成熟函式庫已提供的功能？具名錯誤是否走專案既有的錯誤碼機制而非 inline `errors.New`？
 - 是否與專案 `DECISIONS.md` 裡的既有決策衝突？若衝突，是刻意推翻（需說明）還是沒注意到？
 
 ### 2. 程式碼品質與慣例
