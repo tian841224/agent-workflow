@@ -1,52 +1,121 @@
-# Installer acceptance tests. Uses an isolated directory under the repository.
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path -Parent $PSScriptRoot
-$root = Join-Path $repo '.tmp-installer-tests'
-if (Test-Path $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-New-Item -ItemType Directory -Force $root | Out-Null
-$claude = Join-Path $root 'claude'; $codex = Join-Path $root 'codex'; $antigravity = Join-Path $root 'gemini'; $canonical = Join-Path $root 'canonical'
-function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" }; Write-Output "[PASS] $Message" }
-function Run-Installer([string[]]$InstallerArgs) {
-    $named = @{}
-    for ($i=0; $i -lt $InstallerArgs.Count; $i+=2) { $named[$InstallerArgs[$i].TrimStart('-')] = $InstallerArgs[$i+1] }
-    & (Join-Path $repo 'install.ps1') @named
-    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "installer exit $LASTEXITCODE" }
+$root = Split-Path -Parent $PSScriptRoot
+$sandbox = Join-Path ([IO.Path]::GetTempPath()) ('agent-workflow-installer-' + [guid]::NewGuid().ToString('N'))
+$claude = Join-Path $sandbox '.claude'
+$codex = Join-Path $sandbox '.codex'
+$gemini = Join-Path $sandbox '.gemini'
+$state = Join-Path $sandbox '.agent-workflow'
+$legacy = Join-Path $sandbox '.agents'
+$hostExe = if ($PSVersionTable.PSEdition -eq 'Core') { Join-Path $PSHOME 'pwsh.exe' } else { Join-Path $PSHOME 'powershell.exe' }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$managedHooksDir = Join-Path $state 'runtime\hooks'
+$customCommand = 'powershell.exe -NoProfile -File "C:\custom\user-hook.ps1"'
+
+function Write-TestJson([string]$Path, $Value) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+    [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 20), $utf8NoBom)
 }
+
+function Write-MixedHookFixture([string]$Path, [string]$Matcher) {
+    $data = [ordered]@{
+        hooks = [ordered]@{
+            PreToolUse = @([ordered]@{ matcher=$Matcher; hooks=@(
+                $null,
+                [ordered]@{ type='command'; command=$customCommand; timeout=5 },
+                [ordered]@{ type='command'; command=('powershell.exe -File "' + (Join-Path $managedHooksDir 'git-guard.ps1') + '"'); timeout=15 }
+            ) })
+            Stop = @([ordered]@{ hooks=@(
+                $null,
+                [ordered]@{ type='command'; command=$customCommand; timeout=5 },
+                [ordered]@{ type='command'; command=('powershell.exe -File "' + (Join-Path $managedHooksDir 'quality-gate.ps1') + '"'); timeout=15 }
+            ) })
+        }
+    }
+    Write-TestJson $Path $data
+}
+
+function Get-HookCommands($Config, [string]$EventName) {
+    return @($Config.hooks.$EventName | ForEach-Object { @($_.hooks) | ForEach-Object { [string]$_.command } })
+}
+
+function Assert-NoNullHooks($Config, [string]$Path) {
+    foreach ($eventName in @('PreToolUse','Stop')) {
+        foreach ($entry in @($Config.hooks.$eventName)) {
+            if ($null -eq $entry) { throw "null $eventName wrapper was retained: $Path" }
+            foreach ($hook in @($entry.hooks)) {
+                if ($null -eq $hook) { throw "nested null $eventName hook was retained: $Path" }
+            }
+        }
+    }
+}
+
 try {
-    Run-Installer @('-TargetAgent','Both','-ClaudeTarget',$claude,'-CodexTarget',$codex,'-CanonicalTarget',$canonical)
-    Assert (Test-Path (Join-Path $canonical 'workflow\WORKFLOW.md')) 'canonical shared workflow is installed once'
-    Assert (Test-Path (Join-Path $claude 'agents\architect.md')) 'Claude managed agent is installed without replacing other agents'
-    Assert (Test-Path (Join-Path $codex 'skills\tdd\SKILL.md')) 'Codex managed skill is installed without replacing other skills'
-    Get-Content (Join-Path $claude 'settings.json') -Raw | ConvertFrom-Json | Out-Null
-    Get-Content (Join-Path $codex 'hooks.json') -Raw | ConvertFrom-Json | Out-Null
-    Assert ((Get-Content (Join-Path $codex 'hooks.json') -Raw) -notmatch '\{\{HOOKS_DIR\}\}') 'Codex hook path is expanded'
-    Run-Installer @('-TargetAgent','Antigravity','-AntigravityTarget',$antigravity,'-CanonicalTarget',$canonical)
-    Assert (Test-Path (Join-Path $antigravity 'GEMINI.md')) 'Antigravity GEMINI.md is installed'
-    Assert ((Get-Content (Join-Path $antigravity 'GEMINI.md') -Raw) -eq (Get-Content (Join-Path $canonical 'AGENTS.md') -Raw)) 'Antigravity uses canonical instructions'
-    $antigravityHooks = Join-Path $antigravity 'config\hooks.json'
-    Assert (Test-Path $antigravityHooks) 'Antigravity hooks.json is installed'
-    Get-Content $antigravityHooks -Raw | ConvertFrom-Json | Out-Null
-    Assert ((Get-Content $antigravityHooks -Raw) -notmatch '\{\{HOOKS_DIR\}\}') 'Antigravity hook path is expanded'
-    Assert ((Get-Content $antigravityHooks -Raw) -match 'agent-workflow-git-guard') 'Antigravity git guard is registered'
-    $globalWorkflowDir = Join-Path $antigravity 'config\global_workflows'
-    Assert (Test-Path (Join-Path $globalWorkflowDir 'agent-workflow.md')) 'Antigravity current global workflow is installed'
-    $agentWorkflow = Get-Content (Join-Path $globalWorkflowDir 'agent-workflow.md') -Raw
-    Assert ($agentWorkflow -match '(?s)^---\s+description:\s+.+?\s+---') 'Antigravity workflow has description frontmatter'
-    Assert ($agentWorkflow -eq (Get-Content (Join-Path $repo 'adapters\antigravity\workflows\agent-workflow.md') -Raw)) 'Antigravity current workflow uses native adapter content'
-    $before = (Get-ChildItem $canonical -Recurse -File | Measure-Object).Count
-    Run-Installer @('-TargetAgent','Both','-ClaudeTarget',$claude,'-CodexTarget',$codex,'-CanonicalTarget',$canonical)
-    $after = (Get-ChildItem $canonical -Recurse -File | Measure-Object).Count
-    Assert ($before -eq $after) 'second install keeps canonical file count stable'
-    $dry = & (Join-Path $repo 'install.ps1') -DryRun -Agent Both -ClaudeTarget (Join-Path $root 'dry-claude') -CodexTarget (Join-Path $root 'dry-codex') -CanonicalTarget (Join-Path $root 'dry-canonical') | Out-String
-    Assert (-not (Test-Path (Join-Path $root 'dry-canonical'))) 'DryRun does not create canonical directory'
-    $statusOut = & (Join-Path $repo 'install.ps1') -Action Status -ClaudeTarget $claude -CodexTarget $codex -CanonicalTarget $canonical -AntigravityTarget $antigravity | Out-String
-    Assert ($statusOut -match 'AntigravityExists\s*:\s*True') 'Status reports AntigravityExists'
-    Assert ($statusOut -match 'AntigravityLinked\s*:\s*True') 'Status reports AntigravityLinked'
-    $missingAntigravity = Join-Path $root 'no-such-gemini'
-    $statusOut2 = & (Join-Path $repo 'install.ps1') -Action Status -ClaudeTarget $claude -CodexTarget $codex -CanonicalTarget $canonical -AntigravityTarget $missingAntigravity | Out-String
-    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "installer exit $LASTEXITCODE on missing antigravity target" }
-    Assert ($statusOut2 -match 'AntigravityExists\s*:\s*False') 'Status handles missing Antigravity target without throwing'
-    Write-Output '=== installer tests: PASS ==='
+    Write-MixedHookFixture (Join-Path $claude 'settings.json') 'Bash|PowerShell'
+    Write-MixedHookFixture (Join-Path $codex 'hooks.json') '^Bash$|^shell_command$'
+    Write-TestJson (Join-Path $gemini 'config\hooks.json') ([ordered]@{
+        'user-custom' = [ordered]@{ Stop=@([ordered]@{ type='command'; command=$customCommand; timeout=5 }) }
+        'agent-workflow-stale' = [ordered]@{ Stop=@([ordered]@{ type='command'; command='stale'; timeout=5 }) }
+    })
+
+    & (Join-Path $root 'install.ps1') -TargetAgent All -ClaudeTarget $claude -CodexTarget $codex -AntigravityTarget $gemini -StateRoot $state -LegacyRoot $legacy
+    if ($LASTEXITCODE) { throw 'installer failed' }
+    foreach ($path in @(
+        (Join-Path $claude 'agents\agent-workflow-reviewer.md'),
+        (Join-Path $codex 'agents\agent-workflow-reviewer.toml'),
+        (Join-Path $gemini 'config\agents\agent-workflow-reviewer\agent.md'),
+        (Join-Path $state 'runtime\hooks\quality-gate.ps1'),
+        (Join-Path $state 'runtime\scripts\pre-review.ps1')
+    )) { if (-not (Test-Path -LiteralPath $path)) { throw "missing installed file: $path" } }
+    $installedPreReview = Join-Path $state 'runtime\scripts\pre-review.ps1'
+    $preReviewOutput = & $hostExe -NoProfile -ExecutionPolicy Bypass -File $installedPreReview -RepoRoot $sandbox | Out-String
+    if ($LASTEXITCODE -ne 0 -or $preReviewOutput -notmatch 'RESULT: SKIP') { throw 'installed pre-review runtime is not executable' }
+    $installedSchema = Get-Content -LiteralPath (Join-Path $state 'runtime\schemas\task.schema.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (@($installedSchema.required) -notcontains 'code_change' -or $installedSchema.properties.code_change.type -ne 'boolean') { throw 'installed task schema is missing code_change' }
+    $installedWorkflow = Get-Content -LiteralPath (Join-Path $state 'runtime\skills\workflow\SKILL.md') -Raw -Encoding UTF8
+    if ($installedWorkflow -notmatch 'code_change: true' -or $installedWorkflow -notmatch 'code_change: false') { throw 'installed workflow is missing code_change role rules' }
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $codex 'agents\agent-workflow-reviewer.toml'))
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'Codex TOML has a BOM' }
+
+    foreach ($action in @('Install','Repair')) {
+        & (Join-Path $root 'install.ps1') -Action $action -TargetAgent All -ClaudeTarget $claude -CodexTarget $codex -AntigravityTarget $gemini -StateRoot $state -LegacyRoot $legacy
+        if ($LASTEXITCODE) { throw "installer $action failed" }
+    }
+    foreach ($path in @((Join-Path $claude 'settings.json'),(Join-Path $codex 'hooks.json'))) {
+        $hookConfig = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        Assert-NoNullHooks $hookConfig $path
+        $preCommands = Get-HookCommands $hookConfig 'PreToolUse'
+        $stopCommands = Get-HookCommands $hookConfig 'Stop'
+        if (@($hookConfig.hooks.PreToolUse).Count -ne 2) { throw "unexpected PreToolUse wrapper count after Repair: $path" }
+        if (@($hookConfig.hooks.Stop).Count -ne 2) { throw "unexpected Stop wrapper count after Repair: $path" }
+        if (@($preCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne 1) { throw "duplicate managed PreToolUse hook after Repair: $path" }
+        if (@($stopCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne 1) { throw "duplicate managed Stop hook after Repair: $path" }
+        if (@($preCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom PreToolUse hook was not preserved: $path" }
+        if (@($stopCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom Stop hook was not preserved: $path" }
+    }
+    $antigravityHooks = Get-Content -LiteralPath (Join-Path $gemini 'config\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (@($antigravityHooks.PSObject.Properties.Name | Where-Object { $_ -like 'agent-workflow-*' }).Count -ne 2) { throw 'Antigravity managed hooks were duplicated after Repair' }
+    if (-not $antigravityHooks.PSObject.Properties['user-custom']) { throw 'Antigravity custom top-level hook was not preserved' }
+
+    New-Item -ItemType Directory -Force -Path (Join-Path $state 'projects\keep') | Out-Null
+    Set-Content -LiteralPath (Join-Path $state 'projects\keep\task.md') -Value 'keep' -Encoding UTF8
+    & (Join-Path $root 'install.ps1') -Action Uninstall -TargetAgent All -ClaudeTarget $claude -CodexTarget $codex -AntigravityTarget $gemini -StateRoot $state -LegacyRoot $legacy
+    if (-not (Test-Path -LiteralPath (Join-Path $state 'projects\keep\task.md'))) { throw 'uninstall deleted user data' }
+    foreach ($path in @((Join-Path $claude 'settings.json'),(Join-Path $codex 'hooks.json'))) {
+        $hookConfig = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        Assert-NoNullHooks $hookConfig $path
+        $preCommands = Get-HookCommands $hookConfig 'PreToolUse'
+        $stopCommands = Get-HookCommands $hookConfig 'Stop'
+        if (@($preCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "uninstall removed custom PreToolUse hook: $path" }
+        if (@($stopCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "uninstall removed custom Stop hook: $path" }
+        if (@($preCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne 0) { throw "uninstall retained managed PreToolUse hook: $path" }
+        if (@($stopCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne 0) { throw "uninstall retained managed Stop hook: $path" }
+        if (@($hookConfig.hooks.PreToolUse).Count -ne 1) { throw "unexpected PreToolUse wrapper count after Uninstall: $path" }
+        if (@($hookConfig.hooks.Stop).Count -ne 1) { throw "unexpected Stop wrapper count after Uninstall: $path" }
+    }
+    $antigravityHooks = Get-Content -LiteralPath (Join-Path $gemini 'config\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $antigravityHooks.PSObject.Properties['user-custom']) { throw 'uninstall removed Antigravity custom top-level hook' }
+    if (@($antigravityHooks.PSObject.Properties.Name | Where-Object { $_ -like 'agent-workflow-*' }).Count -ne 0) { throw 'uninstall retained Antigravity managed hooks' }
+    Write-Output 'installer tests passed'
 } finally {
-    if (Test-Path $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }
 }

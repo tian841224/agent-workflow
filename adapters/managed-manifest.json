@@ -1,0 +1,25 @@
+{
+  "schema_version": 4,
+  "runtime": [
+    "AGENTS.md",
+    "agents/reviewer.md",
+    "agents/verifier.md",
+    "skills/workflow/SKILL.md",
+    "hooks/git-guard.ps1",
+    "hooks/quality-gate.ps1",
+    "scripts/project-resolver.ps1",
+    "scripts/knowledge.ps1",
+    "scripts/pre-review.ps1",
+    "scripts/validate-task.ps1",
+    "templates/task.md",
+    "schemas/project.schema.json",
+    "schemas/knowledge.schema.json",
+    "schemas/task.schema.json",
+    "schemas/import-manifest.schema.json"
+  ],
+  "platform_files": {
+    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-verifier.md", "skills/workflow/SKILL.md"],
+    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-verifier.toml", "skills/workflow/SKILL.md", "rules/agent-workflow.rules"],
+    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/skills/workflow/SKILL.md", "config/global_workflows/agent-workflow.md"]
+  }
+}

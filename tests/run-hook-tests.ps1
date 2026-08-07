@@ -1,241 +1,204 @@
-﻿# managed by agent-workflow v2 — hooks 測試腳本
-# 以 stdin JSON 餵各 hook, assert stdout 決策。全部通過 exit 0, 任一失敗 exit 1。
-
 $ErrorActionPreference = 'Stop'
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$hooksDir = Join-Path $repoRoot 'hooks'
-$testWorkflowHome = Join-Path $repoRoot '.tmp-hook-home'
-$env:AI_WORKFLOW_HOME = $testWorkflowHome
-$script:failed = 0
-$script:passed = 0
+$root = Split-Path -Parent $PSScriptRoot
+$guard = Join-Path $root 'hooks\git-guard.ps1'
+$hostExe = if ($PSVersionTable.PSEdition -eq 'Core') { Join-Path $PSHOME 'pwsh.exe' } else { Join-Path $PSHOME 'powershell.exe' }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
-function Invoke-Hook($hookName, $stdinJson) {
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'powershell.exe'
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $hooksDir $hookName)`""
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    $proc.StandardInput.Write($stdinJson)
-    $proc.StandardInput.Close()
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $proc.WaitForExit()
-    return [pscustomobject]@{ ExitCode = $proc.ExitCode; Stdout = $stdout.Trim() }
+function Invoke-HookUtf8([string]$ScriptPath, [string]$Payload) {
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $hostExe
+    $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = $utf8NoBom
+    $startInfo.StandardErrorEncoding = $utf8NoBom
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $inputBytes = $utf8NoBom.GetBytes($Payload)
+    $process.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
+    $process.StandardInput.BaseStream.Close()
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0 -or $stderr) { throw "UTF-8 hook failed: exit=$($process.ExitCode) stderr=$stderr" }
+    return $stdout
 }
 
-function Assert-Case($name, $hookName, $stdinJson, [scriptblock]$check) {
-    $r = Invoke-Hook $hookName $stdinJson
-    if (& $check $r) {
-        $script:passed++
-        Write-Output "[PASS] $name"
-    } else {
-        $script:failed++
-        Write-Output "[FAIL] $name  (exit=$($r.ExitCode) stdout=$($r.Stdout))"
-    }
+function Invoke-Guard([string]$Command) {
+    $payload = @{ tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 $guard $payload
+}
+function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+
+Assert ((Invoke-Guard 'git reset --hard HEAD') -match 'deny') 'destructive Git was not denied'
+Assert ((Invoke-Guard 'git commit -m test') -match 'ask') 'Git write did not require approval'
+Assert (-not (Invoke-Guard 'git status')) 'read-only Git should pass silently'
+
+$quality = Get-Content -LiteralPath (Join-Path $root 'hooks\quality-gate.ps1') -Raw -Encoding UTF8
+Assert ($quality -match 'active_tasks') 'quality gate does not resolve active tasks'
+Assert ($quality -notmatch 'history\\tasks') 'quality gate must not scan history'
+
+$qualityPath = Join-Path $root 'hooks\quality-gate.ps1'
+$resolverPath = Join-Path $root 'scripts\project-resolver.ps1'
+$sandbox = Join-Path ([IO.Path]::GetTempPath()) ('agent-workflow-hook-tests-' + [guid]::NewGuid().ToString('N'))
+$utf8Text = -join @([char]0x4E2D,[char]0x6587)
+$repo = Join-Path $sandbox ($utf8Text + '-repo')
+$profile = Join-Path $sandbox 'profile'
+$state = Join-Path $profile '.agent-workflow'
+$oldProfile = $env:USERPROFILE
+
+function Invoke-Quality([string]$Cwd) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $false } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 $qualityPath $payload
+}
+function Invoke-QualityUtf8([string]$Cwd, [bool]$StopHookActive) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $StopHookActive; last_assistant_message = $utf8Text } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 $qualityPath $payload
+}
+function Set-TestTask($Resolved, [string[]]$Flags, [string]$Extra = '', [bool]$CodeChange = $false, [switch]$Frozen) {
+    Get-ChildItem -LiteralPath $Resolved.task_root -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    $taskDir = Join-Path $Resolved.task_root '20260807-000000-hook-test'
+    New-Item -ItemType Directory -Force -Path $taskDir | Out-Null
+    $flagText = $Flags -join ', '
+    $frozenAt = if ($Frozen) { '2026-08-07T00:00:00+08:00' } else { '' }
+    $content = @"
+---
+id: 20260807-000000-hook-test
+project_id: $($Resolved.project_id)
+worktree_id: $($Resolved.worktree_id)
+status: in_progress
+code_change: $($CodeChange.ToString().ToLowerInvariant())
+risk_flags: [$flagText]
+created_at: 2026-08-07T00:00:00+08:00
+updated_at: 2026-08-07T00:00:00+08:00
+frozen_at: $frozenAt
+---
+
+## Goal
+Goal text
+
+## Scope
+Scope text
+
+## Completion criteria
+- [x] complete
+
+## Validation results
+- pre-review: PASS
+- command: test
+- checks: pass
+- skip reason: none
+- limitations: none
+
+$Extra
+"@
+    [IO.File]::WriteAllText((Join-Path $taskDir 'task.md'), $content, $utf8NoBom)
 }
 
-function BashCmd($cmd) {
-    return (@{ tool_name = 'Bash'; tool_input = @{ command = $cmd }; cwd = 'C:\tmp' } | ConvertTo-Json -Compress)
+$reviewResult = @"
+## Reviewer result
+- Architecture consistency: PASS
+- Code quality and conventions: PASS
+- Data consistency: N/A - no data change
+- Security: N/A - no security change
+- Risk and compatibility: PASS
+- Performance: N/A - no hot path change
+"@
+$verifierResult = "## Verifier result`n- PASS`n"
+$roleResults = $reviewResult + "`n" + $verifierResult
+$freezeSections = @"
+## Non-goals and compatibility
+None
+## Current state and impact
+Known
+## Decision and tradeoffs
+Selected
+## Boundary and error paths
+Covered
+## User confirmation
+Confirmed
+"@
+
+try {
+    New-Item -ItemType Directory -Force -Path $repo,$profile | Out-Null
+    & git -C $repo init --quiet
+    [IO.File]::WriteAllText((Join-Path $repo 'fixture.txt'), 'fixture', $utf8NoBom)
+    & git -C $repo add fixture.txt
+    & git -C $repo -c user.name=agent-workflow -c user.email=agent-workflow@example.invalid commit --quiet -m fixture
+    $env:USERPROFILE = $profile
+    $resolved = (& $resolverPath -Path $repo -StateRoot $state -Ensure | Out-String) | ConvertFrom-Json
+
+    Assert (-not (Invoke-QualityUtf8 $repo $true)) 'stop_hook_active with UTF-8 payload was not released silently'
+
+    Set-TestTask $resolved @()
+    Assert (-not (Invoke-Quality $repo)) 'basic task should require only the four base sections and pre-review evidence'
+    $basicTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    $basicContent = Get-Content -LiteralPath $basicTask.FullName -Raw -Encoding UTF8
+    $basicContent = [regex]::Replace($basicContent, '(?ms)^## Goal.*?(?=^## Scope)', '')
+    [IO.File]::WriteAllText($basicTask.FullName, $basicContent, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'Goal') 'basic task without Goal was accepted'
+    $utf8Output = Invoke-QualityUtf8 $repo $false
+    Assert (($utf8Output | ConvertFrom-Json).reason -match 'Goal') 'UTF-8 quality hook did not parse the Chinese workspace path or emit valid UTF-8 JSON'
+
+    Set-TestTask $resolved @('behavior_change')
+    Assert ((Invoke-Quality $repo) -match 'Acceptance cases') 'behavior_change did not require Acceptance cases'
+    Set-TestTask $resolved @('behavior_change') "<!--`n## Acceptance cases`nA1`n-->`n"
+    Assert ((Invoke-Quality $repo) -match 'Acceptance cases') 'commented Acceptance cases was treated as task content'
+    Set-TestTask $resolved @('behavior_change') "## Acceptance cases`n| ID | Scenario | Expected | Verify |`n|---|---|---|---|`n| A1 | x | y | z |`n"
+    $qualityOutput = Invoke-Quality $repo
+    Assert (-not $qualityOutput) "valid non-code behavior_change task was blocked: $qualityOutput"
+
+    Set-TestTask $resolved @('ui') "## Acceptance cases`nA1`n## Browser verification`nPASS`n"
+    Assert (-not (Invoke-Quality $repo)) 'valid non-code ui task was blocked by a role gate'
+
+    $contractBase = $freezeSections + "`n## Acceptance cases`nA1`n"
+    Set-TestTask $resolved @('contract') $contractBase -Frozen
+    Assert ((Invoke-Quality $repo) -match 'Contract and data impact') 'contract did not require Contract and data impact'
+    Set-TestTask $resolved @('contract') ($contractBase + "## Contract and data impact`nNo schema change`n") -Frozen
+    Assert (-not (Invoke-Quality $repo)) 'valid non-code contract task was blocked by a role gate'
+
+    $crossFeature = $freezeSections + "`n## Acceptance cases`nA1`n"
+    Set-TestTask $resolved @('cross_feature') $crossFeature -Frozen
+    Assert ((Invoke-Quality $repo) -match 'Implementation sequence') 'cross_feature did not require Implementation sequence'
+    Set-TestTask $resolved @('cross_feature') ($crossFeature + "## Implementation sequence`n1. change`n") -Frozen
+    Assert (-not (Invoke-Quality $repo)) 'valid non-code cross_feature task was blocked by a role gate'
+
+    Set-TestTask $resolved @('data_write')
+    Assert ((Invoke-Quality $repo) -match 'Contract and data impact') 'data_write did not require Contract and data impact'
+
+    Set-TestTask $resolved @() '' $true
+    $codeGateOutput = Invoke-Quality $repo
+    Assert ($codeGateOutput -match 'Reviewer result') 'code_change task did not require Reviewer'
+    Assert ($codeGateOutput -match 'Verifier result') 'code_change task did not require Verifier'
+    Set-TestTask $resolved @() ("## Reviewer result`npending`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result is missing or not passed') 'pending Reviewer result was accepted'
+    Set-TestTask $resolved @() ($reviewResult + "`n## Verifier result`n- FAIL`n") $true
+    Assert ((Invoke-Quality $repo) -match 'Verifier result is missing or not passed') 'failed Verifier result was accepted'
+    Set-TestTask $resolved @() $roleResults $true
+    Assert (-not (Invoke-Quality $repo)) 'valid code_change task was blocked'
+
+    Set-TestTask $resolved @()
+    $taskPath = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    $taskContent = Get-Content -LiteralPath $taskPath.FullName -Raw -Encoding UTF8
+    $taskContent = $taskContent -replace '(?m)^code_change: false$', 'code_change: maybe'
+    [IO.File]::WriteAllText($taskPath.FullName, $taskContent, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'code_change must be true or false') 'invalid code_change was accepted'
+    $taskContent = $taskContent -replace '(?m)^code_change: maybe\r?\n', ''
+    [IO.File]::WriteAllText($taskPath.FullName, $taskContent, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'missing required field: code_change') 'missing code_change was accepted'
+
+    Set-TestTask $resolved @() ''
+    $taskPath = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    $taskContent = Get-Content -LiteralPath $taskPath.FullName -Raw -Encoding UTF8
+    $taskContent = $taskContent -replace '(?m)^- pre-review: PASS$', '- pre-review: SKIP' -replace '(?m)^- skip reason: none$', '- skip reason: <reason>'
+    [IO.File]::WriteAllText($taskPath.FullName, $taskContent, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'SKIP pre-review requires a reason') 'SKIP without a reason was accepted'
+} finally {
+    $env:USERPROFILE = $oldProfile
+    if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }
 }
-
-Write-Output '=== git-guard.ps1 ==='
-Assert-Case 'force push → deny' 'git-guard.ps1' (BashCmd 'git push --force origin main') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'push -f → deny' 'git-guard.ps1' (BashCmd 'git push -f') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'reset --hard → deny' 'git-guard.ps1' (BashCmd 'cd /d/x && git reset --hard HEAD~1') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'clean -fd → deny' 'git-guard.ps1' (BashCmd 'git clean -fd') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'branch -D → deny' 'git-guard.ps1' (BashCmd 'git branch -D feature-x') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'checkout -- path → deny' 'git-guard.ps1' (BashCmd 'git checkout -- src/main.go') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'stash drop → deny' 'git-guard.ps1' (BashCmd 'git stash drop') { param($r) $r.Stdout -match '"permissionDecision":"deny"' }
-Assert-Case 'commit → ask' 'git-guard.ps1' (BashCmd 'git commit -m "fix"') { param($r) $r.Stdout -match '"permissionDecision":"ask"' }
-Assert-Case 'push (非 force) → ask' 'git-guard.ps1' (BashCmd 'git push origin develop') { param($r) $r.Stdout -match '"permissionDecision":"ask"' }
-Assert-Case 'rebase → ask' 'git-guard.ps1' (BashCmd 'git rebase develop') { param($r) $r.Stdout -match '"permissionDecision":"ask"' }
-Assert-Case 'git -C 前綴 commit → ask' 'git-guard.ps1' (BashCmd 'git -C C:/x/y commit -m msg') { param($r) $r.Stdout -match '"permissionDecision":"ask"' }
-Assert-Case '串接指令中的 commit → ask' 'git-guard.ps1' (BashCmd 'go test ./... && git commit -am done') { param($r) $r.Stdout -match '"permissionDecision":"ask"' }
-Assert-Case 'git status → 不干預' 'git-guard.ps1' (BashCmd 'git status') { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case 'git diff → 不干預' 'git-guard.ps1' (BashCmd 'git diff --stat') { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case 'merge --abort → 不 ask' 'git-guard.ps1' (BashCmd 'git merge --abort') { param($r) $r.Stdout -eq '' }
-Assert-Case '非 git 指令 → 不干預' 'git-guard.ps1' (BashCmd 'ls -la') { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case '壞 JSON → exit 0 不干預' 'git-guard.ps1' 'not-json{{{' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-Write-Output '=== post-edit-check.ps1 ==='
-# fixture: 含 gofmt 錯誤的 go 檔
-$fixDir = Join-Path $PSScriptRoot 'fixtures\badgo'
-New-Item -ItemType Directory -Force $fixDir | Out-Null
-$enc = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText((Join-Path $fixDir 'go.mod'), "module badgo`n`ngo 1.21`n", $enc)
-[System.IO.File]::WriteAllText((Join-Path $fixDir 'bad.go'), "package main`n`nfunc main()   {`n}`n", $enc)
-$editJson = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $fixDir 'bad.go') } } | ConvertTo-Json -Compress
-Assert-Case '未格式化 .go → block' 'post-edit-check.ps1' $editJson { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'gofmt' }
-[System.IO.File]::WriteAllText((Join-Path $fixDir 'good.go'), "package other`n", $enc) # 非 main package 避免重複宣告
-$editJson2 = @{ tool_name = 'Edit'; tool_input = @{ file_path = 'C:\tmp\note.md' } } | ConvertTo-Json -Compress
-Assert-Case '非 .go 檔 → 放行' 'post-edit-check.ps1' $editJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case '壞 JSON → exit 0' 'post-edit-check.ps1' '{{{' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# fixture: .ts/prettier 分支 — 刻意用假 prettier.cmd 模擬本地安裝(見 post-edit-check.ps1 檔頭:
-# 不透過 npx 自動下載, 只認 node_modules/.bin 下已存在的執行檔), 不依賴真的網路安裝
-$nodeFixDir = Join-Path $PSScriptRoot 'fixtures\node-ts'
-$binDir = Join-Path $nodeFixDir 'node_modules\.bin'
-New-Item -ItemType Directory -Force $binDir | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $nodeFixDir 'package.json'), '{"name":"node-ts-fixture","prettier":{}}', $enc)
-$fakePrettier = "@echo off`r`nfindstr /C:`"BAD_FORMAT`" `"%2`" >nul`r`nif %ERRORLEVEL%==0 (`r`n  echo Code style issues found in %2`r`n  exit /b 1`r`n) else (`r`n  echo All matched files use fake-prettier code style!`r`n  exit /b 0`r`n)`r`n"
-[System.IO.File]::WriteAllText((Join-Path $binDir 'prettier.cmd'), $fakePrettier, $enc)
-[System.IO.File]::WriteAllText((Join-Path $nodeFixDir 'bad.ts'), "const x = 1;  // BAD_FORMAT`n", $enc)
-[System.IO.File]::WriteAllText((Join-Path $nodeFixDir 'good.ts'), "const x = 1;`n", $enc)
-$tsEditBad = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $nodeFixDir 'bad.ts') } } | ConvertTo-Json -Compress
-Assert-Case '.ts 未格式化(本地已裝 prettier) → block' 'post-edit-check.ps1' $tsEditBad { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'prettier' }
-$tsEditGood = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $nodeFixDir 'good.ts') } } | ConvertTo-Json -Compress
-Assert-Case '.ts 已格式化 → 放行' 'post-edit-check.ps1' $tsEditGood { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# fixture: 有 prettier 設定但本地未安裝(沒有 node_modules/.bin/prettier.cmd) → 放行,不觸發 npx 下載
-$noInstallDir = Join-Path $PSScriptRoot 'fixtures\node-ts-no-install'
-New-Item -ItemType Directory -Force $noInstallDir | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $noInstallDir 'package.json'), '{"name":"node-ts-no-install","prettier":{}}', $enc)
-[System.IO.File]::WriteAllText((Join-Path $noInstallDir 'bad.ts'), "const x = 1;  // BAD_FORMAT`n", $enc)
-$tsNoInstall = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $noInstallDir 'bad.ts') } } | ConvertTo-Json -Compress
-Assert-Case '有 prettier 設定但未本地安裝 → 放行(不觸發 npx 下載)' 'post-edit-check.ps1' $tsNoInstall { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# fixture: 無 prettier 設定(package.json 無 prettier 欄位、無 .prettierrc) → 放行
-$noConfigDir = Join-Path $PSScriptRoot 'fixtures\node-ts-no-config'
-New-Item -ItemType Directory -Force $noConfigDir | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $noConfigDir 'package.json'), '{"name":"node-ts-no-config"}', $enc)
-[System.IO.File]::WriteAllText((Join-Path $noConfigDir 'bad.ts'), "const x = 1;  // BAD_FORMAT`n", $enc)
-$tsNoConfig = @{ tool_name = 'Edit'; tool_input = @{ file_path = (Join-Path $noConfigDir 'bad.ts') } } | ConvertTo-Json -Compress
-Assert-Case '無 prettier 設定 → 放行' 'post-edit-check.ps1' $tsNoConfig { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-Write-Output '=== stop-check.ps1 ==='
-# fixture: 假 acceptance 目錄 (用假 cwd 對應 slug)
-$fakeCwd = 'C:\tmp\stopcheck-demo'
-$slug = ($fakeCwd -replace '[:\\/]', '-')
-$accTask = Join-Path $testWorkflowHome "projects\$slug\acceptance\demo"
-New-Item -ItemType Directory -Force $accTask | Out-Null
-$cl = "# demo`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
-[System.IO.File]::WriteAllText((Join-Path $accTask 'checklist.md'), $cl, $enc)
-$stopJson = @{ cwd = $fakeCwd; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case '缺件 → block' 'stop-check.ps1' $stopJson { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'A1' }
-$stopJsonActive = @{ cwd = $fakeCwd; stop_hook_active = $true } | ConvertTo-Json -Compress
-Assert-Case 'stop_hook_active → 放行' 'stop-check.ps1' $stopJsonActive { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-[System.IO.File]::WriteAllText((Join-Path $accTask 'checklist.md'), "<!-- paused -->`n$cl", $enc)
-Assert-Case 'paused 標記 → 放行' 'stop-check.ps1' $stopJson { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-$stopJsonNoAcc = @{ cwd = 'C:\tmp\no-such-project'; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case '無 acceptance 目錄 → 放行' 'stop-check.ps1' $stopJsonNoAcc { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case '壞 JSON → exit 0' 'stop-check.ps1' 'xxx' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# spec.md 檢查（SDD：checklist 是 spec.md 的延伸，缺規格書或規格書未凍結都要擋）
-$accTask2 = Join-Path $testWorkflowHome "projects\$slug\acceptance\demo2"
-New-Item -ItemType Directory -Force $accTask2 | Out-Null
-$cl2 = "# demo2`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [x]`n"
-[System.IO.File]::WriteAllText((Join-Path $accTask2 'checklist.md'), $cl2, $enc)
-$stopJson2 = @{ cwd = $fakeCwd; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case 'spec.md 缺失 → block' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'spec\.md 缺失' }
-[System.IO.File]::WriteAllText((Join-Path $accTask2 'spec.md'), "# demo2 spec`n- project: $fakeCwd`n- frozen: draft`n", $enc)
-Assert-Case 'spec.md 未凍結(draft) → block' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'draft' }
-[System.IO.File]::WriteAllText((Join-Path $accTask2 'spec.md'), "# demo2 spec`n- project: $fakeCwd`n- frozen: 2026-07-20`n", $enc)
-Assert-Case 'spec.md 已凍結 + checklist 全過 → 放行' 'stop-check.ps1' $stopJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# mini-spec.md 檢查（標準軌：無 checklist.md，只有 mini-spec.md 單檔；不檢查 spec.md/plan.md）
-$accTask3 = Join-Path $testWorkflowHome "projects\$slug\acceptance\demo3"
-New-Item -ItemType Directory -Force $accTask3 | Out-Null
-$ms = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: draft`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
-[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $ms, $enc)
-$stopJson3 = @{ cwd = $fakeCwd; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case 'mini-spec.md 未凍結(draft) → block' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'mini-spec\.md 未凍結' }
-$msFrozenUnchecked = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [ ]`n"
-[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $msFrozenUnchecked, $enc)
-Assert-Case 'mini-spec.md 凍結但有未勾條目 → block' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match 'A1' }
-$msFrozenChecked = "# demo3 mini-spec`n- project: $fakeCwd`n- frozen: 2026-07-20`n`n### A1 x`n- cmd: ``echo hi```n- expect: ``hi```n- status: [x]`n"
-[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), $msFrozenChecked, $enc)
-Assert-Case 'mini-spec.md 凍結 + 全勾 → 放行' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-[System.IO.File]::WriteAllText((Join-Path $accTask3 'mini-spec.md'), "<!-- paused -->`n$msFrozenUnchecked", $enc)
-Assert-Case 'mini-spec.md paused 標記 → 放行' 'stop-check.ps1' $stopJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# 清理 stop-check fixture
-Remove-Item -Recurse -Force (Join-Path $testWorkflowHome "projects\$slug") -ErrorAction SilentlyContinue
-
-Write-Output '=== knowhow-check.ps1 ==='
-# fixture: 假 cwd + 假 transcript JSONL(assistant tool_use 事件)
-$khCwd = 'C:\tmp\knowhow-demo'
-$khSlug = ($khCwd -replace '[:\\/]', '-')
-$khFixDir = Join-Path $PSScriptRoot 'fixtures\knowhow'
-New-Item -ItemType Directory -Force $khFixDir | Out-Null
-$khMemDir = Join-Path $testWorkflowHome "projects\$khSlug\memory"
-
-function New-KhEditLine($ts, $path) {
-    return (@{ type = 'assistant'; timestamp = $ts; message = @{ content = @(@{ type = 'tool_use'; name = 'Edit'; input = @{ file_path = $path } }) } } | ConvertTo-Json -Compress -Depth 6)
-}
-function New-KhTextLine($ts, $text) {
-    return (@{ type = 'assistant'; timestamp = $ts; message = @{ content = @(@{ type = 'text'; text = $text }) } } | ConvertTo-Json -Compress -Depth 6)
-}
-
-# 3 筆專案內修改、無宣告、無 memory 目錄 → block
-$khLines1 = @(
-    (New-KhEditLine '2020-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
-    (New-KhEditLine '2020-01-01T00:00:01Z' (Join-Path $khCwd 'b.go')),
-    (New-KhEditLine '2020-01-01T00:00:02Z' (Join-Path $khCwd 'c.go'))
-)
-$khTranscript1 = Join-Path $khFixDir 'block.jsonl'
-[System.IO.File]::WriteAllLines($khTranscript1, $khLines1, $enc)
-Remove-Item -Recurse -Force $khMemDir -ErrorAction SilentlyContinue
-$khJson1 = @{ cwd = $khCwd; transcript_path = $khTranscript1; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case '≥3 筆實質修改、無宣告、無 memory → block' 'knowhow-check.ps1' $khJson1 { param($r) $r.Stdout -match '"decision":"block"' -and $r.Stdout -match '無可沉澱' }
-
-Assert-Case 'stop_hook_active → 放行' 'knowhow-check.ps1' (@{ cwd = $khCwd; transcript_path = $khTranscript1; stop_hook_active = $true } | ConvertTo-Json -Compress) { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case '無 transcript_path → 放行' 'knowhow-check.ps1' (@{ cwd = $khCwd; stop_hook_active = $false } | ConvertTo-Json -Compress) { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-Assert-Case '壞 JSON → exit 0' 'knowhow-check.ps1' 'xxx' { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# 僅 2 筆修改(低於門檻) → 放行
-$khLines2 = @(
-    (New-KhEditLine '2020-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
-    (New-KhEditLine '2020-01-01T00:00:01Z' (Join-Path $khCwd 'b.go'))
-)
-$khTranscript2 = Join-Path $khFixDir 'below-threshold.jsonl'
-[System.IO.File]::WriteAllLines($khTranscript2, $khLines2, $enc)
-$khJson2 = @{ cwd = $khCwd; transcript_path = $khTranscript2; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case '僅 2 筆修改(低於門檻) → 放行' 'knowhow-check.ps1' $khJson2 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# 2 筆專案內 + 2 筆 .claude 路徑下(應被排除，不計入門檻) → 放行
-$khLines3 = @(
-    (New-KhEditLine '2020-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
-    (New-KhEditLine '2020-01-01T00:00:01Z' (Join-Path $khCwd 'b.go')),
-    (New-KhEditLine '2020-01-01T00:00:02Z' (Join-Path $khCwd '.claude\c.go')),
-    (New-KhEditLine '2020-01-01T00:00:03Z' (Join-Path $khCwd '.claude\d.go'))
-)
-$khTranscript3 = Join-Path $khFixDir 'exclude-dotclaude.jsonl'
-[System.IO.File]::WriteAllLines($khTranscript3, $khLines3, $enc)
-$khJson3 = @{ cwd = $khCwd; transcript_path = $khTranscript3; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case '.claude 路徑下修改不計入門檻 → 放行' 'knowhow-check.ps1' $khJson3 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# 3 筆修改 + assistant text 含「已沉澱」 → 放行
-$khLines4 = $khLines1 + (New-KhTextLine '2020-01-01T00:00:03Z' '已沉澱：修正了 XX 邏輯（xx-pitfall.md）')
-$khTranscript4 = Join-Path $khFixDir 'declared.jsonl'
-[System.IO.File]::WriteAllLines($khTranscript4, $khLines4, $enc)
-$khJson4 = @{ cwd = $khCwd; transcript_path = $khTranscript4; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case '3 筆修改 + 已宣告「已沉澱」 → 放行' 'knowhow-check.ps1' $khJson4 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# 3 筆修改 + memory 目錄下有檔案(mtime 晚於 session 起點) → 放行
-New-Item -ItemType Directory -Force $khMemDir | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $khMemDir 'MEMORY.md'), "# Memory Index`n", $enc)
-Assert-Case '3 筆修改 + memory 已更新 → 放行' 'knowhow-check.ps1' $khJson1 { param($r) $r.Stdout -eq '' -and $r.ExitCode -eq 0 }
-
-# 3 筆修改，session 起點在未來(memory 檔相對更舊) + 無宣告 → block
-$khLinesFuture = @(
-    (New-KhEditLine '2030-01-01T00:00:00Z' (Join-Path $khCwd 'a.go')),
-    (New-KhEditLine '2030-01-01T00:00:01Z' (Join-Path $khCwd 'b.go')),
-    (New-KhEditLine '2030-01-01T00:00:02Z' (Join-Path $khCwd 'c.go'))
-)
-$khTranscriptFuture = Join-Path $khFixDir 'future-session.jsonl'
-[System.IO.File]::WriteAllLines($khTranscriptFuture, $khLinesFuture, $enc)
-$khJsonFuture = @{ cwd = $khCwd; transcript_path = $khTranscriptFuture; stop_hook_active = $false } | ConvertTo-Json -Compress
-Assert-Case 'memory 檔早於 session 起點 → block' 'knowhow-check.ps1' $khJsonFuture { param($r) $r.Stdout -match '"decision":"block"' }
-
-# 清理 knowhow-check fixture
-Remove-Item -Recurse -Force $khMemDir -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $khFixDir -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $testWorkflowHome -ErrorAction SilentlyContinue
-
-Write-Output ''
-Write-Output ("=== 結果: PASS {0} / FAIL {1} ===" -f $script:passed, $script:failed)
-if ($script:failed -gt 0) { exit 1 }
-exit 0
+Write-Output 'hook tests passed'

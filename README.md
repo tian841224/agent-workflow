@@ -1,230 +1,75 @@
-# agent-workflow
+# agent-workflow v4
 
-> 本 repo 採用 AI Workflow 共用目錄架構：共用內容只維護一份，Claude/Codex 僅安裝平台 adapter。
+跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。所有程式任務使用同一種 `task.md`；只有實際修改程式碼時才執行 Reviewer、Verifier，其他 gate 依風險旗標增加。
 
-可攜的開發流程 kit：五角色 subagent（architect / reviewer / qa / pm / debugger）+ 兩個獨立顧問角色（security-engineer / refactoring-expert，不綁 workflow、唯讀，場景觸發指名呼叫）+ 流程分級四級（L0/輕軌/標準軌/重軌，標準軌與重軌為 SDD／TDD 融入版；另有使用者指定才啟用的 lite 模式——重軌等級任務的單對話精簡替代）+ 後端化驗收判定 + hooks 硬護欄 + 內化的即時記憶整理 + 專案 know-how 累積（收尾 gate + knowhow-check hook）+ TDD 紅綠迴圈（tdd skill）。
+## 架構
 
-核心理念（v3，依 Claude 5 世代 context engineering 原則調整）：**確定性下沉＋漸進式披露**——凡是能用腳本或 hook 保證的，不寫成條文；條文只留給機器判不了的判斷；常駐層（`AGENTS.md`）只留判軌摘要與硬護欄（git 紀律、凍結制、升軌），流程細節下放 `skills/workflow/`（判軌細則＋各軌別分檔）與 `agents/*.md`（角色定義）按需載入，同一指令不在多處重複。流程 gate 由四支 hooks（git-guard / post-edit-check / stop-check / knowhow-check）+ pre-review 機械把關；狀態 = acceptance 目錄本身（checklist/mini-spec 勾選 + plan.md），無獨立 state checkpoint；後端驗收 = e2e 指令即時判定，不落地證據檔；安裝以 `~/.agents` 為唯一共用來源，平台只保留必要入口與設定差異。
+- `AGENTS.md`：常駐硬規則。
+- `skills/workflow/SKILL.md`：唯一流程 skill。
+- `agents/reviewer.md`、`agents/verifier.md`：唯讀角色 canonical source。
+- `scripts/project-resolver.ps1`：解析 project、worktree 與 active task。
+- `scripts/knowledge.ps1`：按需搜尋、去重寫入與重建 knowledge index。
+- `scripts/pre-review.ps1`：在審查或結案前執行 deterministic project checks。
+- `hooks/git-guard.ps1`、`hooks/quality-gate.ps1`：僅保留的兩個 hook。
+- `schemas/`、`templates/task.md`：Task 與遷移資料契約。
+- `install.ps1`：managed-file installer。
+- `migrate-v3.ps1`：一次性 v3 資料正規化遷移。
 
-多角色 workflow 僅適用於程式任務；文件、規格、需求、規劃、設定政策與一般文字工作均由單一主 agent 處理。混合請求只把實際程式碼部分送入多角色流程。
+Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent-workflow/knowledge/`、`projects/`、`imports/`。平台目錄只保留必要入口、skill、原生角色與 hook 設定，不建立 v3 路徑 alias。
 
-## 目錄結構
+## Task
 
+程式碼／設定修改、bug fix、測試、除錯、程式調查與 code review 都建立：
+
+```text
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
 ```
-workflow/               acceptance 文件格式規約（WORKFLOW.md 為 v3 章節對照表）
-skills/workflow/        流程細節（判軌細則＋輕/標準/重軌分檔＋交接），按需載入
-agents/ skills/ rules/  共用角色、技能與規則
-scripts/ templates/     共用工具與模板
-hooks/                  共用 hook 實作
-adapters/shared/        manifest 與跨平台路徑 helper
-adapters/claude/       Claude settings.json hooks schema
-adapters/codex/        Codex hooks.json 與 execpolicy rules
-adapters/antigravity/  Antigravity GEMINI.md 與 hooks.json adapter
-examples/              驗收清單範例、專案層覆蓋機制說明
-tests/                  hook 與 installer acceptance tests
-install.ps1
-```
 
-## 安裝（Windows）
+同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：修改 source、script 或 test code 為 `true`，只改設定／文件或只執行測試、調查、code review 為 `false`。只有 `true` 強制依序執行 Reviewer、Verifier；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
+
+修改完成後執行：
 
 ```powershell
-git clone https://github.com/tian841224/agent-workflow
-cd agent-workflow
-.\install.ps1              # canonical 裝到 ~/.agents，並建立平台 adapter
-.\install.ps1 -DryRun      # 先看會動哪些檔
-.\install.ps1 -Target D:\test\fake-home   # 測試安裝
+& (Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\pre-review.ps1') -RepoRoot <worktree-root>
 ```
 
-預設 canonical 目錄為 `~/.agents`。`~/.agents/` 下的 workflow、agents、skills、rules、scripts、templates、hooks 與 `AGENTS.md` 只有一份；平台目錄使用 junction/symlink 指向它，無法建立連結時才 fallback 為複製。可用以下指令檢查或修復：
+Go 專案執行 changed-file gofmt、vet、build、test 與可用的 golangci-lint；Node 專案執行既有 lint、typecheck、build、test scripts。其他專案可提供 `.pre-review-extra.ps1`。FAIL 不得進入 Reviewer 或結案；SKIP 必須記錄原因。
+
+## 記憶
+
+程式任務可用少量關鍵字讀取 global 與目前 project 的相關記憶；只有發生可重用踩坑、使用者糾正、重要決策或既有認知失效時才寫入，不強制每個 task 沉澱。
 
 ```powershell
+.\scripts\knowledge.ps1 -Action Search -Query 'installer hooks' -Limit 5
+.\scripts\knowledge.ps1 -Action Upsert -Scope Project -Topic 'installer-hooks' -Content '<verified knowledge>'
+.\scripts\knowledge.ps1 -Action Reindex -Scope All
+```
+
+Project knowledge 可直接更新；Global knowledge 需要跨專案證據與使用者同意，並傳入 `-ApprovedByUser`。`needs_verification` entry 只能作為查證線索。Script 會拒絕疑似 credential 內容，同 scope 相同內容不重複建立，同 topic 更新 native entry 並保留關聯。
+
+## 遷移
+
+```powershell
+.\migrate-v3.ps1 -Action Inventory
+.\migrate-v3.ps1 -Action DryRun
+.\migrate-v3.ps1 -Action Stage
+.\migrate-v3.ps1 -Action Validate
+.\migrate-v3.ps1 -Action Activate
+```
+
+有 unresolved source 時，`Activate` 會要求傳入 validation report 的 manifest hash。原始檔保留 immutable snapshot 與 SHA-256；v4 activation 後不讀 v3 格式。
+
+## 安裝
+
+```powershell
+.\install.ps1 -TargetAgent All
 .\install.ps1 -Action Status
-.\install.ps1 -Action Repair
-.\install.ps1 -Action Uninstall
+.\install.ps1 -Action Repair -TargetAgent All
+.\install.ps1 -Action Uninstall -TargetAgent All
 ```
 
-repo 根目錄的共用目錄是唯一來源，`adapters/claude/` 與 `adapters/codex/` 只放各平台的 hook schema、execpolicy 與設定合併格式。`~/.claude/CLAUDE.md` 與 `~/.codex/AGENTS.md` 直接指向 `~/.agents/AGENTS.md`；舊的 `agent-workflow` 路徑會保留為 deprecated compatibility junction，不應再直接編輯。
+發現尚未遷移的 v3 knowledge/history 時，installer 會阻止 activation。Uninstall 只移除 hash 未變的 managed runtime，不刪 knowledge、projects、tasks 或 imports。
 
-安裝器可選擇目標 AI agent；預設 `Both` 以維持既有相容性：
+## 開發檢查
 
-```powershell
-.\install.ps1 -Agent Claude   # 只安裝 Claude Code 原生架構
-.\install.ps1 -Agent Codex    # 只安裝 Codex 原生架構
-.\install.ps1 -Agent Antigravity # 安裝 Antigravity global instructions
-.\install.ps1 -Agent Both     # 兩套都安裝（預設）
-.\install.ps1 -Agent All      # Claude、Codex、Antigravity 全部安裝
-```
-
-`-Agent` 也可寫成 `-Platform`。Codex 模式會讓 `~/.codex/AGENTS.md` 指向 `~/.agents/AGENTS.md`，並安裝 Codex `hooks.json` 與 `rules/default.rules`；Claude 模式則讓 `~/.claude/CLAUDE.md` 指向同一份共用 `AGENTS.md`，再安裝 Claude `settings.json` hooks；Antigravity 模式則讓 `~/.gemini/GEMINI.md` 指向同一份共用 `AGENTS.md`，並將 Antigravity hooks 合併至 `~/.gemini/config/hooks.json`。
-
-共用 workflow 會安裝到 `~/.agents/`。Claude 與 Codex 只連結 repo 管理的 agents、skills、rules 項目；目標目錄中其他既有 agent、skill、rule 與 Codex 原生檔案會保留，不會整個目錄替換：
-
-```powershell
-.\install.ps1 -ClaudeTarget "$env:USERPROFILE\.claude" -CodexTarget "$env:USERPROFILE\.codex"
-```
-
-`-Target` 仍是 `-ClaudeTarget` 的相容別名。
-
-安裝行為（冪等，重跑 = 升級）：
-
-| 層 | 內容 | 行為 |
-|---|---|---|
-| canonical 層 | `~/.agents/AGENTS.md`、`workflow/`、共用 `agents/`、`skills/`、`rules/`、`scripts/`、`templates/`、`hooks/` | 共用來源只有一份；repo 更新後重新執行 installer 同步 |
-| Claude 入口 | `~/.claude/CLAUDE.md` | symlink 指向 `~/.agents/AGENTS.md`；權限不足時 fallback 為複製，既有不同內容先備份 |
-| Codex 入口 | `~/.codex/AGENTS.md` | symlink 指向 `~/.agents/AGENTS.md`；權限不足時 fallback 為複製，既有不同內容先備份 |
-| 平台設定 | Claude `settings.json`、Codex `hooks.json`／`rules/default.rules`、Antigravity `config/hooks.json`／`config/global_workflows/` | 只合併或更新平台專屬受控設定，既有自有設定保留 |
-| 共用項目 | `~/.claude/agents/`、`~/.codex/agents/` 等 | 只管理 repo 同名項目，其他使用者或 Codex 原生項目不覆蓋 |
-| 專案層 | `<project>/.claude/`、專案 CLAUDE.md | 完全不碰 |
-
-注意：settings.json 經 PowerShell 5.1 的 ConvertTo-Json 寫回後，中文會轉為 `\uXXXX` 逸出，功能無損。`install.sh`（Linux/macOS）列為 roadmap，v2 目前以 Windows 為主。
-
-`tdd` skill（單檔 `skills/tdd/SKILL.md`）會隨 `install.ps1` 裝到 `~/.claude/skills/tdd/`；重軌 R3 實作階段已接上紅綠迴圈，seam 直接取自 R2 凍結的 `spec.md` 技術規格「測試策略與 TDD seam」段，不需臨場另外確認（見 `agents/architect.md`）。
-
-`systematic-debugging` skill（`skills/systematic-debugging/SKILL.md` + 三份支援檔）同樣整資料夾裝到 `~/.claude/skills/systematic-debugging/`：`architect` 修 bug（任何軌別的第一手除錯、R5/M4 FAIL 打回修正、R3b 內部除錯）動手前先載入並走四階段（Root Cause → Pattern → Hypothesis → Implementation）；`debugger` 出場時只執行前三階段（蒐證／模式分析／假說驗證），第四階段的修復動作仍由 `architect` 接手——`debugger` 維持唯讀定位不變（見 `agents/architect.md`、`agents/debugger.md`）。
-
-### 專案 know-how 累積
-
-自我學習已內化到記憶寫入流程與任務收尾：寫入前先查索引、同主題合併、驗證引用內容，達到證據門檻才提出規則／技能／全域升級。輕軌 L4／標準軌 M4／重軌 R6 收尾時（`skills/workflow/SKILL.md`「收尾」）仍必須回答「沉澱三問」，並在回報末尾明寫「已沉澱：<摘要>」或「無可沉澱：<理由>」。這兩句宣告是 `knowhow-check.ps1` hook 的機械放行訊號。
-
-專案記憶層結構：`MEMORY.md`（索引，Claude Code 原生自動注入）+ `overview.md`（專案概觀與歷史脈絡聚合檔，上限約 100 行，判軌前需先讀）+ `DECISIONS.md`（決策流水帳）+ 個別記憶檔（pitfall/project/reference/feedback）。全域記憶層（`~/.claude/memory/`）採同構格式，兩者格式定義的權威來源都在 `rules/learning.md`。
-
-日常事件（使用者糾正、可概括的錯誤、方案拍板與任務收尾）直接在當下完成擷取、分類、去重與局部校準
-
-## 流程速覽
-
-判軌以**功能與影響範圍**為單位，不以模組/檔案/行數為單位：看「這次改動是不是單一功能」與「出錯時會波及多少既有功能（blast radius）」。乾淨架構下一個功能垂直跨多層/多模組仍屬單一功能；影響指的是「出錯時會壞到哪些功能」，行為不變的重構動到多功能共用路徑一樣算波及多功能（完整判準見 `skills/workflow/SKILL.md`）。
-
-**L0 微軌**（trivial 改動：不影響任何功能的可觀察行為、不動邏輯分支/介面/schema，限文案/註解/設定值/typo/純樣式；規模大到需逐條核對才能確認沒改到行為時升輕軌）：
-
-```
-主對話直接修 + 自檢 + 跑對應驗證，不 spawn agent、不出 reviewer；任何猶豫 → 升輕軌
-```
-
-**輕軌**（bug fix / 既有單一功能內的小幅改動，出錯波及範圍侷限該功能自身；共用元件 bug fix 修回規格預期可走輕軌但微驗收須逐受影響功能驗證；不修改既有契約與 schema、不涉高風險關鍵寫入路徑）：
-
-```
-L1 orchestrator 判定 → L2 開工前列 3–5 條微驗收清單（至少一條異常/邊界，orchestrator 需
-   把清單全文帶入 L3/L4 的 prompt）→ 實作
-→ L3 pre-review + reviewer(≤2輪，跳過語言檢查時 reviewer 先人工補跑 build/test；
-   要求修正時全部微驗收清單重跑，非只跑被點名的幾條)
-→ L4 architect 逐條跑微驗收清單、全綠即證據（結果留存於回報）
-```
-
-**標準軌**（單一功能的新增/行為變更，實作可垂直跨多模組/分層、出錯波及範圍侷限本功能、不修改既有契約與 schema、需求已明確、不涉高風險路徑——填補輕軌與重軌之間的空隙）：
-
-```
-M1 architect 一次寫完 mini-spec.md（目標/非目標/TDD seam/3–6 條驗收條目）
-   → 使用者一次確認即凍結
-→ M2 實作（TDD seam 取自 mini-spec）→ 作者自檢
-→ M3 pre-review + reviewer(≤2輪，對照 mini-spec)
-→ M4 qa 逐條執行、當場判定 PASS/FAIL；前端模糊項由主對話整理交使用者裁決；
-   qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題分
-   「規格缺漏」與「實作缺陷」（視同 FAIL）兩類，不得一律當規格缺漏帶過
-```
-
-**重軌**（出錯時波及多個功能的改動〔含行為不變的大範圍重構〕/ 修改既有 API/WS 契約 / 改 DB schema〔任何變動〕/ 高風險關鍵寫入路徑），SDD／TDD 融入版：
-
-```
-R1 PM 先讀專案現況當 baseline，依 SDD 完整列規格（S<n> + Given-When-Then，條目數
-   明顯超量〔約 12 條以上〕建議拆分任務），規格不明確處與使用者確認到雙方理解
-   一致 → 商業規格寫入 spec.md
-→ R2 architect 先審規格（六維度：規格品質/架構相容性/影響面/技術風險/可測性/前置
-   條件與規模，需調整退回 PM ≤2輪、技術風險直報主對話）→ 全數判定沒問題後
-   orchestrator **平行**展開 PM 依商業規格展開 checklist draft 驗收條目（G-W-T/
-   test-type，不填 cmd/expect）與 architect 出方案+藍圖（解法明顯唯一時可單方案
-   徑行）——兩者互不依賴 → 使用者選定方案 → 補技術規格（API contract/資料型別/
-   錯誤碼/架構/TDD seam/非功能門檻）→ architect 依技術規格逐條補 checklist 的
-   cmd/expect（不得增刪改 PM 條目）→ orchestrator 附導讀摘要送使用者**一次確認，
-   spec.md 與 checklist.md 同時凍結**（每條溯源 spec: S<n>）
-→ R3 實作（TDD seam 取自 spec.md）：預設單人序列；符合四判準（模組互斥、介面穩定、
-   無強順序依賴、規模門檻）才拆 ≥2 個 sub task 平行——architect 協調模式拆分（R3a）
-   → orchestrator fan-out 多個 architect 實作模式平行開發（R3b）→ architect 協調模式
-   彙整確認全部完成＋整合一致才交棒（R3c）；任一判準不成立就走單人序列 R3
-→ R4 pre-review + reviewer 審 diff 對照 spec.md/checklist（≤3輪，跳過語言檢查時
-   reviewer 先人工補跑 build/test）
-→ R5 驗收：後端 = qa 逐條執行 cmd、當場比對 expect 判定 PASS/FAIL（PM 不參與）
-          前端 = qa browser 操作觀察畫面並判定（模糊項交使用者裁決，PM 不參與）
-          qa 加探索性測試（前端做畫面探索、純後端做 edge-case 探索），發現的問題
-          分「規格缺漏」（回報不算失敗）與「實作缺陷」（視同 FAIL 打回 architect）；
-          FAIL 批次處理：整輪彙總一批修正，過一次 pre-review + reviewer 輕量複審
-          （範圍限定）後只重驗 FAIL 與波及條目
-→ R6 回報（含流程統計：reviewer 輪數、驗收打回次數、有無動用 debugger）+ 內化記憶整理
-```
-
-**lite**（不是獨立判軌級別——重軌等級任務、使用者主動指定才啟用的單對話單人模式）：
-
-```
-LT1 依任務性質分流（修正模式=架構分析＋六大面向裁量自審；功能模式=商業規格）
-   → 主對話寫單檔 mini-spec（完成條件＋測試條件，含邊界與異常路徑）
-   + 規格自審紀律（凍結即題目/機械防線強制/證據硬規則）→ 釐清+選方案+凍結一次確認
-→ LT2 主對話 TDD 實作（寫入不拆平行；唯讀調查 fan-out 用最低階模型）
-→ LT3 pre-review → reviewer（≤2 輪）→ qa 驗收＋探索測試（序列同 R4→R5，FAIL 一批打回）
-→ LT4 回報（含流程統計）+ 沉澱三問
-```
-
-品質規則同重軌（探索性測試、批次打回、輕量複審、debugger 轉出、硬護欄），把關鏈與標準軌同構（reviewer→qa 序列）；省的是 PM／architect spawn（規格與實作主對話單人）、文件數（單檔取代三檔）與確認往返（3+ 個確認點 → 1 個）。詳見 `skills/workflow/lite.md`。
-
-**附加 gate：畫面驗證**（不是獨立軌別）——任一軌別的任務只要含前端功能修改（純樣式微調除外，那屬於 L0），流程尾端一律追加畫面驗證：L0/輕軌由 qa（或主對話）直接用 browser 工具核對；標準軌/重軌由 qa 執行 ui 條目並判定。模糊項或疑似規格缺漏由主對話整理交使用者裁決；PM 不參與畫面驗證。前端功能修改因此**不再是重軌的獨立判準**，改依規模落在對應軌別 + 這個附加 gate。
-
-**中途升降軌**：實作途中才發現命中更高軌判準，立即停手宣告升軌、補走該軌缺的前置步驟（標準軌補 mini-spec、重軌補完整 spec.md 流程並凍結）再繼續；降軌需使用者同意。
-
-任務目錄：重軌 `~/.claude/projects/<project-slug>/acceptance/<task-slug>/`，含 `spec.md`／`checklist.md`／`plan.md`；標準軌與 lite 只有單檔 `mini-spec.md`（詳見 `workflow/acceptance-spec.md`）。checklist 是 spec.md 的延伸，兩者矛盾一律交使用者裁決。
-
-**除錯/驗收迴圈**（例外路徑，不是主流程固定關卡，只在卡關時出場，見 `skills/workflow/SKILL.md`「回合上限」）：`debugger`（唯讀）有兩條出場路徑——
-- 路徑 A：architect 對同一 bug 用同一解法連續嘗試，第 2 次仍失敗時須先寫出「為什麼同方向再試會不同」的具體理由，寫不出即提前停手轉 debugger；理由成立可再試第 3 次，第 3 次仍未解決一律停手，揭露已嘗試的修法與失敗原因，轉交 `debugger` 做根因分析
-- 路徑 B：同一驗收條目在 R4（reviewer）/R5（QA）被打回 architect 達 3 次仍失敗，改派 `debugger` 分析後，architect 依建議重新實作，修復 diff 過 pre-review＋reviewer 輕量複審，qa 重驗 FAIL 與波及條目（與 R5 批次原則一致）
-
-兩條路徑 `debugger` 都只執行 `systematic-debugging` skill 的前三階段（蒐證／模式分析／假說驗證）、不改 code、不下修復方案，結論交回 architect。回合計數（reviewer↔architect、PM↔architect、R4/R5 打回、R3c 打回）由 orchestrator 每輪結束記錄到 `plan.md` 的「回合記錄」段落，以檔案為準、不靠對話記憶（標準軌無 plan.md，回合次數在回報中口頭列出即可）。
-
-## 獨立顧問角色（不綁 workflow）
-
-`security-engineer` 與 `refactoring-expert` 是 workflow 軌別之外的顧問角色，出場方式是使用者指名或主對話判斷場景符合時建議呼叫，不參與軌別判定、不佔 reviewer 回合。兩者**全部唯讀**，只產出報告與計畫；因為是唯讀分析而非程式修改，不受 §0 多角色 gate 管轄，但其建議要落地修改時一律回到 workflow 開任務、照常判軌。
-
-| 角色 | 職責 | 與既有角色的分工 |
-|---|---|---|
-| security-engineer | 專項安全審計：威脅建模、攻擊面盤點、OWASP Top 10 對照、Critical/High/Medium/Low 嚴重度分級 | reviewer 審「本次 diff」的資安面；security-engineer 審「模組/專案」的整體安全狀態 |
-| refactoring-expert | 重構評估：code smell 診斷、測試安全網評估、小步等價變換的分步計畫與預期收益 | architect 執行重構（行為不變是硬約束）；refactoring-expert 只出診斷與計畫，不為順手重構背書 |
-
-## 其他 CLI 支援
-
-repo 根目錄的 `AGENTS.md` 是所有 agent 共用的 canonical 指令來源，不再是 Codex 專屬副本。各平台入口檔只負責使用平台要求的固定檔名；hooks schema、execpolicy 與 settings merge 由各自 adapter 管理。`install.ps1` 會自動建立入口連結與平台設定。
-
-### 回合上限（超限一律停下交使用者裁決，不自行加碼）
-
-| 計數器 | 上限 | 誰維護 | 超過後動作 |
-|---|---|---|---|
-| reviewer ↔ architect | 重軌 ≤3 輪、輕軌/標準軌 ≤2 輪 | orchestrator | 列出爭點回報使用者裁決 |
-| PM ↔ architect（需求可行性往返） | ≤2 輪 | orchestrator | 回報使用者裁決 |
-| 同一 bug 內部修復嘗試 | 2 次未解需寫理由才續試，3 次硬上限 | architect 自己計數 | 轉交 `debugger`（路徑 A） |
-| 同一驗收條目在 R4/R5 被打回 architect | 3 次 | orchestrator | 轉交 `debugger`（路徑 B），修復後過 pre-review＋輕量複審，qa 重驗 FAIL 與波及條目 |
-| pre-review 失敗退回 | 不計數 | — | 修正後重跑，不計入 reviewer 輪數 |
-
-上述計數器（除 pre-review 退回）每輪結束由 orchestrator 記錄到重軌 `plan.md` 的「回合記錄」段落，輪數判定以檔案為準；標準軌無 plan.md，回合次數口頭列在回報中即可（上限本就 ≤2 輪，流失風險低）。
-
-### 凍結原則（抉擇一旦定案不可中途變更）
-
-- 重軌：spec.md（商業規格+技術規格）與 checklist.md 一併於使用者**單次**確認後凍結，開發期間任何角色不得增刪修改條目
-- 標準軌：mini-spec.md 是單一文件，同樣經使用者一次確認即凍結
-- 需求變更 → 回 R1（或標準軌回 M1）重新出規格文件，舊檔加 `.superseded` 字尾，不可就地覆蓋
-- 經使用者核准的修訂寫入對應規格文件檔尾的「修訂歷史」，保留可追溯軌跡
-- **輕量修訂**（規格書本身寫錯，非需求變更，如技術規格欄位型別誤植）：使用者核准後直接修正並記入「修訂歷史」即可，不必回 R1/M1 重出整份文件；拿不準就當需求變更處理
-
-### Agent 模型固定表（寫死於各 agent frontmatter，orchestrator 不得覆蓋）
-
-| Agent | 模型 | 理由 |
-|---|---|---|
-| pm | opus | 需求理解、可行性判斷、最終驗收涉及較多推理，用高階模型降低誤判 |
-| architect | sonnet | 標準實作與方案分析，日常主力模型 |
-| reviewer | sonnet | 靜態審查需具體程式理解力，與 architect 對等但獨立審視 |
-| debugger | sonnet | 根因分析需程式理解力，但屬唯讀輔助角色，不需 opus 等級 |
-| qa | sonnet | 除執行凍結清單外還負責探索性測試，需要推理能力自行設計清單外的邊界組合與異常情境主動找 bug |
-| security-engineer | sonnet | 獨立顧問角色，專項安全審計需要具體程式理解力與威脅推理 |
-| refactoring-expert | sonnet | 獨立顧問角色，技術債診斷與重構規劃需要讀懂既有結構 |
-
-以上四項（回合上限、凍結原則、模型固定表、除錯迴圈）為流程骨架的強制規則，權威定義：回合上限與判軌在 `skills/workflow/SKILL.md`、凍結原則在 `workflow/acceptance-spec.md`、模型固定表寫死於各 `agents/*.md` frontmatter；README 僅摘要供快速查閱，不一致時以上述檔案為準（舊「WORKFLOW.md §n」引用可查 `workflow/WORKFLOW.md` 章節對照表）。
-
-## 測試
-
-```powershell
-.\tests\run-hook-tests.ps1     # hooks 行為測試
-```
+測試腳本放在 `tests/`，涵蓋靜態契約、hook、installer 與 migration。Windows PowerShell 5.1 與 PowerShell 7 應分別執行。

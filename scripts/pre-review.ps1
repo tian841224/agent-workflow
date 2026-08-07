@@ -1,112 +1,149 @@
-﻿# managed by agent-workflow v2 — pre-review 預檢腳本
-# 在受審專案根目錄執行。exit 0 = 通過, exit 1 = 失敗(退回實作者,不計 reviewer 回合)。
-# 依專案類型分派檢查:
-#   Go (有 go.mod):     gofmt (diff 檔案) → go vet ./... → go build ./... → go test ./...
-#   Node (有 package.json): 依序跑 package.json scripts 裡存在的 lint / typecheck / build / test
-#   兩者都偵測不到 → 跳過語言檢查,只跑 .pre-review-extra.ps1(若有)
-# 專案可放 .pre-review-extra.ps1 於 repo root 追加自訂檢查。
+# agent-workflow v4 - deterministic checks before review or completion.
+[CmdletBinding()]
+param(
+    [string]$RepoRoot = (Get-Location).Path,
+    [switch]$Detailed
+)
 
 $ErrorActionPreference = 'Continue'
-$failures = @()
+$repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$logRoot = Join-Path ([IO.Path]::GetTempPath()) ('agent-workflow-pre-review-' + [guid]::NewGuid().ToString('N'))
+$failures = [System.Collections.Generic.List[string]]::new()
+$ran = 0
+New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 
-function Write-Section($name) { Write-Output "=== $name ===" }
+function Write-Log([string]$Path, $Lines) {
+    $text = (@($Lines) | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+    [IO.File]::WriteAllText($Path, $text, $utf8NoBom)
+}
 
-$isGo = Test-Path 'go.mod'
-$isNode = Test-Path 'package.json'
+function Add-Skip([string]$Name, [string]$Reason) {
+    Write-Output "[SKIP] $Name - $Reason"
+}
 
-if (-not $isGo -and -not $isNode) {
-    Write-Output "未偵測到已支援的專案類型 (無 go.mod / package.json),跳過語言檢查。"
-} elseif ($isGo) {
-    # gofmt: 只檢查本次 diff 涉及的 .go 檔;無 diff 則檢查全部
-    Write-Section 'gofmt'
-    $diffFiles = @()
-    $inRepo = $true
-    git rev-parse --is-inside-work-tree 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { $inRepo = $false }
-    if ($inRepo) {
-        $diffFiles = @(git diff --name-only HEAD 2>$null) + @(git diff --name-only --cached 2>$null) |
-            Where-Object { $_ -like '*.go' -and (Test-Path $_) } | Select-Object -Unique
+function Add-Failure([string]$Name, $Output) {
+    $safeName = $Name -replace '[^a-zA-Z0-9._-]', '-'
+    $logPath = Join-Path $logRoot ($safeName + '.log')
+    Write-Log $logPath $Output
+    $script:failures.Add("$Name ($logPath)")
+    Write-Output "[FAIL] $Name"
+    if ($Detailed) { @($Output) | ForEach-Object { Write-Output $_ } }
+}
+
+function Invoke-Check([string]$Name, [scriptblock]$Action, [switch]$FailOnOutput) {
+    $script:ran++
+    $output = @()
+    $exitCode = 0
+    try {
+        $global:LASTEXITCODE = 0
+        $output = @(& $Action 2>&1)
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $output = @($_.Exception.Message)
+        $exitCode = 1
     }
-    $fmtTargets = if ($diffFiles.Count -gt 0) { $diffFiles } else { @('.') }
-    $unformatted = & gofmt -l @fmtTargets 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $failures += "gofmt 執行失敗: $unformatted"
-    } elseif ($unformatted) {
-        $failures += "gofmt 未格式化: $($unformatted -join ', ')"
-        Write-Output $unformatted
-    } else {
-        Write-Output 'OK'
+    if ($exitCode -ne 0 -or ($FailOnOutput -and $output.Count -gt 0)) {
+        Add-Failure $Name $output
+        return
     }
+    Write-Output "[PASS] $Name"
+    if ($Detailed -and $output.Count -gt 0) { $output | ForEach-Object { Write-Output $_ } }
+}
 
-    Write-Section 'go vet'
-    $vetOut = & go vet ./... 2>&1
-    if ($LASTEXITCODE -ne 0) { $failures += 'go vet 失敗'; Write-Output $vetOut } else { Write-Output 'OK' }
+Push-Location $repo
+try {
+    $isGo = Test-Path -LiteralPath (Join-Path $repo 'go.mod')
+    $isNode = Test-Path -LiteralPath (Join-Path $repo 'package.json')
+    $extraPath = Join-Path $repo '.pre-review-extra.ps1'
 
-    Write-Section 'go build'
-    $buildOut = & go build ./... 2>&1
-    if ($LASTEXITCODE -ne 0) { $failures += 'go build 失敗'; Write-Output $buildOut } else { Write-Output 'OK' }
-
-    Write-Section 'go test'
-    $testOut = & go test ./... 2>&1
-    if ($LASTEXITCODE -ne 0) { $failures += 'go test 失敗'; Write-Output $testOut } else { Write-Output ($testOut | Select-Object -Last 30) }
-
-    # golangci-lint 為選配:裝了才跑
-    if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
-        Write-Section 'golangci-lint'
-        $lintOut = & golangci-lint run ./... 2>&1
-        if ($LASTEXITCODE -ne 0) { $failures += 'golangci-lint 失敗'; Write-Output $lintOut } else { Write-Output 'OK' }
-    }
-} elseif ($isNode) {
-    $pkg = $null
-    try { $pkg = Get-Content 'package.json' -Raw -Encoding UTF8 | ConvertFrom-Json } catch {
-        $failures += 'package.json 解析失敗,無法讀取 scripts'
-    }
-    if ($pkg) {
-        $scripts = $pkg.scripts
-        $hasScript = { param($name) $scripts -and ($scripts.PSObject.Properties.Name -contains $name) }
-
-        # typecheck: 優先用專案自訂的 typecheck script,沒有就在裝了 typescript 時退而用 tsc --noEmit
-        $hasTypecheckScript = & $hasScript 'typecheck'
-        $hasTypescript = ($pkg.devDependencies -and $pkg.devDependencies.PSObject.Properties.Name -contains 'typescript') -or
-            ($pkg.dependencies -and $pkg.dependencies.PSObject.Properties.Name -contains 'typescript')
-
-        foreach ($name in @('lint', 'typecheck', 'build', 'test')) {
-            if ($name -eq 'typecheck' -and -not $hasTypecheckScript -and $hasTypescript) {
-                # 用專案本地已安裝的 tsc 執行檔,不透過 npx 自動下載(避免觸發網路安裝);沒裝就略過
-                $tscBin = Join-Path (Get-Location) 'node_modules\.bin\tsc.cmd'
-                if (-not (Test-Path $tscBin)) {
-                    Write-Output "略過 typecheck (typescript 已列在 package.json 但 node_modules 未安裝, 未執行 npm install?)"
-                    continue
+    if ($isGo) {
+        if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+            Add-Failure 'go toolchain' 'go executable was not found on PATH.'
+        } else {
+            $goFiles = @()
+            if (Get-Command git -ErrorAction SilentlyContinue) {
+                & git rev-parse --is-inside-work-tree 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    $goFiles = @(& git diff --name-only HEAD -- '*.go' 2>$null) +
+                        @(& git ls-files --others --exclude-standard -- '*.go' 2>$null) |
+                        Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+                        Select-Object -Unique
                 }
-                Write-Section 'typecheck (tsc --noEmit)'
-                $out = & $tscBin --noEmit 2>&1
-                if ($LASTEXITCODE -ne 0) { $failures += 'typecheck (tsc --noEmit) 失敗'; Write-Output $out } else { Write-Output 'OK' }
-                continue
             }
-            if (-not (& $hasScript $name)) {
-                Write-Output "略過 npm script '$name' (package.json 未定義)"
-                continue
+            if ($goFiles.Count -eq 0) {
+                Add-Skip 'gofmt' 'no changed Go files'
+            } elseif (-not (Get-Command gofmt -ErrorAction SilentlyContinue)) {
+                Add-Failure 'gofmt' 'gofmt executable was not found on PATH.'
+            } else {
+                Invoke-Check 'gofmt' { & gofmt -l @goFiles } -FailOnOutput
             }
-            Write-Section "npm run $name"
-            $out = & npm run $name --if-present 2>&1
-            if ($LASTEXITCODE -ne 0) { $failures += "npm run $name 失敗"; Write-Output $out } else { Write-Output 'OK' }
+            Invoke-Check 'go vet' { & go vet ./... }
+            Invoke-Check 'go build' { & go build ./... }
+            Invoke-Check 'go test' { & go test ./... }
+            if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
+                Invoke-Check 'golangci-lint' { & golangci-lint run ./... }
+            } else {
+                Add-Skip 'golangci-lint' 'not installed'
+            }
         }
     }
+
+    if ($isNode) {
+        $pkg = $null
+        try {
+            $pkg = Get-Content -LiteralPath (Join-Path $repo 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            Add-Failure 'package.json' $_.Exception.Message
+        }
+        if ($pkg) {
+            if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+                Add-Failure 'npm' 'npm executable was not found on PATH.'
+            } else {
+                $scripts = $pkg.scripts
+                $hasTypecheck = $scripts -and ($scripts.PSObject.Properties.Name -contains 'typecheck')
+                $hasTypescript = ($pkg.devDependencies -and $pkg.devDependencies.PSObject.Properties.Name -contains 'typescript') -or
+                    ($pkg.dependencies -and $pkg.dependencies.PSObject.Properties.Name -contains 'typescript')
+                foreach ($scriptName in @('lint','typecheck','build','test')) {
+                    $hasScript = $scripts -and ($scripts.PSObject.Properties.Name -contains $scriptName)
+                    if ($scriptName -eq 'typecheck' -and -not $hasTypecheck -and $hasTypescript) {
+                        $tsc = Join-Path $repo 'node_modules\.bin\tsc.cmd'
+                        if (Test-Path -LiteralPath $tsc) {
+                            Invoke-Check 'typecheck (tsc --noEmit)' { & $tsc --noEmit }
+                        } else {
+                            Add-Skip 'typecheck' 'typescript is declared but node_modules/.bin/tsc.cmd is unavailable'
+                        }
+                    } elseif ($hasScript) {
+                        Invoke-Check "npm run $scriptName" { & npm run $scriptName --if-present }
+                    } else {
+                        Add-Skip "npm run $scriptName" 'script is not defined'
+                    }
+                }
+            }
+        }
+    }
+
+    if (-not $isGo -and -not $isNode) {
+        Add-Skip 'language checks' 'no go.mod or package.json'
+    }
+
+    if (Test-Path -LiteralPath $extraPath) {
+        $hostExe = if ($PSVersionTable.PSEdition -eq 'Core') { Join-Path $PSHOME 'pwsh.exe' } else { Join-Path $PSHOME 'powershell.exe' }
+        Invoke-Check 'pre-review-extra' { & $hostExe -NoProfile -ExecutionPolicy Bypass -File $extraPath }
+    } else {
+        Add-Skip 'pre-review-extra' 'not configured'
+    }
+} finally {
+    Pop-Location
 }
 
-# 專案自訂追加檢查
-if (Test-Path '.pre-review-extra.ps1') {
-    Write-Section 'pre-review-extra'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File '.pre-review-extra.ps1'
-    if ($LASTEXITCODE -ne 0) { $failures += '.pre-review-extra.ps1 失敗' }
-    else { Write-Output 'OK' }
-}
-
-Write-Section 'RESULT'
 if ($failures.Count -gt 0) {
-    Write-Output "FAIL:"
+    Write-Output 'RESULT: FAIL'
     $failures | ForEach-Object { Write-Output "  - $_" }
+    Write-Output "LOG_DIR: $logRoot"
     exit 1
 }
-Write-Output 'PASS'
+
+if (Test-Path -LiteralPath $logRoot) { Remove-Item -LiteralPath $logRoot -Recurse -Force }
+if ($ran -eq 0) { Write-Output 'RESULT: SKIP' } else { Write-Output 'RESULT: PASS' }
 exit 0

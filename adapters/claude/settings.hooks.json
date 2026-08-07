@@ -1,5 +1,4 @@
 {
-  "__comment": "agent-workflow v2 hooks 註冊片段。install.ps1 會把 {{HOOKS_DIR}} 展開為 ~/.claude/hooks/agent-workflow 的絕對路徑後合併進 settings.json。合併以 command 含 hooks/agent-workflow 為 marker: 先移除既有 marker entry 再 append (冪等)。",
   "hooks": {
     "PreToolUse": [
       {
@@ -13,40 +12,12 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\post-edit-check.ps1\"",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\stop-check.ps1\"",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\knowhow-check.ps1\"",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\log-session.ps1\"",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\quality-gate.ps1\"",
             "timeout": 15
           }
         ]

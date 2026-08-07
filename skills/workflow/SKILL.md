@@ -1,60 +1,84 @@
 ---
 name: workflow
-description: 程式任務（新增/修改程式碼、修 bug、跑測試、code review 及直接支援這些工作的除錯）開始時載入——完成軌別判定並執行 L0/輕軌/標準軌/重軌對應流程。純文件、需求釐清、規劃、問答等非程式任務不載入本 skill。
+description: 程式碼或設定修改、bug fix、測試、除錯與 code review 開始時使用。建立並維護統一 task.md；只有修改程式碼才執行 Reviewer、Verifier，其他凍結、browser、安全與資料一致性 gate 依 risk flags 啟用。純問答、規劃、翻譯與一般文件修改不使用。
 ---
 
-# agent-workflow 流程總控（漸進式披露入口）
+# agent-workflow v4
 
-常駐核心（CLAUDE.md／AGENTS.md）只有判軌摘要與硬護欄；本 skill 是細節入口。**判定軌別後只讀對應軌別檔，不必整包讀完**：
+## 1. 建立 Task
 
-| 軌別 | 讀哪份 |
-|---|---|
-| L0 微軌 | 不需讀檔——直接修＋自檢＋最小驗證；git 紀律照常生效 |
-| 輕軌 | [light.md](light.md) |
-| 標準軌 | [standard.md](standard.md) |
-| 重軌 | [heavy.md](heavy.md)（含 R1–R6、凍結原則、R3 平行實作護欄） |
-| lite（使用者指定的重軌精簡替代） | [lite.md](lite.md)（含 LT1–LT4、雙模式分流、規格自審紀律） |
+1. 執行 `scripts/project-resolver.ps1 -Ensure` 取得 `project_id`、`worktree_id` 與 task 目錄。
+2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
+3. 依 `templates/task.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`。
+4. 明確填寫 `code_change: true | false`：會修改 source code、可執行 script 或 test code 時為 `true`；只改設定／文件，或只執行測試、調查、code review 而未改 code 時為 `false`。
+5. 基本任務直接使用 `status: in_progress`；命中 freeze-required flag 時先用 `draft`，經使用者確認後填 `frozen_at` 並改為 `in_progress`。
 
-角色細節在各平台 `agents/*.md`（Claude Code 是 subagent 定義，spawn 時自動載入；Codex 以切換身分扮演，需要時讀檔）。分派/切換角色前的交接內容裁剪見 [handoff.md](handoff.md)。各 agent 模型固定寫死於 frontmatter `model:` 欄位，呼叫時不覆蓋。
+所有程式碼／設定修改、bug fix、測試、除錯、直接支援程式工作的調查及 code review 都建立 task。純問答、規劃、架構討論、翻譯與一般文件修改不建立。
 
-## 判軌細則
+## 2. 記憶
 
-任務開始由主對話直接判定並宣告，不為判軌 spawn agent；使用者可否決或直接指定軌別（指定明顯不符判準時提出疑慮，但不強迫改判）。判斷不出往上升一級。判軌前若專案記憶層有 `overview.md`，先讀取掌握脈絡與高風險區。
+1. 建立／續作 task 後，以任務的 2–5 個關鍵字執行 `scripts/knowledge.ps1 -Action Search -Query '<keywords>' -Limit 5`，只讀 global 與目前 project 的最相關 entry；明顯不依賴歷史脈絡的機械性修改可略過。
+2. `needs_verification` 或可能過時的記憶只能當線索，使用前回查目前程式、文件或設定。
+3. 只有使用者糾正、可重用踩坑、重要方案決策、文件與實際行為不符或使用者明說要記住時，才以 `-Action Upsert -Scope Project` 寫入；沒有耐久價值時不增加任何步驟。
+4. 同 topic 由 script 更新既有 native entry；相同內容自動去重。Global knowledge 必須至少有兩個獨立專案證據、經使用者同意，並傳入 `-ApprovedByUser`。
+5. 有寫入時在 task 加 `Knowledge result` 記錄 entry id；沒有寫入時可完全省略。禁止寫入秘密、token、密碼、連線字串或個資。
 
-**核心原則**：不以檔案數/模組數/行數判定，看「是不是**單一功能**」與「出錯時**波及多少既有功能**（blast radius）」。分層架構下一個功能垂直跨多層仍屬單一功能。功能＝使用者可觀察的一項行為/use case/對外入口點；影響＝出錯時會壞到哪些功能（行為不變的重構動到共用路徑一樣算波及多功能）。動到共用元件時以 grep 呼叫點查證影響範圍；DI/event bus 等靜態查不出完整呼叫點時視為「確認不了」→ 升軌。
+## 3. Risk Flags
 
-- **L0 微軌**（全部符合）：不影響任何功能的可觀察行為；不動邏輯分支/介面/契約/DB schema/高風險寫入路徑；限文案、註解、log 訊息、設定值、顯而易見的 typo、純樣式微調。規模大到需逐條核對才能確認沒改到行為 → 升輕軌；任何猶豫 → 升輕軌。
-- **輕軌**（全部符合）：單一功能內的 bug fix 或小幅改動，波及侷限該功能自身；不改既有對外契約/schema、不涉高風險路徑。共用元件 bug fix 修回規格預期可走輕軌，但微驗收清單須涵蓋每個受影響功能至少一條；受影響功能約 >5 個或碰高風險路徑仍升軌。
-- **標準軌**（全部符合）：單一功能的新增或行為變更（可垂直跨多模組/分層）；波及侷限本功能（動到共用元件須有呼叫點證據）；不改既有契約/schema（新增只服務本功能的全新 endpoint 可；往既有 WS channel 加訊息型別、消費者不容錯未知型別時視同改契約）；需求明確可直接動工；不涉高風險路徑。
-- **重軌**（任一命中）：波及多個功能（共用元件/核心抽象/橫切關注點/大範圍重構，或一次交付多個功能——彼此獨立的多個小功能優先建議拆任務）；修改既有對外 API/WS 契約或 DB schema（任何變動）；觸及高風險關鍵寫入路徑（帳務、交易、權限等，具體範圍由專案層定義）。
-- **lite**（不自動判入，僅使用者主動指定，如「走 lite」）：重軌等級任務的單對話單人模式——單檔 mini-spec 凍結、主對話直做規格與實作（依任務性質分功能／修正雙模式）、序列派唯讀 reviewer→qa 把關（審查通過才驗收）；唯讀查證 fan-out 一律最低階模型；品質規則同重軌，省的是 PM／architect spawn、文件數與確認往返。
+只使用以下值：
 
-**判軌依據**：L0 免附；輕軌一句話說明影響侷限理由；標準軌以上附「所屬功能＋受影響既有功能清單」（共用元件附 grep 證據）。
+`behavior_change`、`ui`、`external_input`、`data_write`、`security`、`refactor`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`。
 
-**附加 gate：畫面驗證**（掛在各軌別後面，非獨立軌別）——含前端功能修改的任務（純樣式微調除外）流程尾端追加畫面驗證：L0/輕軌由 qa（或主對話）用 browser 工具走一次使用者流程核對；標準軌/重軌由 qa 執行 `type: ui` 條目並判定。模糊項（畫面與 expect 有落差）或疑似規格缺漏，由主對話整理交使用者裁決；PM 不參與畫面驗證。
+依實際風險加入，不為湊流程加 flag：
 
-**中途升降軌**：實作途中發現命中更高軌判準 → 停手宣告升軌理由，補齊該軌前置步驟（mini-spec 或完整 spec 凍結）後再繼續，不邊做邊補；降軌需使用者同意。
+- `behavior_change`：補完整驗收條目。
+- `ui`：使用平台原生 browser 驗證；若不執行 Verifier，由主 agent 完成並記錄。
+- `external_input`／`security`：檢查輸入驗證、授權、注入與敏感資料。
+- `data_write`：檢查交易、一致性、並發、冪等與回滾。
+- `refactor`：記錄行為不變條件與 before/after 證據。
+- `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`：freeze-required，強制使用者確認。
 
-## 回合上限（跨軌共用，超限交使用者裁決）
+Freeze-required task 增加：非目標與相容性、現況與影響面、方案與取捨、邊界與異常、驗收案例、使用者確認。`contract`／`schema`／`data_write`／`financial`／`migration` 補 `Contract and data impact`；`cross_feature`／`migration`／`irreversible` 補 `Implementation sequence`（實作順序、依賴與回滾點）。凍結後不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。
 
-| 計數器 | 上限 | 超限動作 |
-|---|---|---|
-| reviewer ↔ architect | 重軌 ≤3 輪、輕軌/標準軌/lite ≤2 輪 | 列爭點交使用者裁決 |
-| PM ↔ architect（需求可行性） | ≤2 輪 | 交使用者裁決 |
-| 同一 bug 同一方向修復嘗試 | 第 2 次失敗須寫出「為什麼再試會不同」的理由才續試；3 次硬上限 | 轉 debugger（唯讀根因分析） |
-| 同一驗收條目被打回 architect（lite 為打回主對話） | 3 次 | 轉 debugger，修復後過 pre-review＋reviewer 輕量複審，qa 重驗 FAIL 與波及條目 |
-| pre-review 失敗退回 | 不計數 | 修正後重跑 |
+Reviewer／Verifier 與 risk flags 解耦：只有 `code_change: true` 強制依序執行 Reviewer → Verifier。`code_change: false` 不執行角色，但主 agent 仍須完成 flags 要求的驗收、browser、安全、資料一致性與其他驗證。
 
-重軌的計數每輪記入 plan.md「回合記錄」，以檔案為準；標準軌/輕軌/lite 口頭列在回報中即可。
+## 4. 實作
 
-## 收尾：know-how 沉澱三問
+- 先讀專案 instructions、相關程式、呼叫端與既有測試；只改需求直接需要的範圍。
+- 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
+- Bug 先重現或取得足以確認根因的證據；修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
+- 不強制 TDD 或 test-first；直接完成最小修改，再以專案既有檢查與 pre-review 驗證。
+- 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
+- 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 
-輕軌 L4／標準軌 M4／重軌 R6／lite LT4 收尾時必答並在回報末尾明示結論：(1) 有沒有踩到規格/文件沒寫的坑？(2) 有沒有方案轉彎或多選一拍板？(3) 有沒有發現專案脈絡與既有認知不符？任一為「是」→ 寫入專案記憶層，回報「**已沉澱**：<摘要>（<檔名>）」；全部為「否」→ 回報「**無可沉澱**：<一句理由>」。這兩句是 `knowhow-check.ps1` hook 的機械放行訊號。L0 不強制。
+## 5. Pre-review
 
-## 中斷續作
+程式碼或設定 diff 完成後，執行 managed runtime 的 `~/.agent-workflow/runtime/scripts/pre-review.ps1 -RepoRoot <root>`。Go 執行 changed-file gofmt、vet、build、test 與可用的 golangci-lint；Node 執行既有 lint、typecheck、build、test scripts；其他技術棧可用 `.pre-review-extra.ps1`。預設只保留 PASS／FAIL／SKIP 摘要，FAIL 的完整輸出寫入暫存 log。
 
-不維護獨立狀態檔。續作時讀：重軌 plan.md 的階段 checkbox 與回合記錄（標準軌/lite 讀 mini-spec.md 的條目勾選）＋ checklist/mini-spec 的 status ＋ 專案 `git status`/`git diff`。長期擱置任務在 checklist.md/mini-spec.md 檔頭加 `<!-- paused -->`。
+- FAIL：停止，不得送 Reviewer 或設為 done；修正後重跑。
+- SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。
+- PASS：將命令與實際 checks 寫入 `Validation results`。
 
-## 平台差異
+## 6. Reviewer 與 Verifier
 
-流程本身（判軌／三軌／回合上限／沉澱三問）跨平台通用，不重複寫。各平台的 hook 機械支援程度、記憶機制、身分扮演方式不同，只在需要時查 [platforms.md](platforms.md)——原則：**沉澱三問優先靠 hook 強制放行，該平台不支援 hook 時才退回條文自律**（三平台皆有 knowhow-check hook；Codex 需先在 `/hooks` 信任、Antigravity 需啟用其 `hooks.json`）。
+`code_change: true` 時，依序啟動原生 `agent-workflow-reviewer`、再啟動 `agent-workflow-verifier`；兩者唯讀，輸入只帶 task、diff、必要專案規則與驗證證據。`code_change: false` 跳過兩個角色。
+
+- Reviewer 先核對 correctness，再回報 architecture consistency、code quality and conventions、data consistency、security、risk and compatibility、performance；data consistency、security、performance 不適用時標 `N/A` 與理由。
+- Reviewer 有 blocker：主 agent 修正，重新執行相關驗證，再送複審。
+- Reviewer 通過後，Verifier 逐條執行完成條件，補一次最可能找到 bug 的針對性探索；`ui` 使用 browser。
+- Verifier 將問題分為實作缺陷、規格缺漏、環境阻塞；實作缺陷批次修正後重驗失敗與波及項。
+- 原生角色載入失敗時先執行 installer `Repair`；仍失敗才由主 agent 明確切換唯讀身分代跑，task 與回報標記 `independence: degraded`。
+
+## 7. 失敗與續作
+
+- 同一修復假說失敗兩次，不再猜第三次；回到證據與根因重新診斷。
+- Reviewer／Verifier 對同一問題打回三次，停止局部修補，整理證據與架構風險交使用者裁決。
+- 中斷可續作用 `paused`；缺權限、環境或外部決策用 `blocked` 並記錄下一步。
+- 不維護額外 state service；task.md 是唯一任務狀態。
+
+## 8. 完成
+
+1. 對照 task 完成條件，填入 pre-review、其他實際指令、結果與未驗證限制。
+2. 回填 Reviewer／Verifier 結果與 `independence` 狀態（若適用）。
+3. 所有必要條件通過才將 status 改為 `done`；未完成不得假裝結案。
+4. 回報改了什麼、驗證證據、剩餘風險與可重現的複驗方式。

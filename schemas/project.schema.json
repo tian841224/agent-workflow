@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/project.schema.json",
+  "type": "object",
+  "required": ["id", "canonical_root", "git_common_dir", "remote", "repo_fingerprint", "aliases", "worktrees", "created_at", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+    "canonical_root": { "type": "string", "minLength": 1 },
+    "git_common_dir": { "type": "string", "minLength": 1 },
+    "remote": { "type": "string" },
+    "repo_fingerprint": { "type": "string" },
+    "aliases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+          "path": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

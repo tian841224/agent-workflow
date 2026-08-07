@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/knowledge.schema.json",
+  "type": "object",
+  "required": ["id", "topic", "scope", "project_id", "origin", "content_sha256", "status", "relationships", "created_at", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "topic": { "type": "string", "minLength": 1 },
+    "scope": { "enum": ["global", "project"] },
+    "project_id": { "type": ["string", "null"] },
+    "origin": { "enum": ["native", "imported"] },
+    "source_path": { "type": "string", "minLength": 1 },
+    "source_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "snapshot": { "type": "string", "minLength": 1 },
+    "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "status": { "enum": ["verified", "needs_verification"] },
+    "relationships": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^(related|supersedes|scope-conflict):" }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "imported_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "project" } } },
+      "then": { "properties": { "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" } } }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "global" } } },
+      "then": { "properties": { "project_id": { "type": "null" } } }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/task.schema.json",
+  "type": "object",
+  "required": ["id", "project_id", "worktree_id", "status", "code_change", "risk_flags", "created_at", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
+    "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+    "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+    "status": { "enum": ["draft", "in_progress", "paused", "blocked", "done", "superseded"] },
+    "code_change": { "type": "boolean" },
+    "risk_flags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["behavior_change", "ui", "external_input", "data_write", "security", "refactor", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "frozen_at": { "type": ["string", "null"], "format": "date-time" },
+    "independence": { "enum": ["native", "degraded"] }
+  },
+  "additionalProperties": false
+}
