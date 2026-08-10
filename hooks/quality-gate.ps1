@@ -100,14 +100,16 @@ try {
     }
     if ($needsReviewer) {
         $review = Get-Section $content 'Reviewer result'
-        if (-not $review -or $review -match '^<.*>$' -or $review -match '(?i)\b(?:pending|FAIL|BLOCKED)\b') { $issues += 'Reviewer result is missing or not passed' }
+        if (-not $review -or $review -match '^<.*>$' -or $review -notmatch '(?mi)^[ \t]*-[ \t]*result:[ \t]*PASS[ \t]*\r?$') { $issues += 'Reviewer result is missing or not passed' }
         foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance')) {
-            if ($review -notmatch [regex]::Escape($dimension)) { $issues += "Reviewer result missing dimension: $dimension" }
+            $allowedStatus = if (@('Data consistency','Security','Performance') -contains $dimension) { '(?:PASS|N/A)' } else { 'PASS' }
+            $dimensionPattern = '(?mi)^[ \t]*-[ \t]*' + [regex]::Escape($dimension) + ':[ \t]*' + $allowedStatus + '(?:[ \t]+.*)?[ \t]*\r?$'
+            if ($review -notmatch $dimensionPattern) { $issues += "Reviewer result missing or not passed dimension: $dimension" }
         }
     }
     if ($needsVerifier) {
         $verify = Get-Section $content 'Verifier result'
-        if (-not $verify -or $verify -match '^<.*>$' -or $verify -notmatch '(?i)\bPASS\b' -or $verify -match '(?i)\b(?:pending|FAIL|BLOCKED)\b') { $issues += 'Verifier result is missing or not passed' }
+        if (-not $verify -or $verify -match '^<.*>$' -or $verify -notmatch '(?mi)^[ \t]*-[ \t]*PASS[ \t]*\r?$') { $issues += 'Verifier result is missing or not passed' }
     }
 
     if ($issues.Count -gt 0) {

@@ -101,6 +101,7 @@ $Extra
 
 $reviewResult = @"
 ## Reviewer result
+- result: PASS
 - Architecture consistency: PASS
 - Code quality and conventions: PASS
 - Data consistency: N/A - no data change
@@ -176,6 +177,24 @@ try {
     Assert ($codeGateOutput -match 'Verifier result') 'code_change task did not require Verifier'
     Set-TestTask $resolved @() ("## Reviewer result`npending`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result is missing or not passed') 'pending Reviewer result was accepted'
+    $reviewWithoutPass = $reviewResult -replace '(?m)^- result: PASS\r?\n', ''
+    Set-TestTask $resolved @() ($reviewWithoutPass + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result is missing or not passed') 'Reviewer result without explicit PASS was accepted'
+    $reviewMalformedPass = $reviewResult -replace '(?m)^- result: PASS$', "-`nresult:`nPASS"
+    Set-TestTask $resolved @() ($reviewMalformedPass + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result is missing or not passed') 'multiline Reviewer PASS was accepted'
+    $reviewCheckedDimensions = $reviewResult -replace '(?m)^- Architecture consistency: PASS$', '- Architecture consistency: checked'
+    Set-TestTask $resolved @() ($reviewCheckedDimensions + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Architecture consistency') 'Reviewer dimension without PASS was accepted'
+    $reviewWithHistory = $reviewResult -replace '(?m)^- Risk and compatibility: PASS$', '- Risk and compatibility: PASS - previous FAIL was resolved'
+    Set-TestTask $resolved @() ($reviewWithHistory + "`n" + $verifierResult) $true
+    Assert (-not (Invoke-Quality $repo)) 'Reviewer PASS explanation mentioning a previous FAIL was rejected'
+    $reviewAmbiguousPass = $reviewResult -replace '(?m)^- Architecture consistency: PASS$', '- Architecture consistency: PASS/FAIL'
+    Set-TestTask $resolved @() ($reviewAmbiguousPass + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Architecture consistency') 'ambiguous PASS/FAIL Reviewer dimension was accepted'
+    $reviewAmbiguousNA = $reviewResult -replace '(?m)^- Data consistency: N/A - no data change$', '- Data consistency: N/A/FAIL'
+    Set-TestTask $resolved @() ($reviewAmbiguousNA + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Data consistency') 'ambiguous N/A/FAIL Reviewer dimension was accepted'
     Set-TestTask $resolved @() ($reviewResult + "`n## Verifier result`n- FAIL`n") $true
     Assert ((Invoke-Quality $repo) -match 'Verifier result is missing or not passed') 'failed Verifier result was accepted'
     Set-TestTask $resolved @() $roleResults $true
