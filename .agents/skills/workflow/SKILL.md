@@ -1,19 +1,20 @@
 ---
 name: workflow
-description: 程式碼或設定修改、bug fix、測試、除錯與 code review 開始時使用。建立並維護統一 task.md；只有修改程式碼才執行 Reviewer、Verifier，其他凍結、browser、安全與資料一致性 gate 依 risk flags 啟用。純問答、規劃、翻譯與一般文件修改不使用。
+description: 實際修改 source code、可執行 script 或 test code 時使用。建立並維護統一 task.md，依序執行 Reviewer、Verifier；非程式碼修改任務不使用 workflow、不建立 task、不執行角色，由單一主對話處理。
 ---
 
 # agent-workflow v4
 
 ## 1. 建立 Task
 
+0. 本 skill 僅適用於實際修改 source code、可執行 script 或 test code 的任務；設定／文件修改、測試調查、除錯分析、code review、規劃、問答與翻譯等 non-code tasks bypass workflow，由單一主對話直接處理，不建立 task 或啟動角色。
 1. 執行 `scripts/project-resolver.ps1 -Ensure` 取得 `project_id`、`worktree_id` 與 task 目錄。
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 依 `templates/task.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`。
 4. 明確填寫 `code_change: true | false`：會修改 source code、可執行 script 或 test code 時為 `true`；只改設定／文件，或只執行測試、調查、code review 而未改 code 時為 `false`。
 5. 基本任務直接使用 `status: in_progress`；命中 freeze-required flag 時先用 `draft`，經使用者確認後填 `frozen_at` 並改為 `in_progress`。
 
-所有程式碼／設定修改、bug fix、測試、除錯、直接支援程式工作的調查及 code review 都建立 task。純問答、規劃、架構討論、翻譯與一般文件修改不建立。
+只有實際修改 source code、可執行 script 或 test code 才建立 task。非程式碼修改任務不載入本 workflow、不建立 task、不執行 Reviewer／Verifier。
 
 ## 2. 記憶
 
@@ -25,26 +26,14 @@ description: 程式碼或設定修改、bug fix、測試、除錯與 code review
 
 ## 3. Risk Flags
 
-只使用以下值：
+依實際風險判斷是否加入 `risk_flags`，不為湊流程加 flag。允許值、各值定義與對應要求見 [risk-flags.md](risk-flags.md)。
 
-`behavior_change`、`ui`、`external_input`、`data_write`、`security`、`refactor`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`。
-
-依實際風險加入，不為湊流程加 flag：
-
-- `behavior_change`：補完整驗收條目。
-- `ui`：使用平台原生 browser 驗證；若不執行 Verifier，由主 agent 完成並記錄。
-- `external_input`／`security`：檢查輸入驗證、授權、注入與敏感資料。
-- `data_write`：檢查交易、一致性、並發、冪等與回滾。
-- `refactor`：記錄行為不變條件與 before/after 證據。
-- `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`：freeze-required，強制使用者確認。
-
-Freeze-required task 增加：非目標與相容性、現況與影響面、方案與取捨、邊界與異常、驗收案例、使用者確認。`contract`／`schema`／`data_write`／`financial`／`migration` 補 `Contract and data impact`；`cross_feature`／`migration`／`irreversible` 補 `Implementation sequence`（實作順序、依賴與回滾點）。凍結後不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。
-
-Reviewer／Verifier 與 risk flags 解耦：只有 `code_change: true` 強制依序執行 Reviewer → Verifier。`code_change: false` 不執行角色，但主 agent 仍須完成 flags 要求的驗收、browser、安全、資料一致性與其他驗證。
+Reviewer／Verifier 與 risk flags 解耦：本 workflow 只接受 `code_change: true` 的程式碼修改任務，強制依序執行 Reviewer → Verifier。非程式碼修改任務不進入本 workflow（non-code tasks do not enter this workflow）；既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。
 
 ## 4. 實作
 
 - 先讀專案 instructions、相關程式、呼叫端與既有測試；只改需求直接需要的範圍。
+- 修改程式後先建立 execution path：從實際入口往下追到修改點，再追到所有重要終點；同時確認修改點的上游前置條件、下游契約，以及錯誤、重送、並發與異步分支。不可只看修改點到下一個呼叫點。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
 - Bug 先重現或取得足以確認根因的證據；修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
 - 不強制 TDD 或 test-first；直接完成最小修改，再以專案既有檢查與 pre-review 驗證。
@@ -64,8 +53,9 @@ Reviewer／Verifier 與 risk flags 解耦：只有 `code_change: true` 強制依
 `code_change: true` 時，依序啟動原生 `agent-workflow-reviewer`、再啟動 `agent-workflow-verifier`；兩者唯讀，輸入只帶 task、diff、必要專案規則與驗證證據。`code_change: false` 跳過兩個角色。
 
 - Reviewer 先核對 correctness，再回報 architecture consistency、code quality and conventions、data consistency、security、risk and compatibility、performance；data consistency、security、performance 不適用時標 `N/A` 與理由。
+- Reviewer 必須沿 execution path 審查：確認入口如何到達修改點、上游傳入的前置條件與狀態、修改點的行為、下游每一段的輸入／輸出契約與最終效果。以 `A > B > C > D` 為例，修改 `C` 時必須審查並驗證 `A > B > C > D`，不能只審查 `C > D`；重要錯誤、重送、並發、異步與替代分支也要納入回歸範圍，並在 task 留下 path 與證據。
 - Reviewer 有 blocker：主 agent 修正，重新執行相關驗證，再送複審。
-- Reviewer 通過後，Verifier 逐條執行完成條件，補一次最可能找到 bug 的針對性探索；`ui` 使用 browser。
+- Reviewer 通過後，Verifier 從實際入口執行完整 path，逐條執行完成條件，補一次最可能找到 bug 的針對性探索；不得以只測修改函式或只測 `C > D` 代替整體流程；`ui` 使用 browser。
 - Verifier 將問題分為實作缺陷、規格缺漏、環境阻塞；實作缺陷批次修正後重驗失敗與波及項。
 - 原生角色載入失敗時先執行 installer `Repair`；仍失敗才由主 agent 明確切換唯讀身分代跑，task 與回報標記 `independence: degraded`。
 

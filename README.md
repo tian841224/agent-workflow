@@ -1,12 +1,12 @@
 # agent-workflow v4
 
-跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。所有程式任務使用同一種 `task.md`；只有實際修改程式碼時才執行 Reviewer、Verifier，其他 gate 依風險旗標增加。
+跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改 source code、可執行 script 或 test code 才使用 workflow、建立 `task.md` 並執行 Reviewer、Verifier；非程式碼修改任務直接由單一主對話處理，不載入 workflow 或角色。
 
 ## 架構
 
 - `AGENTS.md`：常駐硬規則。
-- `skills/workflow/SKILL.md`：唯一流程 skill。
-- `agents/reviewer.md`、`agents/verifier.md`：唯讀角色 canonical source。
+- `.agents\skills\`：共用 skill source；installer 會將所有 repo skill 同步到使用者的 `.agents\skills`。
+- `.agents\agents\reviewer.md`、`.agents\agents\verifier.md`：唯讀角色 canonical source。
 - `scripts/project-resolver.ps1`：解析 project、worktree 與 active task。
 - `scripts/knowledge.ps1`：按需搜尋、去重寫入與重建 knowledge index。
 - `scripts/pre-review.ps1`：在審查或結案前執行 deterministic project checks。
@@ -19,7 +19,7 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 ## Task
 
-程式碼／設定修改、bug fix、測試、除錯、程式調查與 code review 都建立：
+只有實際修改 source code、可執行 script 或 test code 才建立：
 
 ```text
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
@@ -27,13 +27,64 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：修改 source、script 或 test code 為 `true`，只改設定／文件或只執行測試、調查、code review 為 `false`。只有 `true` 強制依序執行 Reviewer、Verifier；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
 
+設定／文件修改、測試調查、除錯分析、規劃、問答、翻譯與 code review 等 non-code tasks bypass workflow：不建立 task、不執行 Reviewer／Verifier，由單一主對話直接完成。
+
+### Risk Flags
+
+`risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag：
+
+`behavior_change`、`ui`、`external_input`、`data_write`、`security`、`refactor`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
+
+各值的定義、對應要求與 freeze-required 詳細規則，統一記錄在 [`.agents/skills/workflow/risk-flags.md`](.agents/skills/workflow/risk-flags.md)，修改流程時只需改這一份檔案。
+
+Reviewer／Verifier 是否執行只看 `code_change`，與 `risk_flags` 解耦；`risk_flags` 只控制凍結、驗收案例、browser 與風險檢查等額外要求是否漸進加入。
+
+### 實作
+
+- 先讀專案 instructions、相關程式、呼叫端與既有測試；只改需求直接需要的範圍，不順手重構、不擴張抽象或依賴。
+- 修改程式後建立 execution path：從實際入口追到修改點，再追到所有重要下游終點；同時確認修改點的上游前置條件、下游契約，以及錯誤、重送、並發與異步分支。不可只看修改點到下一個呼叫點。
+- 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
+- Bug 先重現或取得足以確認根因的證據；不強制 TDD 或 test-first，先完成最小修改再驗證。
+- 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
+
+### Pre-review
+
 修改完成後執行：
 
 ```powershell
 & (Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\pre-review.ps1') -RepoRoot <worktree-root>
 ```
 
-Go 專案執行 changed-file gofmt、vet、build、test 與可用的 golangci-lint；Node 專案執行既有 lint、typecheck、build、test scripts。其他專案可提供 `.pre-review-extra.ps1`。FAIL 不得進入 Reviewer 或結案；SKIP 必須記錄原因。
+Go 專案執行 changed-file gofmt、vet、build、test 與可用的 golangci-lint；Node 專案執行既有 lint、typecheck、build、test scripts。其他專案可提供 `.pre-review-extra.ps1`。
+
+- FAIL：停止，不得送 Reviewer 或設為 done；修正後重跑。
+- SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。
+- PASS：把命令與實際 checks 寫入 task 的 Validation results。
+
+### Reviewer 與 Verifier
+
+`code_change: true` 時依序啟動原生 `agent-workflow-reviewer`、再啟動 `agent-workflow-verifier`；兩者唯讀，輸入只帶 task、diff、必要專案規則與驗證證據。`code_change: false` 跳過兩個角色。
+
+- Reviewer 先核對 correctness，再回報 architecture consistency、code quality and conventions、data consistency、security、risk and compatibility、performance；不適用時標 `N/A` 並附理由。
+- Reviewer 不做局部鏈審查：必須沿 execution path 審查，確認入口如何到達修改點、上游前置條件與狀態、修改點行為、下游每一段輸入／輸出契約與最終效果。例如修改 `C` 的 `A > B > C > D` 流程，需驗證整條 `A > B > C > D`（含重要錯誤、重送、並發、異步分支），不能只審查 `C > D`；並在 task 留下 execution path 與回歸證據。
+- Reviewer 有 blocker：主 agent 修正，重新執行相關驗證，再送複審。
+- Verifier：Reviewer 通過後，從實際入口執行完整 path，逐條執行完成條件，補一次最可能找到 bug 的針對性探索；不得只測修改函式或只測 `C > D`；`ui` risk flag 用 browser 實際操作。
+- Verifier 把問題分為實作缺陷、規格缺漏、環境阻塞三類；實作缺陷批次修正後重驗失敗與波及項。
+- 原生角色載入失敗時先執行 installer `Repair`；仍失敗才由主 agent 明確切換唯讀身分代跑，task 與回報標記 `independence: degraded`。
+
+### 失敗與續作
+
+- 同一修復假說失敗兩次，不再猜第三次；回到證據與根因重新診斷。
+- Reviewer／Verifier 對同一問題打回三次，停止局部修補，整理證據與架構風險交使用者裁決。
+- 中斷可續作用 `paused`；缺權限、環境或外部決策用 `blocked` 並記錄下一步。
+- 不維護額外 state service；task.md 是唯一任務狀態來源。
+
+### 完成
+
+1. 對照 task 完成條件，填入 pre-review、其他實際指令、結果與未驗證限制。
+2. 回填 Reviewer／Verifier 結果與 `independence` 狀態（若適用）。
+3. 所有必要條件通過才將 `status` 改為 `done`；未完成不得假裝結案。
+4. 回報改了什麼、驗證證據、剩餘風險與可重現的複驗方式。
 
 ## 記憶
 
@@ -67,6 +118,8 @@ Project knowledge 可直接更新；Global knowledge 需要跨專案證據與使
 .\install.ps1 -Action Repair -TargetAgent All
 .\install.ps1 -Action Uninstall -TargetAgent All
 ```
+
+Global entrypoint 以 `C:\Users\<user>\.agents\AGENTS.md` 為 canonical source；Claude `CLAUDE.md`、Codex `AGENTS.md` 與 Antigravity `GEMINI.md` 由 installer 建立 hard link 指向同一檔案。共用 `reviewer`／`verifier` 集中在 `.agents\agents`，所有 repo skill 集中在 `.agents\skills`；Claude、Codex 與 Antigravity 的原生 skill discovery path 由 junction 指向同一份 canonical skill 目錄，不再各自維護副本。平台 Markdown／TOML 檔案是由 canonical source 產生的 adapter。三平台 unmanaged content 發生衝突時會先建立 timestamp backup 並停止，不會猜測合併。
 
 發現尚未遷移的 v3 knowledge/history 時，installer 會阻止 activation。Uninstall 只移除 hash 未變的 managed runtime，不刪 knowledge、projects、tasks 或 imports。
 

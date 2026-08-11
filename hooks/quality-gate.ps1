@@ -99,6 +99,7 @@ try {
         Add-MissingSection $content 'Behavior invariants and before-after evidence' ([ref]$issues)
     }
     if ($needsReviewer) {
+        Add-MissingSection $content 'Execution path and regression evidence' ([ref]$issues)
         $review = Get-Section $content 'Reviewer result'
         if (-not $review -or $review -match '^<.*>$' -or $review -notmatch '(?mi)^[ \t]*-[ \t]*result:[ \t]*PASS[ \t]*\r?$') { $issues += 'Reviewer result is missing or not passed' }
         foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance')) {

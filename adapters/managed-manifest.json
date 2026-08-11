@@ -18,8 +18,8 @@
     "schemas/import-manifest.schema.json"
   ],
   "platform_files": {
-    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-verifier.md", "skills/workflow/SKILL.md"],
-    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-verifier.toml", "skills/workflow/SKILL.md", "rules/agent-workflow.rules"],
-    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/skills/workflow/SKILL.md", "config/global_workflows/agent-workflow.md"]
+    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-verifier.md", "skills/workflow/"],
+    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-verifier.toml", "skills/workflow/", "rules/agent-workflow.rules"],
+    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/skills/workflow/", "config/global_workflows/agent-workflow.md"]
   }
 }

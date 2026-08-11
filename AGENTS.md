@@ -4,7 +4,7 @@
 
 ## 適用範圍
 
-程式碼或設定修改、bug fix、測試、除錯、code review 開始時，載入 `workflow` skill 並建立 `task.md`。純問答、規劃、架構討論、翻譯與一般文件修改不建立 task。
+只有實際修改 source code、可執行 script 或 test code 的任務，才載入 `workflow` skill、建立 `task.md`，並依序執行 Reviewer、Verifier。設定／文件修改、測試調查、除錯分析、code review、規劃、問答與翻譯等非程式碼修改任務，不載入 workflow、不建立 task、不執行角色，由單一主對話直接處理（non-code tasks bypass workflow）。
 
 ## Task
 

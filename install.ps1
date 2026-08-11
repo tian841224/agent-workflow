@@ -6,6 +6,7 @@ param(
     [string]$CodexTarget = (Join-Path $env:USERPROFILE '.codex'),
     [string]$AntigravityTarget = (Join-Path $env:USERPROFILE '.gemini'),
     [string]$StateRoot = (Join-Path $env:USERPROFILE '.agent-workflow'),
+    [string]$CanonicalRoot = (Join-Path $env:USERPROFILE '.agents'),
     [string]$LegacyRoot = (Join-Path $env:USERPROFILE '.agents'),
     [ValidateSet('Install','Status','Repair','Uninstall')][string]$Action = 'Install',
     [switch]$DryRun
@@ -13,6 +14,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
+$repoSharedRoot = Join-Path $repoRoot '.agents'
 $runtimeRoot = Join-Path $StateRoot 'runtime'
 $stateFile = Join-Path $StateRoot 'managed-runtime.json'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -59,23 +61,139 @@ function Install-File([string]$Source, [string]$Destination, [string]$Kind = 'fi
     $managed.Add([ordered]@{ path = $Destination; sha256 = $hash; kind = $Kind })
 }
 
-function Install-Entrypoint([string]$Source, [string]$Destination) {
+function Install-CanonicalSharedSources {
+    foreach ($relative in @('agents\reviewer.md','agents\verifier.md')) {
+        Install-File (Join-Path $repoSharedRoot $relative) (Join-Path $CanonicalRoot $relative) 'canonical-shared-source'
+    }
+    $repoSkillsRoot = Join-Path $repoSharedRoot 'skills'
+    if (Test-Path -LiteralPath $repoSkillsRoot -PathType Container) {
+        foreach ($skillDirectory in Get-ChildItem -LiteralPath $repoSkillsRoot -Directory) {
+            foreach ($file in Get-ChildItem -LiteralPath $skillDirectory.FullName -Recurse -File) {
+                $relative = $file.FullName.Substring($skillDirectory.FullName.Length).TrimStart('\','/')
+                $canonicalSkillRoot = Join-Path (Join-Path $CanonicalRoot 'skills') $skillDirectory.Name
+                Install-File $file.FullName (Join-Path $canonicalSkillRoot $relative) 'canonical-shared-source'
+            }
+        }
+    }
+}
+
+function Get-SharedSource([string]$RelativePath) {
+    if ($RelativePath -like 'agents/*' -or $RelativePath -like 'skills/*') {
+        return Join-Path $CanonicalRoot ($RelativePath.Replace('/','\'))
+    }
+    return Join-Path $repoRoot ($RelativePath.Replace('/','\'))
+}
+
+function Get-UnmanagedEntrypointContent([string]$Path) {
+    $begin = '<!-- agent-workflow v4 managed:start -->'
+    $end = '<!-- agent-workflow v4 managed:end -->'
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+    $existing = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    return [regex]::Replace($existing, "(?s)\r?\n?$([regex]::Escape($begin)).*?$([regex]::Escape($end))\r?\n?", '').Replace("`r`n", "`n").Replace("`r", "`n").Trim()
+}
+
+function Test-HardLinkTo([string]$Path, [string]$Target) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $targetNorm = [IO.Path]::GetFullPath($Target).TrimEnd('\','/').ToLowerInvariant()
+    foreach ($link in @(& fsutil hardlink list $Path 2>$null)) {
+        $linkText = ([string]$link).Trim()
+        if (-not $linkText) { continue }
+        try { $linkNorm = [IO.Path]::GetFullPath($linkText).TrimEnd('\','/').ToLowerInvariant() } catch { continue }
+        if ($linkNorm -eq $targetNorm) { return $true }
+    }
+    return $false
+}
+
+function Install-ManagedHardLink([string]$Source, [string]$Destination, [string]$Kind) {
+    Ensure-Directory (Split-Path -Parent $Destination)
+    $isLink = Test-HardLinkTo $Destination $Source
+    if ($DryRun) {
+        Write-Output "[dry-run] link $Destination -> $Source"
+    } else {
+        if ((Test-Path -LiteralPath $Destination) -and -not $isLink) {
+            Backup-UserFile $Destination
+            Remove-Item -LiteralPath $Destination -Force
+        }
+        if (-not $isLink) { New-Item -ItemType HardLink -Path $Destination -Target $Source | Out-Null }
+    }
+    $hash = if ($DryRun) { Get-Hash $Source } else { Get-Hash $Destination }
+    $managed.Add([ordered]@{ path = $Destination; sha256 = $hash; kind = $Kind })
+}
+
+function Test-JunctionTo([string]$Path, [string]$Target) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+    try {
+        $item = Get-Item -LiteralPath $Path -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { return $false }
+        $targetNorm = [IO.Path]::GetFullPath($Target).TrimEnd('\','/').ToLowerInvariant()
+        foreach ($candidate in @($item.Target)) {
+            if (-not $candidate) { continue }
+            $candidateNorm = [IO.Path]::GetFullPath([string]$candidate).TrimEnd('\','/').ToLowerInvariant()
+            if ($candidateNorm -eq $targetNorm) { return $true }
+        }
+    } catch { return $false }
+    return $false
+}
+
+function Install-ManagedJunction([string]$Source, [string]$Destination, [string]$Kind) {
+    Ensure-Directory (Split-Path -Parent $Destination)
+    $isJunction = Test-JunctionTo $Destination $Source
+    if ($DryRun) {
+        Write-Output "[dry-run] junction $Destination -> $Source"
+    } else {
+        if ((Test-Path -LiteralPath $Destination) -and -not $isJunction) {
+            $backup = "$Destination.bak.$stamp"
+            Move-Item -LiteralPath $Destination -Destination $backup -Force
+        }
+        if (-not $isJunction) { New-Item -ItemType Junction -Path $Destination -Target $Source | Out-Null }
+    }
+    $managed.Add([ordered]@{ path = $Destination; sha256 = ''; kind = $Kind })
+}
+
+function Install-CanonicalEntrypoints([string]$Source, [string]$CanonicalPath, [string[]]$Destinations, [string[]]$ExistingPaths) {
     $begin = '<!-- agent-workflow v4 managed:start -->'
     $end = '<!-- agent-workflow v4 managed:end -->'
     $managedContent = Get-Content -LiteralPath $Source -Raw -Encoding UTF8
-    $existing = if (Test-Path -LiteralPath $Destination) { Get-Content -LiteralPath $Destination -Raw -Encoding UTF8 } else { '' }
-    $clean = [regex]::Replace($existing, '(?s)\r?\n?<!-- agent-workflow v4 managed:start -->.*?<!-- agent-workflow v4 managed:end -->\r?\n?', '').TrimEnd()
-    $prefix = if ($clean) { $clean + "`r`n`r`n" } else { '' }
-    $content = $prefix + $begin + "`r`n" + $managedContent.Trim() + "`r`n" + $end + "`r`n"
-    Ensure-Directory (Split-Path -Parent $Destination)
-    if ((Test-Path -LiteralPath $Destination) -and -not $DryRun) { Backup-UserFile $Destination }
-    if ($DryRun) { Write-Output "[dry-run] merge entrypoint $Destination" }
-    else { [IO.File]::WriteAllText($Destination, $content, $utf8NoBom) }
-    $managed.Add([ordered]@{ path = $Destination; sha256 = ''; kind = 'merged-entrypoint' })
+    $prefixes = New-Object System.Collections.Generic.List[string]
+    foreach ($path in @($CanonicalPath) + @($ExistingPaths)) {
+        $prefix = Get-UnmanagedEntrypointContent $path
+        if ($prefix -and -not $prefixes.Contains($prefix)) { $prefixes.Add($prefix) }
+    }
+    if ($prefixes.Count -gt 1) {
+        foreach ($path in @($CanonicalPath) + @($ExistingPaths)) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) { Backup-UserFile $path }
+        }
+        throw 'Conflicting unmanaged entrypoint content found; review timestamp backups before linking global AGENTS.md.'
+    }
+    $prefix = if ($prefixes.Count -eq 1) { $prefixes[0] } else { '' }
+    $contentPrefix = if ($prefix) { $prefix + "`r`n`r`n" } else { '' }
+    $content = $contentPrefix + $begin + "`r`n" + $managedContent.Trim() + "`r`n" + $end + "`r`n"
+
+    Ensure-Directory (Split-Path -Parent $CanonicalPath)
+    if ((Test-Path -LiteralPath $CanonicalPath) -and -not $DryRun) { Backup-UserFile $CanonicalPath }
+    if ($DryRun) { Write-Output "[dry-run] merge canonical entrypoint $CanonicalPath" }
+    else { [IO.File]::WriteAllText($CanonicalPath, $content, $utf8NoBom) }
+    $canonicalHash = if ($DryRun) { Get-Hash $Source } else { Get-Hash $CanonicalPath }
+    $managed.Add([ordered]@{ path = $CanonicalPath; sha256 = $canonicalHash; kind = 'canonical-entrypoint' })
+
+    foreach ($destination in $Destinations) {
+        Ensure-Directory (Split-Path -Parent $destination)
+        $isLink = Test-HardLinkTo $destination $CanonicalPath
+        if ($DryRun) {
+            Write-Output "[dry-run] link $destination -> $CanonicalPath"
+        } else {
+            if ((Test-Path -LiteralPath $destination) -and -not $isLink) {
+                Backup-UserFile $destination
+                Remove-Item -LiteralPath $destination -Force
+            }
+            if (-not $isLink) { New-Item -ItemType HardLink -Path $destination -Target $CanonicalPath | Out-Null }
+        }
+        $managed.Add([ordered]@{ path = $destination; sha256 = $canonicalHash; kind = 'canonical-hardlink' })
+    }
 }
 
 function Get-CanonicalAgent([string]$Name) {
-    $path = Join-Path $repoRoot "agents\$Name.md"
+    $path = Join-Path $CanonicalRoot "agents\$Name.md"
     $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
     $description = if ($raw -match '(?m)^description:\s*(.+)$') { $Matches[1].Trim() } else { "$Name agent" }
     $body = [regex]::Replace($raw, '(?s)^---\s*.*?\s*---\s*', '').Trim()
@@ -96,24 +214,29 @@ function Write-CodexAgent([string]$Name, [string]$Destination) {
         "'''"
         ''
     ) -join "`n"
-    Ensure-Directory (Split-Path -Parent $Destination)
-    if ((Test-Path -LiteralPath $Destination) -and -not (Select-String -LiteralPath $Destination -Pattern 'agent-workflow v4' -Quiet)) { Backup-UserFile $Destination }
-    if ($DryRun) { Write-Output "[dry-run] generate $Destination" }
-    else { [IO.File]::WriteAllText($Destination, $content, $utf8NoBom) }
-    $hash = if ($DryRun) { '' } else { Get-Hash $Destination }
-    $managed.Add([ordered]@{ path = $Destination; sha256 = $hash; kind = 'codex-agent' })
+    $canonicalDestination = Join-Path $CanonicalRoot "agents\platforms\codex\agent-workflow-$Name.toml"
+    Ensure-Directory (Split-Path -Parent $canonicalDestination)
+    if ((Test-Path -LiteralPath $canonicalDestination) -and -not $DryRun) { Backup-UserFile $canonicalDestination }
+    if ($DryRun) { Write-Output "[dry-run] generate $canonicalDestination" }
+    else { [IO.File]::WriteAllText($canonicalDestination, $content, $utf8NoBom) }
+    $hash = if ($DryRun) { '' } else { Get-Hash $canonicalDestination }
+    $managed.Add([ordered]@{ path = $canonicalDestination; sha256 = $hash; kind = 'canonical-agent-adapter' })
+    Install-ManagedHardLink $canonicalDestination $Destination 'canonical-agent-hardlink'
 }
 
 function Write-MarkdownAgent([string]$Name, [string]$Destination) {
-    $source = Join-Path $runtimeRoot "agents\$Name.md"
+    $source = Join-Path $CanonicalRoot "agents\$Name.md"
     $content = Get-Content -LiteralPath $source -Raw -Encoding UTF8
     $content = [regex]::Replace($content, '(?m)^name:\s*.+$', "name: agent-workflow-$Name", 1)
-    Ensure-Directory (Split-Path -Parent $Destination)
-    if ((Test-Path -LiteralPath $Destination) -and -not (Select-String -LiteralPath $Destination -Pattern 'agent-workflow-' -Quiet)) { Backup-UserFile $Destination }
-    if ($DryRun) { Write-Output "[dry-run] generate $Destination" }
-    else { [IO.File]::WriteAllText($Destination, $content, $utf8NoBom) }
-    $hash = if ($DryRun) { '' } else { Get-Hash $Destination }
-    $managed.Add([ordered]@{ path = $Destination; sha256 = $hash; kind = 'markdown-agent' })
+    $platform = if ($Destination -like (Join-Path $ClaudeTarget '*')) { 'claude' } else { 'antigravity' }
+    $canonicalDestination = Join-Path $CanonicalRoot "agents\platforms\$platform\agent-workflow-$Name.md"
+    Ensure-Directory (Split-Path -Parent $canonicalDestination)
+    if ((Test-Path -LiteralPath $canonicalDestination) -and -not $DryRun) { Backup-UserFile $canonicalDestination }
+    if ($DryRun) { Write-Output "[dry-run] generate $canonicalDestination" }
+    else { [IO.File]::WriteAllText($canonicalDestination, $content, $utf8NoBom) }
+    $hash = if ($DryRun) { '' } else { Get-Hash $canonicalDestination }
+    $managed.Add([ordered]@{ path = $canonicalDestination; sha256 = $hash; kind = 'canonical-agent-adapter' })
+    Install-ManagedHardLink $canonicalDestination $Destination 'canonical-agent-hardlink'
 }
 
 function Test-ManagedHookCommand([string]$Command, [string]$HooksDir) {
@@ -160,29 +283,39 @@ function Merge-Hooks([string]$Source, [string]$Destination, [string]$HooksDir, [
 function Install-Runtime {
     $manifest = Get-Content -LiteralPath (Join-Path $repoRoot 'adapters\managed-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($relative in $manifest.runtime) {
-        Install-File (Join-Path $repoRoot $relative) (Join-Path $runtimeRoot $relative) 'runtime'
+        $destination = Join-Path $runtimeRoot $relative
+        if ($relative -in @('agents/reviewer.md','agents/verifier.md','skills/workflow/SKILL.md')) {
+            Install-ManagedHardLink (Get-SharedSource $relative) $destination 'canonical-shared-hardlink'
+        } else {
+            Install-File (Get-SharedSource $relative) $destination 'runtime'
+        }
+    }
+}
+
+function Install-CanonicalSkillLinks([string]$DestinationSkillsRoot) {
+    $canonicalSkillsRoot = Join-Path $CanonicalRoot 'skills'
+    if (-not (Test-Path -LiteralPath $canonicalSkillsRoot -PathType Container)) { return }
+    foreach ($skillDirectory in Get-ChildItem -LiteralPath $canonicalSkillsRoot -Directory) {
+        Install-ManagedJunction $skillDirectory.FullName (Join-Path $DestinationSkillsRoot $skillDirectory.Name) 'canonical-skill-junction'
     }
 }
 
 function Install-Claude {
-    Install-Entrypoint (Join-Path $runtimeRoot 'AGENTS.md') (Join-Path $ClaudeTarget 'CLAUDE.md')
     foreach ($name in @('reviewer','verifier')) { Write-MarkdownAgent $name (Join-Path $ClaudeTarget "agents\agent-workflow-$name.md") }
-    Install-File (Join-Path $runtimeRoot 'skills\workflow\SKILL.md') (Join-Path $ClaudeTarget 'skills\workflow\SKILL.md') 'skill'
+    Install-CanonicalSkillLinks (Join-Path $ClaudeTarget 'skills')
     Merge-Hooks (Join-Path $repoRoot 'adapters\claude\settings.hooks.json') (Join-Path $ClaudeTarget 'settings.json') (Join-Path $runtimeRoot 'hooks')
 }
 
 function Install-Codex {
-    Install-Entrypoint (Join-Path $runtimeRoot 'AGENTS.md') (Join-Path $CodexTarget 'AGENTS.md')
     foreach ($name in @('reviewer','verifier')) { Write-CodexAgent $name (Join-Path $CodexTarget "agents\agent-workflow-$name.toml") }
-    Install-File (Join-Path $runtimeRoot 'skills\workflow\SKILL.md') (Join-Path $CodexTarget 'skills\workflow\SKILL.md') 'skill'
+    Install-CanonicalSkillLinks (Join-Path $CodexTarget 'skills')
     Install-File (Join-Path $repoRoot 'adapters\codex\execpolicy.rules') (Join-Path $CodexTarget 'rules\agent-workflow.rules') 'rules'
     Merge-Hooks (Join-Path $repoRoot 'adapters\codex\hooks.json') (Join-Path $CodexTarget 'hooks.json') (Join-Path $runtimeRoot 'hooks')
 }
 
 function Install-Antigravity {
-    Install-Entrypoint (Join-Path $runtimeRoot 'AGENTS.md') (Join-Path $AntigravityTarget 'GEMINI.md')
     foreach ($name in @('reviewer','verifier')) { Write-MarkdownAgent $name (Join-Path $AntigravityTarget "config\agents\agent-workflow-$name\agent.md") }
-    Install-File (Join-Path $runtimeRoot 'skills\workflow\SKILL.md') (Join-Path $AntigravityTarget 'config\skills\workflow\SKILL.md') 'skill'
+    Install-CanonicalSkillLinks (Join-Path $AntigravityTarget 'config\skills')
     Install-File (Join-Path $repoRoot 'adapters\antigravity\workflows\agent-workflow.md') (Join-Path $AntigravityTarget 'config\global_workflows\agent-workflow.md') 'workflow'
     Merge-Hooks (Join-Path $repoRoot 'adapters\antigravity\hooks.json') (Join-Path $AntigravityTarget 'config\hooks.json') (Join-Path $runtimeRoot 'hooks') -TopLevel
 }
@@ -281,6 +414,16 @@ function Show-Status {
     [pscustomobject]@{
         version = 4
         state_root = $StateRoot
+        canonical_entrypoint = (Test-Path -LiteralPath (Join-Path $CanonicalRoot 'AGENTS.md') -PathType Leaf)
+        canonical_reviewer = (Test-Path -LiteralPath (Join-Path $CanonicalRoot 'agents\reviewer.md') -PathType Leaf)
+        canonical_verifier = (Test-Path -LiteralPath (Join-Path $CanonicalRoot 'agents\verifier.md') -PathType Leaf)
+        canonical_workflow_skill = (Test-Path -LiteralPath (Join-Path $CanonicalRoot 'skills\workflow\SKILL.md') -PathType Leaf)
+        claude_entrypoint_linked = (Test-HardLinkTo (Join-Path $ClaudeTarget 'CLAUDE.md') (Join-Path $CanonicalRoot 'AGENTS.md'))
+        codex_entrypoint_linked = (Test-HardLinkTo (Join-Path $CodexTarget 'AGENTS.md') (Join-Path $CanonicalRoot 'AGENTS.md'))
+        antigravity_entrypoint_linked = (Test-HardLinkTo (Join-Path $AntigravityTarget 'GEMINI.md') (Join-Path $CanonicalRoot 'AGENTS.md'))
+        claude_workflow_skill_linked = (Test-JunctionTo (Join-Path $ClaudeTarget 'skills\workflow') (Join-Path $CanonicalRoot 'skills\workflow'))
+        codex_workflow_skill_linked = (Test-JunctionTo (Join-Path $CodexTarget 'skills\workflow') (Join-Path $CanonicalRoot 'skills\workflow'))
+        antigravity_workflow_skill_linked = (Test-JunctionTo (Join-Path $AntigravityTarget 'config\skills\workflow') (Join-Path $CanonicalRoot 'skills\workflow'))
         runtime_installed = (Test-Path -LiteralPath (Join-Path $runtimeRoot 'AGENTS.md'))
         migration_activated = (Test-Path -LiteralPath $activation)
         claude_reviewer = (Test-Path -LiteralPath (Join-Path $ClaudeTarget 'agents\agent-workflow-reviewer.md'))
@@ -293,7 +436,14 @@ function Uninstall-Managed {
     if (-not (Test-Path -LiteralPath $stateFile)) { Write-Output 'No v4 managed-runtime manifest found.'; return }
     $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($item in $state.files) {
-        if ($item.kind -in @('merged-hooks','merged-entrypoint')) { continue }
+        if ($item.kind -eq 'canonical-skill-junction') {
+            if (Test-Path -LiteralPath $item.path -PathType Container) {
+                if ($DryRun) { Write-Output "[dry-run] remove $($item.path)" }
+                else { Remove-Item -LiteralPath $item.path -Force }
+            }
+            continue
+        }
+        if ($item.kind -in @('merged-hooks','merged-entrypoint','canonical-entrypoint','canonical-hardlink','canonical-shared','canonical-shared-source','canonical-agent-adapter')) { continue }
         if (-not (Test-Path -LiteralPath $item.path -PathType Leaf)) { continue }
         if ($item.sha256 -and (Get-Hash $item.path) -ne $item.sha256) {
             Write-Warning "Kept modified managed file: $($item.path)"
@@ -313,6 +463,13 @@ function Uninstall-Managed {
         elseif ($clean) { [IO.File]::WriteAllText($entrypoint, $clean + "`r`n", $utf8NoBom) }
         else { Remove-Item -LiteralPath $entrypoint -Force }
     }
+    $canonicalPath = Join-Path $CanonicalRoot 'AGENTS.md'
+    if (Test-Path -LiteralPath $canonicalPath -PathType Leaf) {
+        $cleanCanonical = Get-UnmanagedEntrypointContent $canonicalPath
+        if ($DryRun) { Write-Output "[dry-run] remove managed block from $canonicalPath" }
+        elseif ($cleanCanonical) { [IO.File]::WriteAllText($canonicalPath, $cleanCanonical + "`r`n", $utf8NoBom) }
+        else { Remove-Item -LiteralPath $canonicalPath -Force }
+    }
     Write-Output 'Managed runtime removed. Knowledge, projects, tasks, and imports were preserved.'
 }
 
@@ -320,7 +477,18 @@ if ($Action -eq 'Status') { Show-Status; exit 0 }
 if ($Action -eq 'Uninstall') { Uninstall-Managed; exit 0 }
 if (Test-LegacyKnowledge) { throw 'v3 knowledge or history was found. Run migrate-v3.ps1 through Validate and Activate before installing v4.' }
 
+Install-CanonicalSharedSources
 Install-Runtime
+$allEntrypointPaths = @(
+    (Join-Path $ClaudeTarget 'CLAUDE.md'),
+    (Join-Path $CodexTarget 'AGENTS.md'),
+    (Join-Path $AntigravityTarget 'GEMINI.md')
+)
+$entrypointDestinations = @()
+if ($TargetAgent -in @('Claude','Both','All')) { $entrypointDestinations += $allEntrypointPaths[0] }
+if ($TargetAgent -in @('Codex','Both','All')) { $entrypointDestinations += $allEntrypointPaths[1] }
+if ($TargetAgent -in @('Antigravity','All')) { $entrypointDestinations += $allEntrypointPaths[2] }
+Install-CanonicalEntrypoints (Join-Path $runtimeRoot 'AGENTS.md') (Join-Path $CanonicalRoot 'AGENTS.md') $entrypointDestinations $allEntrypointPaths
 if ($TargetAgent -in @('Claude','Both','All')) { Install-Claude }
 if ($TargetAgent -in @('Codex','Both','All')) { Install-Codex }
 if ($TargetAgent -in @('Antigravity','All')) { Install-Antigravity }

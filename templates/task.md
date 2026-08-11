@@ -53,6 +53,9 @@ frozen_at:
 -->
 
 <!-- code_change: true 時加入：
+## Execution path and regression evidence（執行路徑與回歸證據）
+<入口 > 上游 > 修改點 > 下游終點；列出重要錯誤／重送／並發／異步分支與驗證證據>
+
 ## Reviewer result（Reviewer 結果）
 ## Verifier result（Verifier 結果）
 -->

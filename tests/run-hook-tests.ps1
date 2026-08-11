@@ -100,6 +100,11 @@ $Extra
 }
 
 $reviewResult = @"
+## Execution path and regression evidence
+- path: A > B > C > D
+- branches: error and retry
+- evidence: full-path test
+
 ## Reviewer result
 - result: PASS
 - Architecture consistency: PASS
@@ -173,6 +178,7 @@ try {
 
     Set-TestTask $resolved @() '' $true
     $codeGateOutput = Invoke-Quality $repo
+    Assert ($codeGateOutput -match 'Execution path and regression evidence') 'code_change task did not require execution path evidence'
     Assert ($codeGateOutput -match 'Reviewer result') 'code_change task did not require Reviewer'
     Assert ($codeGateOutput -match 'Verifier result') 'code_change task did not require Verifier'
     Set-TestTask $resolved @() ("## Reviewer result`npending`n" + $verifierResult) $true
@@ -199,6 +205,13 @@ try {
     Assert ((Invoke-Quality $repo) -match 'Verifier result is missing or not passed') 'failed Verifier result was accepted'
     Set-TestTask $resolved @() $roleResults $true
     Assert (-not (Invoke-Quality $repo)) 'valid code_change task was blocked'
+
+    Set-TestTask $resolved @() ($reviewResult + "`n" + $verifierResult) $true
+    $pathTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    $pathContent = Get-Content -LiteralPath $pathTask.FullName -Raw -Encoding UTF8
+    $pathContent = $pathContent -replace '(?ms)^## Execution path and regression evidence.*?(?=^## Reviewer result)', ''
+    [IO.File]::WriteAllText($pathTask.FullName, $pathContent, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'Execution path and regression evidence') 'missing execution path evidence was accepted'
 
     Set-TestTask $resolved @()
     $taskPath = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
