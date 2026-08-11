@@ -7,6 +7,7 @@
     "skills/workflow/SKILL.md",
     "hooks/git-guard.ps1",
     "hooks/quality-gate.ps1",
+    "hooks/impact-guard.ps1",
     "scripts/project-resolver.ps1",
     "scripts/knowledge.ps1",
     "scripts/pre-review.ps1",

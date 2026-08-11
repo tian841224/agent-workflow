@@ -135,6 +135,18 @@ function Test-JunctionTo([string]$Path, [string]$Target) {
     return $false
 }
 
+function Remove-ManagedJunction([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+        Write-Warning "Kept replaced managed skill directory: $Path"
+        return
+    }
+    # Windows PowerShell 5.1's Remove-Item throws on directory reparse points.
+    # Directory.Delete removes only the link, never the junction target.
+    [IO.Directory]::Delete($Path, $false)
+}
+
 function Install-ManagedJunction([string]$Source, [string]$Destination, [string]$Kind) {
     Ensure-Directory (Split-Path -Parent $Destination)
     $isJunction = Test-JunctionTo $Destination $Source
@@ -439,7 +451,7 @@ function Uninstall-Managed {
         if ($item.kind -eq 'canonical-skill-junction') {
             if (Test-Path -LiteralPath $item.path -PathType Container) {
                 if ($DryRun) { Write-Output "[dry-run] remove $($item.path)" }
-                else { Remove-Item -LiteralPath $item.path -Force }
+                else { Remove-ManagedJunction $item.path }
             }
             continue
         }

@@ -13,7 +13,11 @@ try {
     $raw = Read-HookInput
     $payload = $raw | ConvertFrom-Json
     $isAntigravity = $null -ne $payload.toolCall
-    $cmd = if ($isAntigravity) { $payload.toolCall.args.command } else { $payload.tool_input.command }
+    $cmd = if ($isAntigravity) {
+        $toolArgs = $payload.toolCall.args
+        # Antigravity run_command uses PascalCase CommandLine; keep command as a fallback.
+        if ($toolArgs) { @($toolArgs.CommandLine, $toolArgs.command) | Where-Object { $_ } | Select-Object -First 1 }
+    } else { $payload.tool_input.command }
     if (-not $cmd) { exit 0 }
 
     $flat = ($cmd -replace '\s+', ' ')

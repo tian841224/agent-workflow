@@ -12,6 +12,17 @@
             "statusMessage": "Checking Git safety"
           }
         ]
+      },
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\impact-guard.ps1\"",
+            "timeout": 15,
+            "statusMessage": "Checking impact surface"
+          }
+        ]
       }
     ],
     "Stop": [

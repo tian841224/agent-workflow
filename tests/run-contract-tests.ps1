@@ -16,7 +16,7 @@ Assert (($agents + $workflow) -match 'TDD') 'TDD requirement is missing from run
 Assert ($workflow -match '~/.agent-workflow/runtime/scripts/pre-review.ps1') 'workflow does not use the managed pre-review runtime path.'
 
 foreach ($path in @(
-    '.agents\agents\reviewer.md','.agents\agents\verifier.md','hooks\git-guard.ps1','hooks\quality-gate.ps1',
+    '.agents\agents\reviewer.md','.agents\agents\verifier.md','hooks\git-guard.ps1','hooks\quality-gate.ps1','hooks\impact-guard.ps1',
     'scripts\project-resolver.ps1','scripts\knowledge.ps1','scripts\pre-review.ps1','scripts\validate-task.ps1','templates\task.md','schemas\project.schema.json',
     'schemas\knowledge.schema.json','schemas\task.schema.json','schemas\import-manifest.schema.json'
 )) { Assert (Test-Path -LiteralPath (Join-Path $root $path)) "Missing required file: $path" }
@@ -33,8 +33,9 @@ foreach ($section in @('Goal','Scope','Completion criteria','Validation results'
     Assert ($task.Contains($section)) "Task template missing $section"
 }
 Assert ($task.Contains('Execution path and regression evidence')) 'Task template missing execution path regression evidence'
+Assert ($task.Contains('Impact surface')) 'Task template missing Impact surface'
 $reviewer = Get-Content -LiteralPath (Join-Path $root '.agents\agents\reviewer.md') -Raw -Encoding UTF8
-foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance')) {
+foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness')) {
     Assert ($reviewer.Contains($dimension)) "Reviewer missing dimension: $dimension"
 }
 $taskSchema = Get-Content -LiteralPath (Join-Path $root 'schemas\task.schema.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -48,11 +49,16 @@ Assert ($workflowText -match 'non-code tasks do not enter this workflow') 'non-c
 Assert ($workflowText -match 'A.*B.*C.*D') 'workflow does not require full execution-path review'
 Assert ($reviewer -match 'A.*B.*C.*D') 'Reviewer does not require full execution-path review'
 Assert ($reviewer -match 'unverified nodes') 'Reviewer does not require explicit unverified-node reporting'
+Assert ($reviewer -match 'Impact surface') 'Reviewer does not cross-check the task impact surface'
+Assert ($reviewer -match 'knowledge\.ps1') 'Reviewer does not read project knowledge'
+Assert ($workflowText -match 'Impact surface') 'workflow does not require an impact surface before implementation'
+Assert ($workflow -match '~/.agent-workflow/runtime/scripts/knowledge.ps1') 'workflow does not use the managed knowledge runtime path'
 $verifier = Get-Content -LiteralPath (Join-Path $root '.agents\agents\verifier.md') -Raw -Encoding UTF8
 Assert ($verifier -match 'real entrypoint') 'Verifier does not start verification from the real entrypoint'
 Assert ($verifier -match 'local-only verification') 'Verifier still permits local-only verification'
 $manifest = Get-Content -LiteralPath (Join-Path $root 'adapters\managed-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 Assert (@($manifest.runtime) -contains 'scripts/pre-review.ps1') 'managed runtime is missing pre-review.ps1'
+Assert (@($manifest.runtime) -contains 'hooks/impact-guard.ps1') 'managed runtime is missing impact-guard.ps1'
 $installer = Get-Content -LiteralPath (Join-Path $root 'install.ps1') -Raw -Encoding UTF8
 Assert ($installer -match 'CanonicalRoot') 'installer does not define the canonical global root'
 Assert ($installer -match 'Install-CanonicalEntrypoints') 'installer does not install canonical entrypoints'

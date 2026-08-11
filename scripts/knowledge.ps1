@@ -12,6 +12,8 @@ param(
     [ValidateSet('verified','needs_verification')][string]$Status = 'verified',
     [string[]]$Relationship = @(),
     [switch]$ApprovedByUser,
+    [switch]$ExcludeNative,
+    [switch]$IncludeSessionSummaries,
     [ValidateRange(1,50)][int]$Limit = 8
 )
 
@@ -175,6 +177,81 @@ function Rebuild-Index([string]$SelectedScope, [string]$SelectedProjectId) {
     return [pscustomobject]@{ scope=$SelectedScope.ToLowerInvariant(); project_id=$SelectedProjectId; count=$items.Count; index=(Join-Path $root 'index.json') }
 }
 
+# Each platform keeps writing its own memory store. Search reads them so the same
+# facts are visible from every agent; nothing is copied and nothing is written back.
+function Get-NativeMemoryFile {
+    $profileRoot = $env:USERPROFILE
+    if (-not $profileRoot) { return @() }
+    $found = @()
+    foreach ($source in @(
+        [pscustomobject]@{ name='codex-memories'; root=(Join-Path $profileRoot '.codex\memories') },
+        [pscustomobject]@{ name='codex-memory'; root=(Join-Path $profileRoot '.codex\memory') }
+    )) {
+        if (-not (Test-Path -LiteralPath $source.root -PathType Container)) { continue }
+        foreach ($file in (Get-ChildItem -LiteralPath $source.root -Recurse -File -Filter '*.md' -ErrorAction SilentlyContinue)) {
+            if ($file.FullName -match '[\\/]\.git[\\/]') { continue }
+            if (-not $IncludeSessionSummaries -and $file.FullName -match '[\\/]rollout_summaries[\\/]') { continue }
+            $found += [pscustomobject]@{ source=$source.name; file=$file }
+        }
+    }
+    # Claude keeps per-project memory; enumerate the memory folders only, never transcripts.
+    $claudeProjects = Join-Path $profileRoot '.claude\projects'
+    if (Test-Path -LiteralPath $claudeProjects -PathType Container) {
+        foreach ($projectDir in (Get-ChildItem -LiteralPath $claudeProjects -Directory -ErrorAction SilentlyContinue)) {
+            $memoryDir = Join-Path $projectDir.FullName 'memory'
+            if (-not (Test-Path -LiteralPath $memoryDir -PathType Container)) { continue }
+            foreach ($file in (Get-ChildItem -LiteralPath $memoryDir -Recurse -File -Filter '*.md' -ErrorAction SilentlyContinue)) {
+                $found += [pscustomobject]@{ source='claude-project-memory'; file=$file }
+            }
+        }
+    }
+    return $found
+}
+
+function Get-Excerpt([string]$Body) {
+    $lines = @($Body -split '\r?\n')
+    # Drop a leading YAML frontmatter block outright; its keys are not content.
+    if ($lines.Count -gt 0 -and $lines[0].Trim() -eq '---') {
+        $close = -1
+        for ($i = 1; $i -lt $lines.Count; $i++) { if ($lines[$i].Trim() -eq '---') { $close = $i; break } }
+        if ($close -ge 0) { $lines = @($lines[($close + 1)..($lines.Count - 1)]) }
+    }
+    $line = @($lines | Where-Object { $_.Trim() -and $_.Trim() -ne '---' -and $_ -notmatch '^[a-z_]+:' } | Select-Object -First 1)[0]
+    if ($line) { $line = $line.Trim() }
+    if ($line -and $line.Length -gt 180) { $line = $line.Substring(0,180) }
+    return $line
+}
+
+function Get-NativeResult([string[]]$Terms) {
+    $results = @()
+    foreach ($native in (Get-NativeMemoryFile)) {
+        $body = Get-Content -LiteralPath $native.file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+        if (-not $body) { continue }
+        $topic = $native.file.BaseName
+        $topicText = $topic.ToLowerInvariant()
+        $bodyText = $body.ToLowerInvariant()
+        $score = 0
+        foreach ($term in $Terms) {
+            if ($topicText.Contains($term)) { $score += 3 }
+            if ($bodyText.Contains($term)) { $score += 1 }
+        }
+        if ($Terms.Count -gt 0 -and $score -eq 0) { continue }
+        $results += [pscustomobject]@{
+            id = Get-Hash $native.file.FullName
+            topic = $topic
+            scope = 'native'
+            project_id = $null
+            status = 'needs_verification'
+            score = $score
+            updated_at = $native.file.LastWriteTime.ToString('o')
+            excerpt = Get-Excerpt $body
+            path = $native.file.FullName
+            source = $native.source
+        }
+    }
+    return $results
+}
+
 function Invoke-Search {
     $project = if ($Scope -in @('All','Project')) { Resolve-ProjectId } else { '' }
     $targets = @()
@@ -194,8 +271,6 @@ function Invoke-Search {
                 if ($bodyText.Contains($term)) { $score += 1 }
             }
             if ($terms.Count -gt 0 -and $score -eq 0) { continue }
-            $firstLine = @($entry.body -split '\r?\n' | Where-Object { $_.Trim() -and $_.Trim() -ne '---' -and $_ -notmatch '^[a-z_]+:' } | Select-Object -First 1)[0]
-            if ($firstLine -and $firstLine.Length -gt 180) { $firstLine = $firstLine.Substring(0,180) }
             $results += [pscustomobject]@{
                 id = $entry.id
                 topic = $entry.topic
@@ -204,11 +279,13 @@ function Invoke-Search {
                 status = $entry.status
                 score = $score
                 updated_at = $entry.updated_at
-                excerpt = $firstLine
+                excerpt = Get-Excerpt $entry.body
                 path = $entry.path
+                source = 'agent-workflow'
             }
         }
     }
+    if (-not $ExcludeNative) { $results += Get-NativeResult $terms }
     $selected = @($results | Sort-Object @{Expression='score';Descending=$true},@{Expression='updated_at';Descending=$true} | Select-Object -First $Limit)
     ConvertTo-Json -InputObject $selected -Depth 6
 }

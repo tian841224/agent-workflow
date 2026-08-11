@@ -138,20 +138,29 @@ try {
         Assert-JunctionTo (Join-Path $gemini 'config\skills\workflow') (Join-Path $canonical 'skills\workflow')
         Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\codex\agent-workflow-reviewer.toml') @((Join-Path $codex 'agents\agent-workflow-reviewer.toml'))
     }
-    foreach ($path in @((Join-Path $claude 'settings.json'),(Join-Path $codex 'hooks.json'))) {
+    # Expected managed counts come from the adapter itself, so adding a hook does not need a test edit.
+    foreach ($pair in @(
+        @{ path = (Join-Path $claude 'settings.json'); adapter = (Join-Path $root 'adapters\claude\settings.hooks.json') },
+        @{ path = (Join-Path $codex 'hooks.json'); adapter = (Join-Path $root 'adapters\codex\hooks.json') }
+    )) {
+        $path = $pair.path
+        $adapterHooks = (Get-Content -LiteralPath $pair.adapter -Raw -Encoding UTF8 | ConvertFrom-Json).hooks
+        $expectedPre = @($adapterHooks.PreToolUse).Count
+        $expectedStop = @($adapterHooks.Stop).Count
         $hookConfig = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         Assert-NoNullHooks $hookConfig $path
         $preCommands = Get-HookCommands $hookConfig 'PreToolUse'
         $stopCommands = Get-HookCommands $hookConfig 'Stop'
-        if (@($hookConfig.hooks.PreToolUse).Count -ne 2) { throw "unexpected PreToolUse wrapper count after Repair: $path" }
-        if (@($hookConfig.hooks.Stop).Count -ne 2) { throw "unexpected Stop wrapper count after Repair: $path" }
-        if (@($preCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne 1) { throw "duplicate managed PreToolUse hook after Repair: $path" }
-        if (@($stopCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne 1) { throw "duplicate managed Stop hook after Repair: $path" }
+        if (@($hookConfig.hooks.PreToolUse).Count -ne ($expectedPre + 1)) { throw "unexpected PreToolUse wrapper count after Repair: $path" }
+        if (@($hookConfig.hooks.Stop).Count -ne ($expectedStop + 1)) { throw "unexpected Stop wrapper count after Repair: $path" }
+        if (@($preCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne $expectedPre) { throw "duplicate managed PreToolUse hook after Repair: $path" }
+        if (@($stopCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne $expectedStop) { throw "duplicate managed Stop hook after Repair: $path" }
         if (@($preCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom PreToolUse hook was not preserved: $path" }
         if (@($stopCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom Stop hook was not preserved: $path" }
     }
     $antigravityHooks = Get-Content -LiteralPath (Join-Path $gemini 'config\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if (@($antigravityHooks.PSObject.Properties.Name | Where-Object { $_ -like 'agent-workflow-*' }).Count -ne 2) { throw 'Antigravity managed hooks were duplicated after Repair' }
+    $expectedAntigravity = @((Get-Content -LiteralPath (Join-Path $root 'adapters\antigravity\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties.Name | Where-Object { $_ -like 'agent-workflow-*' }).Count
+    if (@($antigravityHooks.PSObject.Properties.Name | Where-Object { $_ -like 'agent-workflow-*' }).Count -ne $expectedAntigravity) { throw 'Antigravity managed hooks were duplicated after Repair' }
     if (-not $antigravityHooks.PSObject.Properties['user-custom']) { throw 'Antigravity custom top-level hook was not preserved' }
 
     New-Item -ItemType Directory -Force -Path (Join-Path $state 'projects\keep') | Out-Null

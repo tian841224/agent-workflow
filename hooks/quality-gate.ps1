@@ -99,10 +99,11 @@ try {
         Add-MissingSection $content 'Behavior invariants and before-after evidence' ([ref]$issues)
     }
     if ($needsReviewer) {
+        Add-MissingSection $content 'Impact surface' ([ref]$issues)
         Add-MissingSection $content 'Execution path and regression evidence' ([ref]$issues)
         $review = Get-Section $content 'Reviewer result'
         if (-not $review -or $review -match '^<.*>$' -or $review -notmatch '(?mi)^[ \t]*-[ \t]*result:[ \t]*PASS[ \t]*\r?$') { $issues += 'Reviewer result is missing or not passed' }
-        foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance')) {
+        foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness')) {
             $allowedStatus = if (@('Data consistency','Security','Performance') -contains $dimension) { '(?:PASS|N/A)' } else { 'PASS' }
             $dimensionPattern = '(?mi)^[ \t]*-[ \t]*' + [regex]::Escape($dimension) + ':[ \t]*' + $allowedStatus + '(?:[ \t]+.*)?[ \t]*\r?$'
             if ($review -notmatch $dimensionPattern) { $issues += "Reviewer result missing or not passed dimension: $dimension" }

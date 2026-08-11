@@ -52,7 +52,13 @@ frozen_at:
 ## User confirmation（使用者確認依據）
 -->
 
-<!-- code_change: true 時加入：
+<!-- code_change: true 時加入（Impact surface 需在動手改 code 前填寫）：
+## Impact surface（影響面）
+- 呼叫端：<反向搜尋命令與命中數；需要判斷的命中逐條 path:line>
+- 觸發入口：<HTTP／cron／MQ／CLI／前端；無則 none>
+- 共用狀態：<同 table／redis key／全域變數的其他流程；無則 none>
+- 未確認節點：<追不完的節點與原因；無則 none>
+
 ## Execution path and regression evidence（執行路徑與回歸證據）
 <入口 > 上游 > 修改點 > 下游終點；列出重要錯誤／重送／並發／異步分支與驗證證據>
 

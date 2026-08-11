@@ -55,6 +55,24 @@ function Invoke-Quality([string]$Cwd) {
     $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $false } | ConvertTo-Json -Compress
     return Invoke-HookUtf8 $qualityPath $payload
 }
+function Invoke-ImpactGuard([string]$Cwd, [string]$FilePath) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_name = 'Edit'; tool_input = @{ file_path = $FilePath } } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
+}
+# Antigravity sends toolCall.args with PascalCase keys; TargetFile is not file_path.
+function Invoke-ImpactGuardAntigravity([string]$Cwd, [string]$ToolName, [string]$FilePath) {
+    $payload = @{ workspacePaths = @($Cwd); toolCall = @{ name = $ToolName; args = @{ TargetFile = $FilePath } } } | ConvertTo-Json -Compress -Depth 5
+    return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
+}
+# Codex apply_patch is a freeform tool: tool_input is patch text, paths live in the *** headers.
+function Invoke-ImpactGuardCodex([string]$Cwd, [string]$Patch) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_name = 'apply_patch'; tool_input = $Patch } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
+}
+function Invoke-GuardAntigravity([string]$Command) {
+    $payload = @{ toolCall = @{ name = 'run_command'; args = @{ CommandLine = $Command } } } | ConvertTo-Json -Compress -Depth 5
+    return Invoke-HookUtf8 $guard $payload
+}
 function Invoke-QualityUtf8([string]$Cwd, [bool]$StopHookActive) {
     $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $StopHookActive; last_assistant_message = $utf8Text } | ConvertTo-Json -Compress
     return Invoke-HookUtf8 $qualityPath $payload
@@ -99,7 +117,16 @@ $Extra
     [IO.File]::WriteAllText((Join-Path $taskDir 'task.md'), $content, $utf8NoBom)
 }
 
+$impactSurface = @"
+## Impact surface
+- callers: rg RunExchange 3 hits, app/x.go:20
+- entrypoints: HTTP POST /x
+- shared state: none
+- unverified: none
+"@
 $reviewResult = @"
+$impactSurface
+
 ## Execution path and regression evidence
 - path: A > B > C > D
 - branches: error and retry
@@ -113,6 +140,7 @@ $reviewResult = @"
 - Security: N/A - no security change
 - Risk and compatibility: PASS
 - Performance: N/A - no hot path change
+- Flow and impact completeness: PASS
 "@
 $verifierResult = "## Verifier result`n- PASS`n"
 $roleResults = $reviewResult + "`n" + $verifierResult
@@ -178,6 +206,7 @@ try {
 
     Set-TestTask $resolved @() '' $true
     $codeGateOutput = Invoke-Quality $repo
+    Assert ($codeGateOutput -match 'Impact surface') 'code_change task did not require impact surface'
     Assert ($codeGateOutput -match 'Execution path and regression evidence') 'code_change task did not require execution path evidence'
     Assert ($codeGateOutput -match 'Reviewer result') 'code_change task did not require Reviewer'
     Assert ($codeGateOutput -match 'Verifier result') 'code_change task did not require Verifier'
@@ -201,6 +230,9 @@ try {
     $reviewAmbiguousNA = $reviewResult -replace '(?m)^- Data consistency: N/A - no data change$', '- Data consistency: N/A/FAIL'
     Set-TestTask $resolved @() ($reviewAmbiguousNA + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Data consistency') 'ambiguous N/A/FAIL Reviewer dimension was accepted'
+    $reviewFlowNA = $reviewResult -replace '(?m)^- Flow and impact completeness: PASS$', '- Flow and impact completeness: N/A'
+    Set-TestTask $resolved @() ($reviewFlowNA + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Flow and impact completeness') 'flow and impact completeness accepted N/A'
     Set-TestTask $resolved @() ($reviewResult + "`n## Verifier result`n- FAIL`n") $true
     Assert ((Invoke-Quality $repo) -match 'Verifier result is missing or not passed') 'failed Verifier result was accepted'
     Set-TestTask $resolved @() $roleResults $true
@@ -212,6 +244,55 @@ try {
     $pathContent = $pathContent -replace '(?ms)^## Execution path and regression evidence.*?(?=^## Reviewer result)', ''
     [IO.File]::WriteAllText($pathTask.FullName, $pathContent, $utf8NoBom)
     Assert ((Invoke-Quality $repo) -match 'Execution path and regression evidence') 'missing execution path evidence was accepted'
+
+    Set-TestTask $resolved @() ($reviewResult + "`n" + $verifierResult) $true
+    $impactTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    $impactContent = Get-Content -LiteralPath $impactTask.FullName -Raw -Encoding UTF8
+    $impactContent = $impactContent -replace '(?ms)^## Impact surface.*?(?=^## Execution path)', ''
+    [IO.File]::WriteAllText($impactTask.FullName, $impactContent, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'Impact surface') 'missing impact surface was accepted'
+
+    # impact-guard: the ordering gate that quality-gate structurally cannot enforce.
+    $codeFile = Join-Path $repo 'app\x.go'
+    Get-ChildItem -LiteralPath $resolved.task_root -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'impact-guard blocked an edit with no active task'
+    Set-TestTask $resolved @()
+    Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'impact-guard blocked a code_change: false task'
+    Set-TestTask $resolved @() '' $true
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'Impact surface') 'impact-guard allowed a code edit before the impact surface was filled'
+    $guardTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    Assert (-not (Invoke-ImpactGuard $repo $guardTask.FullName)) 'impact-guard deadlocked the task file it demands be edited'
+    Assert (-not (Invoke-ImpactGuard $repo (Join-Path $sandbox 'outside.go'))) 'impact-guard blocked a file outside the workspace'
+    Set-TestTask $resolved @() ("## Impact surface`n- callers: <search command and hit count>`n") $true
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'Impact surface') 'impact-guard accepted an untouched placeholder template'
+    Set-TestTask $resolved @() $impactSurface $true
+    Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'impact-guard blocked an edit after the impact surface was filled'
+
+    # Antigravity: args use PascalCase TargetFile, so file_path-style lookups silently miss.
+    Set-TestTask $resolved @() '' $true
+    foreach ($agTool in @('write_to_file','replace_file_content','multi_replace_file_content')) {
+        Assert ((Invoke-ImpactGuardAntigravity $repo $agTool $codeFile) -match 'Impact surface') "impact-guard ignored Antigravity $agTool"
+    }
+    $agGuardTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    Assert (-not (Invoke-ImpactGuardAntigravity $repo 'write_to_file' $agGuardTask.FullName)) 'impact-guard deadlocked the Antigravity task file'
+    Set-TestTask $resolved @() $impactSurface $true
+    Assert (-not (Invoke-ImpactGuardAntigravity $repo 'write_to_file' $codeFile)) 'impact-guard blocked Antigravity after the impact surface was filled'
+
+    # Codex: apply_patch carries paths in patch headers, not in a file_path argument.
+    Set-TestTask $resolved @() '' $true
+    $codexPatch = "*** Begin Patch`n*** Update File: app/x.go`n@@`n-old`n+new`n*** End Patch"
+    Assert ((Invoke-ImpactGuardCodex $repo $codexPatch) -match 'Impact surface') 'impact-guard ignored a Codex apply_patch edit'
+    $addPatch = "*** Begin Patch`n*** Add File: app/new.go`n+package app`n*** End Patch"
+    Assert ((Invoke-ImpactGuardCodex $repo $addPatch) -match 'Impact surface') 'impact-guard ignored a Codex apply_patch add'
+    $outsidePatch = "*** Begin Patch`n*** Update File: " + (Join-Path $sandbox 'outside.go').Replace('\','/') + "`n+x`n*** End Patch"
+    Assert (-not (Invoke-ImpactGuardCodex $repo $outsidePatch)) 'impact-guard blocked a Codex patch outside the workspace'
+    Set-TestTask $resolved @() $impactSurface $true
+    Assert (-not (Invoke-ImpactGuardCodex $repo $codexPatch)) 'impact-guard blocked Codex after the impact surface was filled'
+
+    # git-guard reads Antigravity commands from args.CommandLine, not args.command.
+    Assert ((Invoke-GuardAntigravity 'git reset --hard HEAD') -match 'deny') 'git-guard ignored a destructive Antigravity command'
+    Assert ((Invoke-GuardAntigravity 'git commit -m test') -match 'ask') 'git-guard ignored an Antigravity Git write'
+    Assert (-not (Invoke-GuardAntigravity 'git status')) 'git-guard blocked a read-only Antigravity command'
 
     Set-TestTask $resolved @()
     $taskPath = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
