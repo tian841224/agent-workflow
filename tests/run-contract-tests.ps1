@@ -10,8 +10,9 @@ $workflow = Get-Content -LiteralPath (Join-Path $root '.agents\skills\workflow\S
 Assert ($agents.Count -le 40) 'AGENTS.md exceeds 40 lines.'
 Assert ($workflow.Count -le 200) 'workflow/SKILL.md exceeds 200 lines.'
 Assert (($agents + $workflow) -match 'non-code tasks bypass workflow') 'non-code tasks are not routed around workflow'
-Assert (-not (($agents + $workflow) -match 'L0|輕軌|標準軌|重軌|test-driven-development')) 'v3 tracks or TDD remain in runtime context.'
+Assert (-not (($agents + $workflow) -match 'L0|輕軌|標準軌|重軌')) 'v3 tracks remain in runtime context.'
 Assert (($agents + $workflow) -match 'pre-review') 'pre-review is missing from runtime instructions.'
+Assert (($agents + $workflow) -match 'TDD') 'TDD requirement is missing from runtime instructions.'
 Assert ($workflow -match '~/.agent-workflow/runtime/scripts/pre-review.ps1') 'workflow does not use the managed pre-review runtime path.'
 
 foreach ($path in @(

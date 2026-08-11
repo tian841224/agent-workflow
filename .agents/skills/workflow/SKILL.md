@@ -12,9 +12,7 @@ description: 實際修改 source code、可執行 script 或 test code 時使用
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 依 `templates/task.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`。
 4. 明確填寫 `code_change: true | false`：會修改 source code、可執行 script 或 test code 時為 `true`；只改設定／文件，或只執行測試、調查、code review 而未改 code 時為 `false`。
-5. 基本任務直接使用 `status: in_progress`；命中 freeze-required flag 時先用 `draft`，經使用者確認後填 `frozen_at` 並改為 `in_progress`。
-
-只有實際修改 source code、可執行 script 或 test code 才建立 task。非程式碼修改任務不載入本 workflow、不建立 task、不執行 Reviewer／Verifier。
+5. 基本任務直接使用 `status: in_progress`；命中 freeze-required flag 時先用 `draft`，經使用者確認後填 `frozen_at` 並改為 `in_progress`。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
 
@@ -28,7 +26,7 @@ description: 實際修改 source code、可執行 script 或 test code 時使用
 
 依實際風險判斷是否加入 `risk_flags`，不為湊流程加 flag。允許值、各值定義與對應要求見 [risk-flags.md](risk-flags.md)。
 
-Reviewer／Verifier 與 risk flags 解耦：本 workflow 只接受 `code_change: true` 的程式碼修改任務，強制依序執行 Reviewer → Verifier。非程式碼修改任務不進入本 workflow（non-code tasks do not enter this workflow）；既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。
+Reviewer／Verifier 是否啟動只看 `code_change`，與 `risk_flags` 無關，不會因為命中某個 flag 而額外觸發或跳過；non-code tasks do not enter this workflow regardless of risk_flags（實際啟動機制見第 6 節）。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。
 
 ## 4. 實作
 
@@ -36,7 +34,7 @@ Reviewer／Verifier 與 risk flags 解耦：本 workflow 只接受 `code_change:
 - 修改程式後先建立 execution path：從實際入口往下追到修改點，再追到所有重要終點；同時確認修改點的上游前置條件、下游契約，以及錯誤、重送、並發與異步分支。不可只看修改點到下一個呼叫點。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
 - Bug 先重現或取得足以確認根因的證據；修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
-- 不強制 TDD 或 test-first；直接完成最小修改，再以專案既有檢查與 pre-review 驗證。
+- 遵循 TDD：先寫會失敗的測試涵蓋預期行為，再實作最小修改使其通過，最後視需要重構；以專案既有檢查與 pre-review 驗證。無法自動化測試時在 task 記錄替代驗證與原因，不得省略。
 - 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 

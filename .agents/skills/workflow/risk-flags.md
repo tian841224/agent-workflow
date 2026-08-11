@@ -29,3 +29,7 @@
 - `contract`／`schema`／`data_write`／`financial`／`migration` 另補 `Contract and data impact`。
 - `cross_feature`／`migration`／`irreversible` 另補 `Implementation sequence`（實作順序、依賴與回滾點）。
 - 凍結後不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。
+
+## unclear_requirements 的釐清流程
+
+命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標、限制與成功標準，產出方向後再視需要用 `grill-me` skill 逐一提問、壓力測試計畫與假設，取得使用者明確確認後才能解除凍結、改為 `in_progress`。不必兩個都跑：`planning` 足以釐清就直接繼續；只有計畫或假設仍有風險、需要進一步逼問時才加開 `grill-me`。

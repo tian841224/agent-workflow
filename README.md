@@ -27,24 +27,20 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：修改 source、script 或 test code 為 `true`，只改設定／文件或只執行測試、調查、code review 為 `false`。只有 `true` 強制依序執行 Reviewer、Verifier；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
 
-設定／文件修改、測試調查、除錯分析、規劃、問答、翻譯與 code review 等 non-code tasks bypass workflow：不建立 task、不執行 Reviewer／Verifier，由單一主對話直接完成。
-
 ### Risk Flags
 
 `risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag：
 
 `behavior_change`、`ui`、`external_input`、`data_write`、`security`、`refactor`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
 
-各值的定義、對應要求與 freeze-required 詳細規則，統一記錄在 [`.agents/skills/workflow/risk-flags.md`](.agents/skills/workflow/risk-flags.md)，修改流程時只需改這一份檔案。
-
-Reviewer／Verifier 是否執行只看 `code_change`，與 `risk_flags` 解耦；`risk_flags` 只控制凍結、驗收案例、browser 與風險檢查等額外要求是否漸進加入。
+各值的定義、對應要求與 freeze-required 詳細規則，統一記錄在 [`.agents/skills/workflow/risk-flags.md`](.agents/skills/workflow/risk-flags.md)，修改流程時只需改這一份檔案；`risk_flags` 只控制凍結、驗收案例、browser 與風險檢查等額外要求是否漸進加入，不影響 Reviewer／Verifier 是否啟動。
 
 ### 實作
 
 - 先讀專案 instructions、相關程式、呼叫端與既有測試；只改需求直接需要的範圍，不順手重構、不擴張抽象或依賴。
 - 修改程式後建立 execution path：從實際入口追到修改點，再追到所有重要下游終點；同時確認修改點的上游前置條件、下游契約，以及錯誤、重送、並發與異步分支。不可只看修改點到下一個呼叫點。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
-- Bug 先重現或取得足以確認根因的證據；不強制 TDD 或 test-first，先完成最小修改再驗證。
+- Bug 先重現或取得足以確認根因的證據；遵循 TDD，先寫會失敗的測試再實作使其通過，最後視需要重構。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 
 ### Pre-review

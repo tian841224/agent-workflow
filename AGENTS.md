@@ -17,7 +17,7 @@
 ## 品質原則
 
 - 先讀現況與專案規則，保留使用者既有修改，只改需求直接需要的內容。
-- Bug 先重現或取得根因證據；修改後執行相關驗證與 `~/.agent-workflow/runtime/scripts/pre-review.ps1`，不強制 test-first。
+- Bug 先重現或取得根因證據；遵循 TDD，先寫會失敗的測試再實作使其通過、視需要重構，修改後執行相關驗證與 `~/.agent-workflow/runtime/scripts/pre-review.ps1`。
 - 選完整滿足目前需求的最簡解法；不順手重構、不增加未要求的抽象或依賴。
 - 只有 `code_change: true` 強制依序執行 Reviewer、Verifier；非程式碼修改不執行角色。Risk flags 仍控制 browser、安全、資料一致性與凍結 gate。
 - 驗證失敗先修根因，再重跑失敗項與受波及回歸項；不改完成條件遷就實作。
