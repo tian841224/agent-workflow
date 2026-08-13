@@ -9,6 +9,7 @@
     "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
     "status": { "enum": ["draft", "in_progress", "paused", "blocked", "done", "superseded"] },
     "code_change": { "type": "boolean" },
+    "change_kind": { "enum": ["fix", "feature", "refactor", "chore"] },
     "risk_flags": {
       "type": "array",
       "uniqueItems": true,
@@ -17,7 +18,25 @@
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
     "frozen_at": { "type": ["string", "null"], "format": "date-time" },
-    "independence": { "enum": ["native", "degraded"] }
+    "independence": { "enum": ["native", "degraded"] },
+    "roles_waived": { "type": "string", "minLength": 1 },
+    "subtask_role": { "enum": ["coordinator", "worker"] },
+    "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
+    "file_ownership": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(?!\\./)[^\\\\,\\[\\]]+$" }
+    },
+    "base_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "delivery_status": { "enum": ["pending", "applied", "merged", "rejected", "skipped"] },
+    "integration_status": { "enum": ["pending", "conflicted", "applied", "abandoned"] }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x_agent_workflow": {
+    "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
+    "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
+    "adversarial_required": ["financial", "data_write", "migration", "irreversible", "schema", "contract"],
+    "mutation_check_required": ["financial", "data_write"],
+    "retrospective_required": ["fix"]
+  }
 }

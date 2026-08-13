@@ -21,6 +21,14 @@
 | `irreversible` | 改動無法簡單回滾（例如刪除資料、發送外部通知） | freeze-required；補 Implementation sequence |
 | `unclear_requirements` | 需求本身不明確，需先與使用者釐清才能動工 | freeze-required |
 
+## Adversarial 複查觸發
+
+`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標任一命中時，除了下方 freeze-required 規則外，Reviewer PASS 後、Verifier 之前另加開一輪 `agent-workflow-adversarial` 複查（見 [SKILL.md](SKILL.md) 第 6a 節）。這六個旗標的共通點是「巧合正確或假設錯誤的代價高」，Reviewer 的確認式審查不足以攔下這類問題，需要一個心態相反、專找漏洞的獨立角色。權威清單是 `schemas/task.schema.json` 的 `x_agent_workflow.adversarial_required`，收尾 gate 會要求 `## Adversarial result` 有 `- result: PASS` 與四項檢查結論。
+
+## Mutation check 觸發
+
+`financial`／`data_write` 命中時，`Validation results` 另需 `- mutation check: PASS | SKIP`（SKIP 需 `- mutation reason:`）。權威清單是 schema 的 `x_agent_workflow.mutation_check_required`。理由是「測試全綠」多次等於「斷言從沒真的跑過」——內嵌字面值被編碼弄壞讓比對恆真、fixture 寫死成通過的形狀讓案例無法失敗；把關鍵判斷改壞、確認測試變紅，是最便宜的辨別方式。
+
 ## Freeze-required 詳細規則
 
 命中 `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 任一值時：
@@ -29,6 +37,7 @@
 - `contract`／`schema`／`data_write`／`financial`／`migration` 另補 `Contract and data impact`。
 - `cross_feature`／`migration`／`irreversible` 另補 `Implementation sequence`（實作順序、依賴與回滾點）。
 - 凍結後不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。
+- 唯一例外：coordinator 編排中由使用者發起、**只縮減**交付範圍的變更，依 [orchestration.md](orchestration.md) 原地更新並重填 `frozen_at`，不走 supersede（編排中途 supersede 會讓 worker 的 `parent_task_id` 指向失效 task）。其餘 freeze 後的需求變更仍須 supersede。
 
 ## unclear_requirements 的釐清流程
 

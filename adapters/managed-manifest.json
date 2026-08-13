@@ -3,24 +3,40 @@
   "runtime": [
     "AGENTS.md",
     "agents/reviewer.md",
+    "agents/adversarial.md",
     "agents/verifier.md",
+    "agents/retrospective.md",
+    "agents/worker.md",
     "skills/workflow/SKILL.md",
+    "skills/workflow/risk-flags.md",
+    "skills/workflow/orchestration.md",
+    "skills/workflow/project-docs.md",
     "hooks/git-guard.ps1",
     "hooks/quality-gate.ps1",
     "hooks/impact-guard.ps1",
     "scripts/project-resolver.ps1",
     "scripts/knowledge.ps1",
     "scripts/pre-review.ps1",
+    "scripts/runtime-check.ps1",
     "scripts/validate-task.ps1",
+    "scripts/task-gate.ps1",
+    "scripts/close-task.ps1",
+    "scripts/worktree-fingerprint.ps1",
+    "scripts/check-task.ps1",
+    "scripts/split-plan.ps1",
+    "scripts/orchestrate.ps1",
+    "scripts/retro.ps1",
+    "scripts/project-doc.ps1",
     "templates/task.md",
     "schemas/project.schema.json",
     "schemas/knowledge.schema.json",
     "schemas/task.schema.json",
+    "schemas/retro.schema.json",
     "schemas/import-manifest.schema.json"
   ],
   "platform_files": {
-    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-verifier.md", "skills/workflow/"],
-    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-verifier.toml", "skills/workflow/", "rules/agent-workflow.rules"],
-    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/skills/workflow/", "config/global_workflows/agent-workflow.md"]
+    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-adversarial.md", "agents/agent-workflow-verifier.md", "agents/agent-workflow-retrospective.md", "agents/agent-workflow-worker.md", "skills/workflow/"],
+    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-adversarial.toml", "agents/agent-workflow-verifier.toml", "agents/agent-workflow-retrospective.toml", "skills/workflow/", "rules/agent-workflow.rules"],
+    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-adversarial/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/agents/agent-workflow-retrospective/agent.md", "config/skills/workflow/", "config/global_workflows/agent-workflow.md"]
   }
 }

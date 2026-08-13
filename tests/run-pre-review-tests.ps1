@@ -37,6 +37,15 @@ exit /b 0
     $oldPath = $env:PATH
     $env:PATH = $fakeBin + [IO.Path]::PathSeparator + $oldPath
 
+    # pre-review now checks the health of the installed guards before checking the change. That
+    # reads $env:USERPROFILE, so without redirecting it these tests would pass or fail according
+    # to whether the developer's own runtime happens to be current - a machine-state dependency,
+    # not a property of the code under test.
+    $oldProfile = $env:USERPROFILE
+    $fakeProfile = Join-Path $sandbox 'profile'
+    New-Item -ItemType Directory -Force -Path $fakeProfile | Out-Null
+    $env:USERPROFILE = $fakeProfile
+
     $unsupported = Join-Path $sandbox 'unsupported'
     New-Item -ItemType Directory -Force -Path $unsupported | Out-Null
     $result = Invoke-PreReview $unsupported
@@ -81,8 +90,25 @@ exit /b 0
     Assert ((Get-Content -LiteralPath (Join-Path $logDir 'go-test.log') -Raw -Encoding UTF8) -match 'simulated go failure') 'failure log is missing command output'
     Remove-Item -LiteralPath $logDir -Recurse -Force
 
+    # A tampered or stale runtime must stop pre-review outright: the whole class of incident this
+    # guards against is a suite going green while the gates actually loaded were a different,
+    # older build. It must fail even for a project with no language checks at all.
+    $managedRuntime = Join-Path $fakeProfile '.agent-workflow\managed-runtime.json'
+    $plantedFile = Join-Path $sandbox 'planted.ps1'
+    Write-Text $plantedFile "Write-Output 'planted'`n"
+    Write-Text $managedRuntime (@{
+        schema_version = 4
+        source         = ''
+        files          = @(@{ path = $plantedFile; sha256 = ('0' * 64); kind = 'runtime' })
+    } | ConvertTo-Json -Depth 5)
+    $result = Invoke-PreReview $unsupported
+    Assert ($result.code -eq 1 -and $result.text -match 'RESULT: FAIL') "a tampered runtime did not fail pre-review:`n$($result.text)"
+    Assert ($result.text -match 'installed runtime integrity') 'pre-review did not report which runtime check failed'
+    Remove-Item -LiteralPath (Join-Path $fakeProfile '.agent-workflow') -Recurse -Force
+
     Write-Output 'pre-review tests passed'
 } finally {
+    if ($oldProfile) { $env:USERPROFILE = $oldProfile }
     if ($oldPath) { $env:PATH = $oldPath }
     Remove-Item Env:\PRE_REVIEW_FAIL_STEP -ErrorAction SilentlyContinue
     Remove-Item Env:\PRE_REVIEW_UNFORMATTED -ErrorAction SilentlyContinue

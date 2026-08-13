@@ -95,7 +95,7 @@ try {
     if ($LASTEXITCODE) { throw 'installer failed' }
     Assert-CanonicalLinks (Join-Path $canonical 'AGENTS.md') @((Join-Path $claude 'CLAUDE.md'),(Join-Path $codex 'AGENTS.md'),(Join-Path $gemini 'GEMINI.md'))
     if (-not (Get-Content -LiteralPath (Join-Path $canonical 'AGENTS.md') -Raw -Encoding UTF8).Contains($sharedPrefix)) { throw 'shared unmanaged prefix was not preserved' }
-    foreach ($relative in @('agents\reviewer.md','agents\verifier.md','skills\workflow\SKILL.md')) {
+    foreach ($relative in @('agents\reviewer.md','agents\adversarial.md','agents\verifier.md','agents\retrospective.md','agents\worker.md','skills\workflow\SKILL.md','skills\workflow\risk-flags.md','skills\workflow\orchestration.md')) {
         $canonicalShared = Join-Path $canonical $relative
         $repoShared = Join-Path $repoSharedRoot $relative
         if (-not (Test-Path -LiteralPath $canonicalShared -PathType Leaf)) { throw "missing canonical shared file: $relative" }
@@ -111,12 +111,26 @@ try {
     Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\claude\agent-workflow-reviewer.md') @((Join-Path $claude 'agents\agent-workflow-reviewer.md'))
     Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\antigravity\agent-workflow-reviewer.md') @((Join-Path $gemini 'config\agents\agent-workflow-reviewer\agent.md'))
     Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\codex\agent-workflow-reviewer.toml') @((Join-Path $codex 'agents\agent-workflow-reviewer.toml'))
+    # retrospective is a review-side role like reviewer/adversarial/verifier, so unlike worker it
+    # ships to all three platforms.
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\retrospective.md') @((Join-Path $state 'runtime\agents\retrospective.md'))
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\claude\agent-workflow-retrospective.md') @((Join-Path $claude 'agents\agent-workflow-retrospective.md'))
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\codex\agent-workflow-retrospective.toml') @((Join-Path $codex 'agents\agent-workflow-retrospective.toml'))
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\antigravity\agent-workflow-retrospective.md') @((Join-Path $gemini 'config\agents\agent-workflow-retrospective\agent.md'))
+    # worker is Claude-only in v1 (Codex/Antigravity fan-out is unverified) - only the Claude
+    # adapter should exist for it, and its canonical hardlink identity must match reviewer's.
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\worker.md') @((Join-Path $state 'runtime\agents\worker.md'))
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\claude\agent-workflow-worker.md') @((Join-Path $claude 'agents\agent-workflow-worker.md'))
+    if (Test-Path -LiteralPath (Join-Path $codex 'agents\agent-workflow-worker.toml')) { throw 'worker adapter must not be generated for Codex in v1' }
+    if (Test-Path -LiteralPath (Join-Path $gemini 'config\agents\agent-workflow-worker')) { throw 'worker adapter must not be generated for Antigravity in v1' }
     foreach ($path in @(
         (Join-Path $claude 'agents\agent-workflow-reviewer.md'),
+        (Join-Path $claude 'agents\agent-workflow-worker.md'),
         (Join-Path $codex 'agents\agent-workflow-reviewer.toml'),
         (Join-Path $gemini 'config\agents\agent-workflow-reviewer\agent.md'),
         (Join-Path $state 'runtime\hooks\quality-gate.ps1'),
-        (Join-Path $state 'runtime\scripts\pre-review.ps1')
+        (Join-Path $state 'runtime\scripts\pre-review.ps1'),
+        (Join-Path $state 'runtime\scripts\project-resolver.ps1')
     )) { if (-not (Test-Path -LiteralPath $path)) { throw "missing installed file: $path" } }
     $installedPreReview = Join-Path $state 'runtime\scripts\pre-review.ps1'
     $preReviewOutput = & $hostExe -NoProfile -ExecutionPolicy Bypass -File $installedPreReview -RepoRoot $sandbox | Out-String

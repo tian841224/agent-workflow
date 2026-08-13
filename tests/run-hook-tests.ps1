@@ -64,6 +64,43 @@ function Invoke-ImpactGuardAntigravity([string]$Cwd, [string]$ToolName, [string]
     $payload = @{ workspacePaths = @($Cwd); toolCall = @{ name = $ToolName; args = @{ TargetFile = $FilePath } } } | ConvertTo-Json -Compress -Depth 5
     return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
 }
+# The status: done gate reads what is about to be written, so these variants carry content as
+# well as a path - one per platform payload shape.
+function Invoke-ImpactGuardWrite([string]$Cwd, [string]$FilePath, [string]$Content) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_name = 'Write'; tool_input = @{ file_path = $FilePath; content = $Content } } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
+}
+function Invoke-ImpactGuardEdit([string]$Cwd, [string]$FilePath, [string]$NewString) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_name = 'Edit'; tool_input = @{ file_path = $FilePath; new_string = $NewString } } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
+}
+function Invoke-ImpactGuardAntigravityEdit([string]$Cwd, [string]$FilePath, [string]$CodeEdit) {
+    $payload = @{ workspacePaths = @($Cwd); toolCall = @{ name = 'replace_file_content'; args = @{ TargetFile = $FilePath; CodeEdit = $CodeEdit } } } | ConvertTo-Json -Compress -Depth 5
+    return Invoke-HookUtf8 (Join-Path $root 'hooks\impact-guard.ps1') $payload
+}
+
+# close-task.ps1 is a plain script, not a hook: it is judged by its exit code and whether it
+# leaves the task file alone when it refuses.
+function Invoke-CloseTask([string]$Cwd) {
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $hostExe
+    $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $root 'scripts\close-task.ps1')`" -Path `"$Cwd`""
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = $utf8NoBom
+    $startInfo.StandardErrorEncoding = $utf8NoBom
+    $startInfo.EnvironmentVariables['USERPROFILE'] = $env:USERPROFILE
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    return [pscustomobject]@{ ExitCode = $process.ExitCode; Text = ($stdout + $stderr) }
+}
+
 # Codex apply_patch is a freeform tool: tool_input is patch text, paths live in the *** headers.
 function Invoke-ImpactGuardCodex([string]$Cwd, [string]$Patch) {
     $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_name = 'apply_patch'; tool_input = $Patch } | ConvertTo-Json -Compress
@@ -77,19 +114,22 @@ function Invoke-QualityUtf8([string]$Cwd, [bool]$StopHookActive) {
     $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $StopHookActive; last_assistant_message = $utf8Text } | ConvertTo-Json -Compress
     return Invoke-HookUtf8 $qualityPath $payload
 }
-function Set-TestTask($Resolved, [string[]]$Flags, [string]$Extra = '', [bool]$CodeChange = $false, [switch]$Frozen) {
+function Set-TestTask($Resolved, [string[]]$Flags, [string]$Extra = '', [bool]$CodeChange = $false, [string]$ChangeKind = '', [switch]$Frozen) {
     Get-ChildItem -LiteralPath $Resolved.task_root -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
     $taskDir = Join-Path $Resolved.task_root '20260807-000000-hook-test'
     New-Item -ItemType Directory -Force -Path $taskDir | Out-Null
     $flagText = $Flags -join ', '
     $frozenAt = if ($Frozen) { '2026-08-07T00:00:00+08:00' } else { '' }
+    # Omitted entirely when empty: an unset change_kind is the pre-retrospective task shape, and
+    # the gate has to keep treating a blank line as "absent" rather than as a valid value.
+    $changeKindLine = if ($ChangeKind) { "`nchange_kind: $ChangeKind" } else { '' }
     $content = @"
 ---
 id: 20260807-000000-hook-test
 project_id: $($Resolved.project_id)
 worktree_id: $($Resolved.worktree_id)
 status: in_progress
-code_change: $($CodeChange.ToString().ToLowerInvariant())
+code_change: $($CodeChange.ToString().ToLowerInvariant())$changeKindLine
 risk_flags: [$flagText]
 created_at: 2026-08-07T00:00:00+08:00
 updated_at: 2026-08-07T00:00:00+08:00
@@ -111,39 +151,33 @@ Scope text
 - checks: pass
 - skip reason: none
 - limitations: none
+- diff_sha256: $script:fingerprint
+- mutation check: PASS
 
 $Extra
 "@
     [IO.File]::WriteAllText((Join-Path $taskDir 'task.md'), $content, $utf8NoBom)
 }
 
+# Bundled with Impact surface on purpose: every existing fixture that represents "this
+# code_change task is in a valid, editable state" builds on $impactSurface, and the Project docs
+# read: gate sits in the exact same guard (impact-guard.ps1) and the exact same task-gate.ps1
+# $needsReviewer block, one check earlier. Keeping them in one fixture is what lets the rest of
+# this file's existing assertions stay correct without touching every call site by hand.
+$projectDocsSection = @"
+## Project docs
+- read: none - test fixture, project has no docs yet
+- updated: none - test fixture, no structural change
+"@
 $impactSurface = @"
+$projectDocsSection
+
 ## Impact surface
 - callers: rg RunExchange 3 hits, app/x.go:20
 - entrypoints: HTTP POST /x
 - shared state: none
 - unverified: none
 "@
-$reviewResult = @"
-$impactSurface
-
-## Execution path and regression evidence
-- path: A > B > C > D
-- branches: error and retry
-- evidence: full-path test
-
-## Reviewer result
-- result: PASS
-- Architecture consistency: PASS
-- Code quality and conventions: PASS
-- Data consistency: N/A - no data change
-- Security: N/A - no security change
-- Risk and compatibility: PASS
-- Performance: N/A - no hot path change
-- Flow and impact completeness: PASS
-"@
-$verifierResult = "## Verifier result`n- PASS`n"
-$roleResults = $reviewResult + "`n" + $verifierResult
 $freezeSections = @"
 ## Non-goals and compatibility
 None
@@ -165,6 +199,44 @@ try {
     & git -C $repo -c user.name=agent-workflow -c user.email=agent-workflow@example.invalid commit --quiet -m fixture
     $env:USERPROFILE = $profile
     $resolved = (& $resolverPath -Path $repo -StateRoot $state -Ensure | Out-String) | ConvertFrom-Json
+
+    # A role verdict is only valid against the diff it read, so the gate recomputes the working
+    # tree fingerprint and compares. The fixtures therefore have to carry this sandbox's real
+    # value - a hard-coded one would make every positive case pass for the wrong reason. Nothing
+    # below writes into $repo, so the fingerprint stays valid for the whole run.
+    $fingerprint = ((& (Join-Path $root 'scripts\worktree-fingerprint.ps1') -Path $repo | Out-String) | ConvertFrom-Json).sha256
+    Assert ($fingerprint -match '^[0-9a-f]{64}$') "worktree-fingerprint did not return a sha256 for the sandbox repo: $fingerprint"
+    $reviewResult = @"
+$impactSurface
+
+## Execution path and regression evidence
+- path: A > B > C > D
+- branches: error and retry
+- evidence: full-path test
+
+## Reviewer result
+- result: PASS
+- diff_sha256: $fingerprint
+- Architecture consistency: PASS
+- Code quality and conventions: PASS
+- Data consistency: N/A - no data change
+- Security: N/A - no security change
+- Risk and compatibility: PASS
+- Performance: N/A - no hot path change
+- Flow and impact completeness: PASS
+- Failure modes and observability: PASS
+"@
+    $adversarialResult = @"
+## Adversarial result
+- result: PASS
+- diff_sha256: $fingerprint
+- Provenance: PASS
+- Pattern fan-out: PASS
+- Engine semantics: PASS
+- Cross-round accumulation: PASS
+"@
+    $verifierResult = "## Verifier result`n- PASS`n- diff_sha256: $fingerprint`n"
+    $roleResults = $reviewResult + "`n" + $verifierResult
 
     Assert (-not (Invoke-QualityUtf8 $repo $true)) 'stop_hook_active with UTF-8 payload was not released silently'
 
@@ -215,28 +287,238 @@ try {
     $reviewWithoutPass = $reviewResult -replace '(?m)^- result: PASS\r?\n', ''
     Set-TestTask $resolved @() ($reviewWithoutPass + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result is missing or not passed') 'Reviewer result without explicit PASS was accepted'
-    $reviewMalformedPass = $reviewResult -replace '(?m)^- result: PASS$', "-`nresult:`nPASS"
+    # \r?$: this file is CRLF, so a bare $ anchor never matches and the substitution would
+    # silently be a no-op, leaving a perfectly valid PASS line and asserting nothing.
+    $reviewMalformedPass = $reviewResult -replace '(?m)^- result: PASS[ \t]*\r?$', "-`r`nresult:`r`nPASS"
     Set-TestTask $resolved @() ($reviewMalformedPass + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result is missing or not passed') 'multiline Reviewer PASS was accepted'
-    $reviewCheckedDimensions = $reviewResult -replace '(?m)^- Architecture consistency: PASS$', '- Architecture consistency: checked'
+    $reviewCheckedDimensions = $reviewResult -replace '(?m)^- Architecture consistency: PASS[ \t]*\r?$', '- Architecture consistency: checked'
     Set-TestTask $resolved @() ($reviewCheckedDimensions + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Architecture consistency') 'Reviewer dimension without PASS was accepted'
-    $reviewWithHistory = $reviewResult -replace '(?m)^- Risk and compatibility: PASS$', '- Risk and compatibility: PASS - previous FAIL was resolved'
+    $reviewWithHistory = $reviewResult -replace '(?m)^- Risk and compatibility: PASS[ \t]*\r?$', '- Risk and compatibility: PASS - previous FAIL was resolved'
     Set-TestTask $resolved @() ($reviewWithHistory + "`n" + $verifierResult) $true
     Assert (-not (Invoke-Quality $repo)) 'Reviewer PASS explanation mentioning a previous FAIL was rejected'
-    $reviewAmbiguousPass = $reviewResult -replace '(?m)^- Architecture consistency: PASS$', '- Architecture consistency: PASS/FAIL'
+    $reviewAmbiguousPass = $reviewResult -replace '(?m)^- Architecture consistency: PASS[ \t]*\r?$', '- Architecture consistency: PASS/FAIL'
     Set-TestTask $resolved @() ($reviewAmbiguousPass + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Architecture consistency') 'ambiguous PASS/FAIL Reviewer dimension was accepted'
-    $reviewAmbiguousNA = $reviewResult -replace '(?m)^- Data consistency: N/A - no data change$', '- Data consistency: N/A/FAIL'
+    $reviewAmbiguousNA = $reviewResult -replace '(?m)^- Data consistency: N/A - no data change[ \t]*\r?$', '- Data consistency: N/A/FAIL'
     Set-TestTask $resolved @() ($reviewAmbiguousNA + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Data consistency') 'ambiguous N/A/FAIL Reviewer dimension was accepted'
-    $reviewFlowNA = $reviewResult -replace '(?m)^- Flow and impact completeness: PASS$', '- Flow and impact completeness: N/A'
+    $reviewFlowNA = $reviewResult -replace '(?m)^- Flow and impact completeness: PASS[ \t]*\r?$', '- Flow and impact completeness: N/A'
     Set-TestTask $resolved @() ($reviewFlowNA + "`n" + $verifierResult) $true
     Assert ((Invoke-Quality $repo) -match 'Reviewer result missing or not passed dimension: Flow and impact completeness') 'flow and impact completeness accepted N/A'
     Set-TestTask $resolved @() ($reviewResult + "`n## Verifier result`n- FAIL`n") $true
     Assert ((Invoke-Quality $repo) -match 'Verifier result is missing or not passed') 'failed Verifier result was accepted'
     Set-TestTask $resolved @() $roleResults $true
     Assert (-not (Invoke-Quality $repo)) 'valid code_change task was blocked'
+
+    # --- eighth review dimension: failure modes must never be waived ---
+    $reviewNoFailureModes = $reviewResult -replace '(?m)^- Failure modes and observability: PASS[ \t]*\r?$', ''
+    Set-TestTask $resolved @() ($reviewNoFailureModes + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'dimension: Failure modes and observability') 'missing failure-modes dimension was accepted'
+    $reviewFailureModesNA = $reviewResult -replace '(?m)^- Failure modes and observability: PASS[ \t]*\r?$', '- Failure modes and observability: N/A'
+    Set-TestTask $resolved @() ($reviewFailureModesNA + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'dimension: Failure modes and observability') 'failure-modes dimension accepted N/A'
+
+    # --- diff fingerprint: a verdict is only valid against the diff it was given ---
+    $reviewNoFingerprint = $reviewResult -replace "(?m)^- diff_sha256: $fingerprint[ \t]*\r?$", ''
+    Set-TestTask $resolved @() ($reviewNoFingerprint + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Reviewer result has no') 'Reviewer without a recorded diff fingerprint was accepted'
+    $staleFingerprint = ('0' * 64)
+    $reviewStale = $reviewResult -replace "(?m)^- diff_sha256: $fingerprint[ \t]*\r?$", "- diff_sha256: $staleFingerprint"
+    Set-TestTask $resolved @() ($reviewStale + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'must be re-run') 'Reviewer verdict against a different diff was accepted'
+    $verifierStale = $verifierResult -replace "(?m)^- diff_sha256: $fingerprint[ \t]*\r?$", "- diff_sha256: $staleFingerprint"
+    Set-TestTask $resolved @() ($reviewResult + "`n" + $verifierStale) $true
+    Assert ((Invoke-Quality $repo) -match 'Verifier result reviewed diff') 'Verifier verdict against a different diff was accepted'
+    # An untracked file is invisible to `git diff`, which is exactly how three core files once
+    # reached a review without being in it. It must move the fingerprint.
+    $strayFile = Join-Path $repo 'stray.go'
+    [IO.File]::WriteAllText($strayFile, 'package app', $utf8NoBom)
+    try {
+        Set-TestTask $resolved @() $roleResults $true
+        Assert ((Invoke-Quality $repo) -match 'must be re-run') 'an untracked new file did not invalidate the recorded review'
+    } finally {
+        Remove-Item -LiteralPath $strayFile -Force
+    }
+    Set-TestTask $resolved @() $roleResults $true
+    Assert (-not (Invoke-Quality $repo)) 'removing the stray file did not restore the original fingerprint'
+
+    # --- adversarial round: gated for the six high-cost flags ---
+    $dataWriteSections = "## Contract and data impact`nno schema change`n"
+    Set-TestTask $resolved @('data_write') ($dataWriteSections + $roleResults) $true
+    Assert ((Invoke-Quality $repo) -match 'Adversarial result is missing or not passed') 'data_write skipped the adversarial round'
+    Set-TestTask $resolved @('data_write') ($dataWriteSections + $reviewResult + "`n" + $adversarialResult + "`n" + $verifierResult) $true
+    Assert (-not (Invoke-Quality $repo)) 'valid data_write task with an adversarial round was blocked'
+    $adversarialNA = $adversarialResult -replace '(?m)^- Engine semantics: PASS[ \t]*\r?$', '- Engine semantics: N/A'
+    Set-TestTask $resolved @('data_write') ($dataWriteSections + $reviewResult + "`n" + $adversarialNA + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'check: Engine semantics') 'adversarial check accepted N/A'
+    $adversarialStale = $adversarialResult -replace "(?m)^- diff_sha256: $fingerprint[ \t]*\r?$", "- diff_sha256: $staleFingerprint"
+    Set-TestTask $resolved @('data_write') ($dataWriteSections + $reviewResult + "`n" + $adversarialStale + "`n" + $verifierResult) $true
+    Assert ((Invoke-Quality $repo) -match 'Adversarial result reviewed diff') 'adversarial verdict against a different diff was accepted'
+
+    # --- mutation check: proves the guarding test can actually fail ---
+    $validDataWrite = $dataWriteSections + $reviewResult + "`n" + $adversarialResult + "`n" + $verifierResult
+    Set-TestTask $resolved @('data_write') $validDataWrite $true
+    $mutationTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
+    $mutationContent = Get-Content -LiteralPath $mutationTask.FullName -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($mutationTask.FullName, ($mutationContent -replace '(?m)^- mutation check: PASS[ \t]*\r?\n', ''), $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'mutation check result must be') 'data_write without a mutation check was accepted'
+    [IO.File]::WriteAllText($mutationTask.FullName, ($mutationContent -replace '(?m)^- mutation check: PASS[ \t]*\r?$', '- mutation check: SKIP'), $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'SKIP mutation check requires a reason') 'mutation check SKIP without a reason was accepted'
+
+    # --- retrospective: a fix has to say whether it was a regression, and what missed it ---
+    # This is the only gate that asks about the framework rather than the change. It runs at Close
+    # only: a fix that stops half-way must still be able to end its turn.
+    $retroPreExisting = @"
+## Retrospective result
+- introduced_by: unknown - git log -S on the guard found no earlier occurrence
+- classification: pre_existing
+"@
+    $retroRegression = @"
+## Retrospective result
+- introduced_by: 0123456789abcdef0123456789abcdef01234567
+- classification: regression
+- miss_category: impact_surface
+- gap_evidence: task 20260801-000000-earlier left Impact surface without the second caller
+- framework_change: recorded:20260813-120000-abcd1234
+"@
+
+    # A code change with no change_kind cannot be classified at all, so it cannot close.
+    Set-TestTask $resolved @() $roleResults $true
+    Assert (-not (Invoke-Quality $repo)) 'a task without change_kind was blocked from merely stopping'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a code change without change_kind was allowed to close'
+    Assert ($closeOutput.Text -match 'change_kind') 'close-task did not name the missing change_kind'
+
+    # fix without the section
+    Set-TestTask $resolved @() $roleResults $true 'fix'
+    Assert (-not (Invoke-Quality $repo)) 'a fix without a retrospective was blocked from merely stopping'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a fix without a retrospective was allowed to close'
+    Assert ($closeOutput.Text -match 'Retrospective result') 'close-task did not name the missing retrospective'
+
+    # a placeholder section is not a retrospective
+    Set-TestTask $resolved @() ($roleResults + "`n## Retrospective result`n<pending>`n") $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a placeholder retrospective was accepted'
+
+    # not a regression: introduced_by and classification are enough
+    Set-TestTask $resolved @() ($roleResults + "`n" + $retroPreExisting) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "a valid pre_existing retrospective was refused: $($closeOutput.Text)"
+
+    # classification must come from the enum
+    Set-TestTask $resolved @() ($roleResults + "`n" + ($retroPreExisting -replace 'pre_existing', 'probably not')) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'an unknown classification was accepted'
+    Assert ($closeOutput.Text -match 'classification') 'close-task did not name the bad classification'
+
+    # introduced_by cannot be left blank - filling classification alone is the cheap way out
+    Set-TestTask $resolved @() ($roleResults + "`n## Retrospective result`n- classification: pre_existing`n") $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a retrospective without introduced_by was accepted'
+    Assert ($closeOutput.Text -match 'introduced_by') 'close-task did not name the missing introduced_by'
+
+    # a regression owes three more fields
+    foreach ($dropped in @('miss_category', 'gap_evidence', 'framework_change')) {
+        $partial = ($retroRegression -split "`r?`n" | Where-Object { $_ -notmatch "^- $dropped" }) -join "`n"
+        Set-TestTask $resolved @() ($roleResults + "`n" + $partial) $true 'fix'
+        $closeOutput = Invoke-CloseTask $repo
+        Assert ($closeOutput.ExitCode -ne 0) "a regression without $dropped was accepted"
+        Assert ($closeOutput.Text -match $dropped) "close-task did not name the missing $dropped"
+    }
+    # the category has to be one the framework actually knows how to act on
+    Set-TestTask $resolved @() ($roleResults + "`n" + ($retroRegression -replace 'impact_surface', 'someone_was_careless')) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'an unknown miss_category was accepted'
+    Assert ($closeOutput.Text -match 'miss_category') 'close-task did not name the bad miss_category'
+    # framework_change must be a real disposition, not free text
+    Set-TestTask $resolved @() ($roleResults + "`n" + ($retroRegression -replace 'recorded:20260813-120000-abcd1234', 'will think about it')) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'an unrecorded framework_change was accepted'
+    Set-TestTask $resolved @() ($roleResults + "`n" + ($retroRegression -replace 'recorded:20260813-120000-abcd1234', 'not_needed - the gap is already covered by impact-guard')) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "a justified not_needed framework_change was refused: $($closeOutput.Text)"
+
+    # the full regression form closes
+    Set-TestTask $resolved @() ($roleResults + "`n" + $retroRegression) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "a complete regression retrospective was refused: $($closeOutput.Text)"
+
+    # every other change kind is untouched by this gate
+    foreach ($kind in @('feature', 'refactor', 'chore')) {
+        Set-TestTask $resolved @() $roleResults $true $kind
+        $closeOutput = Invoke-CloseTask $repo
+        Assert ($closeOutput.ExitCode -eq 0) "change_kind $kind was asked for a retrospective: $($closeOutput.Text)"
+    }
+
+    # a worker is one slice of a fix; the coordinator does the retrospective once, for the whole.
+    # A worker's fingerprint is taken against its base_commit, so the base has to be a real commit
+    # in this sandbox and the role sections have to carry that same value - a made-up sha would
+    # fail on the fingerprint instead of proving anything about the retrospective.
+    $workerBaseCommit = (& git -C $repo rev-parse HEAD).Trim()
+    $workerFingerprint = ((& (Join-Path $root 'scripts\worktree-fingerprint.ps1') -Path $repo -Base $workerBaseCommit | Out-String) | ConvertFrom-Json).sha256
+    Assert ($workerFingerprint -match '^[0-9a-f]{64}$') "worktree-fingerprint did not return a sha256 for a based diff: $workerFingerprint"
+    $workerRoleResults = $roleResults -replace $fingerprint, $workerFingerprint
+    Set-TestTask $resolved @() $workerRoleResults $true 'fix'
+    $workerTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
+    $workerContent = Get-Content -LiteralPath $workerTask -Raw -Encoding UTF8
+    $workerFrontmatter = @(
+        'subtask_role: worker'
+        'parent_task_id: 20260807-000000-coordinator'
+        "base_commit: $workerBaseCommit"
+        'file_ownership: [app/]'
+        'delivery_status: pending'
+    ) -join "`n"
+    [IO.File]::WriteAllText($workerTask, ($workerContent -replace '(?m)^(frozen_at:.*)$', "`$1`n$workerFrontmatter"), $utf8NoBom)
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "a worker slice of a fix was asked for its own retrospective: $($closeOutput.Text)"
+
+    # --- the finish line: status done only through close-task.ps1 ---
+    Set-TestTask $resolved @() $roleResults $true
+    $closeTargetTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
+    $doneWrite = "---`nstatus: done`n---`n"
+    Assert ((Invoke-ImpactGuardWrite $repo $closeTargetTask $doneWrite) -match 'close-task\.ps1') 'a direct status: done write was allowed'
+    Assert ((Invoke-ImpactGuardEdit $repo $closeTargetTask 'status: done') -match 'close-task\.ps1') 'a direct status: done edit was allowed'
+    Assert ((Invoke-ImpactGuardAntigravityEdit $repo $closeTargetTask 'status: done') -match 'close-task\.ps1') 'Antigravity bypassed the status: done gate'
+    $donePatch = "*** Begin Patch`n*** Update File: " + $closeTargetTask.Replace('\','/') + "`n@@`n-status: in_progress`n+status: done`n*** End Patch"
+    Assert ((Invoke-ImpactGuardCodex $repo $donePatch) -match 'close-task\.ps1') 'Codex apply_patch bypassed the status: done gate'
+    # Stopping without finishing must stay frictionless.
+    Assert (-not (Invoke-ImpactGuardEdit $repo $closeTargetTask 'status: paused')) 'pausing a task was blocked'
+    Assert (-not (Invoke-ImpactGuardEdit $repo $closeTargetTask 'status: blocked')) 'blocking a task was blocked'
+
+    # close-task refuses an incomplete task and leaves the file untouched
+    Set-TestTask $resolved @() ($reviewResult + "`n## Verifier result`n- FAIL`n") $true
+    $closeTargetTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
+    $beforeClose = Get-Content -LiteralPath $closeTargetTask -Raw -Encoding UTF8
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'close-task closed a task whose Verifier had failed'
+    Assert ($closeOutput.Text -match 'Verifier result') 'close-task did not report why it refused'
+    Assert ((Get-Content -LiteralPath $closeTargetTask -Raw -Encoding UTF8) -eq $beforeClose) 'close-task modified the task file after refusing'
+
+    # close-task closes a complete task
+    Set-TestTask $resolved @() $roleResults $true 'chore'
+    $closeTargetTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "close-task refused a complete task: $($closeOutput.Text)"
+    Assert ((Get-Content -LiteralPath $closeTargetTask -Raw -Encoding UTF8) -match '(?m)^status: done[ \t]*\r?$') 'close-task did not write status: done'
+
+    # --- roles that never ran cannot be signed off by the main agent ---
+    Set-TestTask $resolved @() $roleResults $true 'chore'
+    $degradedTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
+    $degradedContent = Get-Content -LiteralPath $degradedTask -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($degradedTask, ($degradedContent -replace '(?m)^(frozen_at:.*)$', "`$1`nindependence: degraded"), $utf8NoBom)
+    Assert (-not (Invoke-Quality $repo)) 'a degraded task was blocked from merely stopping'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a degraded task was allowed to close'
+    Assert ($closeOutput.Text -match 'degraded') 'close-task did not name degraded independence as the reason'
+    # The only way out is an explicit, user-authorised waiver recorded in frontmatter.
+    $waivedContent = Get-Content -LiteralPath $degradedTask -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($degradedTask, ($waivedContent -replace '(?m)^(independence: degraded)$', "`$1`nroles_waived: user asked for a single-dialogue run"), $utf8NoBom)
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "an explicitly waived task was still refused: $($closeOutput.Text)"
+    Assert ($closeOutput.Text -match 'waived') 'close-task did not surface the waiver at the moment of closing'
 
     Set-TestTask $resolved @() ($reviewResult + "`n" + $verifierResult) $true
     $pathTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
@@ -268,6 +550,118 @@ try {
     Set-TestTask $resolved @() $impactSurface $true
     Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'impact-guard blocked an edit after the impact surface was filled'
 
+    # --- Project docs: read: gate, checked one step after Impact surface in the same guard ---
+    $validImpactOnly = "## Impact surface`n- callers: rg X 3 hits, app/x.go:1`n- entrypoints: none`n- shared state: none`n- unverified: none`n"
+    Set-TestTask $resolved @() $validImpactOnly $true
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'Project docs') 'impact-guard allowed a code edit with Impact surface filled but the Project docs section missing entirely'
+    $projectDocsQuality = Invoke-Quality $repo
+    Assert ($projectDocsQuality -match 'Project docs') 'quality-gate did not require Project docs for a task with no Project docs section'
+
+    Set-TestTask $resolved @() ("## Project docs`n- read: <doc paths>`n- updated: none`n`n" + $validImpactOnly) $true
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'Project docs') 'impact-guard accepted an untouched Project docs read: placeholder'
+
+    $missingDocPath = 'docs/does-not-exist.md'
+    Set-TestTask $resolved @() ("## Project docs`n- read: $missingDocPath`n- updated: none`n`n" + $validImpactOnly) $true
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'does not exist') 'impact-guard accepted a read: path that does not exist in the repo'
+    Assert ((Invoke-Quality $repo) -match 'does not exist') 'quality-gate accepted a read: path that does not exist in the repo'
+
+    Set-TestTask $resolved @() ("## Project docs`n- read: none - <reason>`n- updated: none`n`n" + $validImpactOnly) $true
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'placeholder') "impact-guard accepted 'none - <reason>' with the reason left as a placeholder"
+    Assert ((Invoke-Quality $repo) -match 'placeholder') "quality-gate accepted 'none - <reason>' with the reason left as a placeholder"
+
+    # $impactSurface's own Project docs section already is a genuine 'none - <reason>'
+    # disposition, and every "valid code_change task" assertion elsewhere in this file already
+    # exercises it end to end (impact-guard AND quality-gate) via $reviewResult/$roleResults - no
+    # separate positive fixture needed here.
+    Set-TestTask $resolved @() ("## Project docs`n- read: none - project has no docs yet`n- updated: none`n`n" + $validImpactOnly) $true
+    Assert (-not (Invoke-ImpactGuard $repo $codeFile)) "impact-guard blocked a genuine 'none - <reason>' disposition"
+
+    # a real doc path is accepted too, not just the none - <reason> escape hatch. Written and
+    # removed within this block: later in this file $repo's fingerprint is expected to be exactly
+    # what it was after the fixture commit, the same invariant the stray.go check further below
+    # relies on.
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo 'docs') | Out-Null
+    $projectDocFixture = Join-Path $repo 'docs\architecture.md'
+    [IO.File]::WriteAllText($projectDocFixture, 'test doc', $utf8NoBom)
+    try {
+        Set-TestTask $resolved @() ("## Project docs`n- read: docs/architecture.md`n- updated: none`n`n" + $validImpactOnly) $true
+        Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'impact-guard blocked read: naming a doc path that actually exists'
+    } finally {
+        Remove-Item -LiteralPath $projectDocFixture -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $repo 'docs') -Force -Recurse -ErrorAction SilentlyContinue
+    }
+
+    # code_change: false is untouched by either gate.
+    Set-TestTask $resolved @()
+    Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'impact-guard applied the Project docs gate to a code_change: false task'
+    Assert (-not (Invoke-Quality $repo)) 'quality-gate applied the Project docs gate to a code_change: false task'
+
+    # --- Project docs: updated:, Close-only and conditional on change_kind / risk_flags ---
+    # Untriggered (chore, no doc-relevant flag): not checked at all. $roleResults already carries
+    # 'none - test fixture, no structural change' and every other Close test in this file already
+    # exercises that path successfully.
+    Set-TestTask $resolved @() $roleResults $true 'chore'
+    $untriggeredOutput = Invoke-CloseTask $repo
+    Assert ($untriggeredOutput.ExitCode -eq 0) "close-task refused an untriggered (chore) task over updated:: $($untriggeredOutput.Text)"
+
+    # change_kind: feature triggers it. Missing / placeholder / bare 'none' (no reason) all refuse.
+    $updatedMissing = $roleResults -replace '(?m)^- updated:.*\r?\n', ''
+    Set-TestTask $resolved @() $updatedMissing $true 'feature'
+    $missingOutput = Invoke-CloseTask $repo
+    Assert ($missingOutput.ExitCode -ne 0) 'a triggered (feature) task with no updated: line was allowed to close'
+    Assert ($missingOutput.Text -match 'updated') "close-task did not name the missing updated: line: $($missingOutput.Text)"
+
+    $updatedPlaceholder = $roleResults -replace '(?m)^- updated:.*\r?$', '- updated: <doc paths>'
+    Set-TestTask $resolved @() $updatedPlaceholder $true 'feature'
+    Assert ((Invoke-CloseTask $repo).ExitCode -ne 0) 'a triggered (feature) task with an untouched updated: placeholder was allowed to close'
+
+    $updatedBareNone = $roleResults -replace '(?m)^- updated:.*\r?$', '- updated: none'
+    Set-TestTask $resolved @() $updatedBareNone $true 'feature'
+    Assert ((Invoke-CloseTask $repo).ExitCode -ne 0) 'a triggered (feature) task with a bare updated: none (no reason) was allowed to close'
+
+    $updatedNonePlaceholderReason = $roleResults -replace '(?m)^- updated:.*\r?$', '- updated: none - <reason>'
+    Set-TestTask $resolved @() $updatedNonePlaceholderReason $true 'feature'
+    Assert ((Invoke-CloseTask $repo).ExitCode -ne 0) "a triggered (feature) task with 'none - <reason>' left as a placeholder was allowed to close"
+
+    # A genuine reason is accepted - a structural change can legitimately have nothing to document.
+    $updatedGenuineNone = $roleResults -replace '(?m)^- updated:.*\r?$', '- updated: none - internal refactor only, no observable behavior or entrypoint changed'
+    Set-TestTask $resolved @() $updatedGenuineNone $true 'feature'
+    $genuineNoneOutput = Invoke-CloseTask $repo
+    Assert ($genuineNoneOutput.ExitCode -eq 0) "a triggered (feature) task with a genuine 'none - <reason>' disposition was refused: $($genuineNoneOutput.Text)"
+
+    # A real path is accepted; a nonexistent one is refused - same Test-Path check read: uses.
+    # Writing the fixture file changes $repo's fingerprint out from under both $roleResults'
+    # recorded diff_sha256 AND Set-TestTask's own embedded pre-review line (it bakes in
+    # $script:fingerprint directly, separately from $Extra) - recompute and substitute both,
+    # rather than let the fingerprint gate mask the assertion this block actually wants to make.
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo 'docs') | Out-Null
+    $updateDocFixture = Join-Path $repo 'docs\updated-fixture.md'
+    [IO.File]::WriteAllText($updateDocFixture, 'test doc', $utf8NoBom)
+    $fingerprintBeforeDocFixture = $fingerprint
+    try {
+        $fingerprint = ((& (Join-Path $root 'scripts\worktree-fingerprint.ps1') -Path $repo | Out-String) | ConvertFrom-Json).sha256
+        Assert ($fingerprint -match '^[0-9a-f]{64}$') "worktree-fingerprint did not return a sha256 with the doc fixture present: $fingerprint"
+
+        $updatedRealPath = ($roleResults -replace $fingerprintBeforeDocFixture, $fingerprint) -replace '(?m)^- updated:.*\r?$', '- updated: docs/updated-fixture.md'
+        Set-TestTask $resolved @() $updatedRealPath $true 'feature'
+        $realPathOutput = Invoke-CloseTask $repo
+        Assert ($realPathOutput.ExitCode -eq 0) "close-task refused updated: naming a doc path that actually exists: $($realPathOutput.Text)"
+
+        $updatedMissingPath = ($roleResults -replace $fingerprintBeforeDocFixture, $fingerprint) -replace '(?m)^- updated:.*\r?$', '- updated: docs/does-not-exist-either.md'
+        Set-TestTask $resolved @() $updatedMissingPath $true 'feature'
+        Assert ((Invoke-CloseTask $repo).ExitCode -ne 0) 'close-task accepted updated: naming a doc path that does not exist'
+    } finally {
+        Remove-Item -LiteralPath $updateDocFixture -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $repo 'docs') -Force -Recurse -ErrorAction SilentlyContinue
+        $fingerprint = $fingerprintBeforeDocFixture
+    }
+
+    # risk_flags alone can trigger it too, independent of change_kind (chore here would not).
+    $updatedMissingChore = $roleResults -replace '(?m)^- updated:.*\r?\n', ''
+    $behaviorChangeContent = "## Acceptance cases`nA1`n`n" + $updatedMissingChore
+    Set-TestTask $resolved @('behavior_change') $behaviorChangeContent $true 'chore'
+    Assert ((Invoke-CloseTask $repo).ExitCode -ne 0) 'risk_flags: behavior_change did not trigger the updated: check on a chore task'
+
     # Antigravity: args use PascalCase TargetFile, so file_path-style lookups silently miss.
     Set-TestTask $resolved @() '' $true
     foreach ($agTool in @('write_to_file','replace_file_content','multi_replace_file_content')) {
@@ -297,7 +691,7 @@ try {
     Set-TestTask $resolved @()
     $taskPath = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
     $taskContent = Get-Content -LiteralPath $taskPath.FullName -Raw -Encoding UTF8
-    $taskContent = $taskContent -replace '(?m)^code_change: false$', 'code_change: maybe'
+    $taskContent = $taskContent -replace '(?m)^code_change: false[ \t]*\r?$', 'code_change: maybe'
     [IO.File]::WriteAllText($taskPath.FullName, $taskContent, $utf8NoBom)
     Assert ((Invoke-Quality $repo) -match 'code_change must be true or false') 'invalid code_change was accepted'
     $taskContent = $taskContent -replace '(?m)^code_change: maybe\r?\n', ''
@@ -307,9 +701,177 @@ try {
     Set-TestTask $resolved @() ''
     $taskPath = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1
     $taskContent = Get-Content -LiteralPath $taskPath.FullName -Raw -Encoding UTF8
-    $taskContent = $taskContent -replace '(?m)^- pre-review: PASS$', '- pre-review: SKIP' -replace '(?m)^- skip reason: none$', '- skip reason: <reason>'
+    $taskContent = $taskContent -replace '(?m)^- pre-review: PASS[ \t]*\r?$', '- pre-review: SKIP' -replace '(?m)^- skip reason: none[ \t]*\r?$', '- skip reason: <reason>'
     [IO.File]::WriteAllText($taskPath.FullName, $taskContent, $utf8NoBom)
     Assert ((Invoke-Quality $repo) -match 'SKIP pre-review requires a reason') 'SKIP without a reason was accepted'
+
+    # ================================================================
+    # Phase 3: coordinator/worker role awareness
+    # ================================================================
+
+    function New-OrchestrationTask([string]$TaskRoot, [string]$Id, [string]$ProjectId, [string]$WorktreeId, [hashtable]$ExtraFrontmatter, [string]$Body, [string]$CompletionCriteria = "- [x] complete") {
+        $dir = Join-Path $TaskRoot $Id
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $extraLines = ($ExtraFrontmatter.Keys | ForEach-Object { "$($_): $($ExtraFrontmatter[$_])" }) -join "`n"
+        $content = @"
+---
+id: $Id
+project_id: $ProjectId
+worktree_id: $WorktreeId
+status: in_progress
+code_change: true
+risk_flags: []
+created_at: 2026-08-12T00:00:00+08:00
+updated_at: 2026-08-12T00:00:00+08:00
+$extraLines
+---
+
+## Goal
+Goal text
+
+## Scope
+Scope text
+
+## Completion criteria
+$CompletionCriteria
+
+$Body
+"@
+        [IO.File]::WriteAllText((Join-Path $dir 'task.md'), $content, $utf8NoBom)
+        return (Join-Path $dir 'task.md')
+    }
+
+    # --- coordinator: main worktree source edits denied unconditionally ---
+
+    Get-ChildItem -LiteralPath $resolved.task_root -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    $coordId = '20260812-000000-coord'
+    # A real coordinator's own criteria genuinely cannot all be checked off while workers are
+    # still running (e.g. "all workers applied and integration verified") - the fixture must
+    # reflect that, or the waiting-early-return test below would pass by accident regardless of
+    # whether the unchecked-items check is actually role-aware.
+    $coordCriteria = "- [ ] all workers applied and integration verified"
+    $coordTaskPath = New-OrchestrationTask $resolved.task_root $coordId $resolved.project_id $resolved.worktree_id `
+        @{ subtask_role = 'coordinator'; integration_status = 'pending' } `
+        "## Decomposition plan`ntwo workers`n## Worker results`npending`n## Delivery log`npending`n## Integration verification`npending`n" `
+        $coordCriteria
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'must not edit source directly') 'coordinator was allowed to edit main worktree source with an unfilled impact surface'
+    # The deny must be unconditional - filling the impact surface must not unlock it.
+    $coordContent = Get-Content -LiteralPath $coordTaskPath -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($coordTaskPath, ($coordContent + "`n$impactSurface`n"), $utf8NoBom)
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'must not edit source directly') 'coordinator was allowed to edit main worktree source after filling the impact surface'
+    # A coordinator must still be able to write its own task file.
+    Assert (-not (Invoke-ImpactGuard $repo $coordTaskPath)) 'impact-guard deadlocked the coordinator task file'
+
+    # coordinator: waiting on a non-terminal worker is a legitimate stop, not a block. The
+    # roster is discovered via parent_task_id, so a worker task must actually exist and still
+    # be in_progress for "waiting" to be true (an empty roster is not "waiting", it is "done").
+    # The worker needs its OWN worktree_id (a real worker lives in a separate worktree) -
+    # reusing the coordinator's would make project-resolver see two in_progress tasks for the
+    # same worktree and block on "multiple in_progress tasks" before role logic ever runs.
+    $waitingWorkerId = '20260812-000200-worker-wip'
+    $fakeWorkerWorktreeId = 'deadbeefdeadbeef'
+    New-OrchestrationTask $resolved.task_root $waitingWorkerId $resolved.project_id $fakeWorkerWorktreeId `
+        @{ subtask_role = 'worker'; parent_task_id = $coordId; base_commit = '0123456789abcdef0123456789abcdef01234567'; file_ownership = '[src/]'; delivery_status = 'pending' } `
+        "## Parent task`n$coordId`n## File ownership`nsrc/`n" | Out-Null
+    Assert (-not (Invoke-Quality $repo)) 'waiting coordinator with a non-terminal worker was blocked instead of allowed to stop'
+
+    # coordinator: conflicted must never pass. It is not 'pending', so the waiting early return
+    # no longer applies and the full completion check - including this state - kicks in.
+    $conflicted = $coordContent -replace '(?m)^integration_status: pending[ \t]*\r?$', 'integration_status: conflicted'
+    [IO.File]::WriteAllText($coordTaskPath, $conflicted, $utf8NoBom)
+    Assert ((Invoke-Quality $repo) -match 'conflicted|applied') 'conflicted coordinator was allowed to stop cleanly'
+
+    # coordinator: the hand-merge exception. While integration_status is conflicted, the paths
+    # orchestrate.ps1 recorded in orchestration.json become editable - and nothing else does.
+    $coordOrchestration = Join-Path (Split-Path -Parent $coordTaskPath) 'orchestration.json'
+    $conflictPayload = @{
+        coordinator_task_id = $coordId
+        base_commit = '0123456789abcdef0123456789abcdef01234567'
+        conflicts = @(@{ worker = '20260812-000200-worker-wip'; reason = 'overlaps'; paths = @('app/x.go') })
+    } | ConvertTo-Json -Depth 6
+    [IO.File]::WriteAllText($coordOrchestration, $conflictPayload, $utf8NoBom)
+    Assert (-not (Invoke-ImpactGuard $repo $codeFile)) 'coordinator was blocked from merging a recorded conflict path'
+    $otherFile = Join-Path $repo 'app\y.go'
+    Assert ((Invoke-ImpactGuard $repo $otherFile) -match 'only edit the conflicting paths') 'coordinator was allowed to edit a path outside the recorded conflict'
+    # The exception closes itself: once every conflict is resolved the list empties.
+    $emptyPayload = @{ coordinator_task_id = $coordId; base_commit = '0123456789abcdef0123456789abcdef01234567'; conflicts = @() } | ConvertTo-Json -Depth 6
+    [IO.File]::WriteAllText($coordOrchestration, $emptyPayload, $utf8NoBom)
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'must not edit source directly') 'coordinator kept source write access after the conflict list emptied'
+    # ... and it does not apply at all outside the conflicted state.
+    [IO.File]::WriteAllText($coordOrchestration, $conflictPayload, $utf8NoBom)
+    [IO.File]::WriteAllText($coordTaskPath, $coordContent, $utf8NoBom)
+    Assert ((Invoke-ImpactGuard $repo $codeFile) -match 'must not edit source directly') 'a recorded conflict unlocked source edits while integration_status was still pending'
+    Remove-Item -LiteralPath $coordOrchestration -Force
+
+    # Restore pending + the still-open worker for the impact-guard checks that follow.
+    [IO.File]::WriteAllText($coordTaskPath, $coordContent, $utf8NoBom)
+
+    # --- worker: own worktree, own task dir, sibling task dir, git allowlist ---
+
+    $workerRepo = Join-Path $sandbox 'worker-repo'
+    New-Item -ItemType Directory -Force -Path $workerRepo | Out-Null
+    & git -C $workerRepo init --quiet
+    [IO.File]::WriteAllText((Join-Path $workerRepo 'fixture.txt'), 'fixture', $utf8NoBom)
+    & git -C $workerRepo add fixture.txt
+    & git -C $workerRepo -c user.name=agent-workflow -c user.email=agent-workflow@example.invalid commit --quiet -m fixture
+    $workerResolved = (& $resolverPath -Path $workerRepo -StateRoot $state -Ensure | Out-String) | ConvertFrom-Json
+    $workerId = '20260812-000100-worker'
+    $workerCodeFile = Join-Path $workerRepo 'app\x.go'
+    $workerTaskPath = New-OrchestrationTask $workerResolved.task_root $workerId $workerResolved.project_id $workerResolved.worktree_id `
+        @{ subtask_role = 'worker'; parent_task_id = $coordId; base_commit = '0123456789abcdef0123456789abcdef01234567'; file_ownership = '[app/]'; delivery_status = 'pending' } `
+        "## Parent task`n$coordId`n## File ownership`napp/`n"
+
+    # Own worktree: behaves exactly like a plain code_change:true task (gated by impact surface).
+    Assert ((Invoke-ImpactGuard $workerRepo $workerCodeFile) -match 'Impact surface') 'worker was allowed to edit its own worktree before filling the impact surface'
+    $workerContent = Get-Content -LiteralPath $workerTaskPath -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($workerTaskPath, ($workerContent + "`n$impactSurface`n"), $utf8NoBom)
+    Assert (-not (Invoke-ImpactGuard $workerRepo $workerCodeFile)) 'worker was blocked from editing its own worktree after filling the impact surface'
+    # Own task directory must stay writable, or the worker could never close out its own task.
+    Assert (-not (Invoke-ImpactGuard $workerRepo $workerTaskPath)) 'impact-guard deadlocked the worker task file'
+    # A sibling task's directory (here: the coordinator's, reachable under the same state root
+    # once both repos share $env:USERPROFILE) must be denied.
+    Assert ((Invoke-ImpactGuard $workerRepo $coordTaskPath) -match 'out of lane') 'worker was allowed to write into another task''s directory'
+    # `feature` vs `feature-old`: StartsWith without a separator boundary would conflate these.
+    $siblingLookalike = $workerResolved.task_root + '-old\task.md'
+    Assert ((Invoke-ImpactGuard $workerRepo $siblingLookalike) -match 'out of lane|Impact surface') 'a lookalike task_root path was not evaluated as out of scope'
+
+    # --- git-guard: worker read-only allowlist ---
+
+    function Invoke-GuardAt([string]$Cwd, [string]$Command) {
+        $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
+        return Invoke-HookUtf8 $guard $payload
+    }
+
+    Assert (-not (Invoke-GuardAt $workerRepo 'git status')) 'worker git-guard blocked a read-only status'
+    Assert (-not (Invoke-GuardAt $workerRepo 'git diff HEAD')) 'worker git-guard blocked git diff HEAD'
+    Assert (-not (Invoke-GuardAt $workerRepo 'git log -n 5 --oneline')) 'worker git-guard blocked git log -n 5 --oneline'
+    Assert (-not (Invoke-GuardAt $workerRepo 'git -C . diff --name-only HEAD')) 'worker git-guard did not recognise git -C <path> diff'
+    Assert (-not (Invoke-GuardAt $workerRepo 'git --no-pager log -n 1 --oneline')) 'worker git-guard did not recognise git --no-pager log'
+    Assert ((Invoke-GuardAt $workerRepo 'git add -A') -match 'deny') 'worker git-guard allowed git add'
+    Assert ((Invoke-GuardAt $workerRepo 'git branch feature') -match 'deny') 'worker git-guard allowed git branch'
+    Assert ((Invoke-GuardAt $workerRepo 'git switch -c feature') -match 'deny') 'worker git-guard allowed git switch'
+    Assert ((Invoke-GuardAt $workerRepo 'git config --local user.name x') -match 'deny') 'worker git-guard allowed git config --local'
+    Assert ((Invoke-GuardAt $workerRepo 'git commit -m x') -match 'deny') 'worker git-guard allowed git commit (must deny, not ask - no one may be present to answer)'
+    Assert ((Invoke-GuardAt $workerRepo 'git diff --output x.patch') -match 'deny') 'worker git-guard allowed git diff --output (a read subcommand made to write)'
+    Assert ((Invoke-GuardAt $workerRepo 'git -c core.pager=calc log') -match 'deny') 'worker git-guard allowed git -c (arbitrary config injection)'
+    Assert ((Invoke-GuardAt $workerRepo 'git status && git add -A') -match 'deny') 'worker git-guard allowed a && chain where one segment is not allowlisted'
+    Assert ((Invoke-GuardAt $workerRepo 'git diff | Select-String x') -match 'deny') 'worker git-guard allowed a Git pipeline'
+
+    # --- git-guard: coordinator allowlist ---
+
+    Assert (-not (Invoke-GuardAt $repo 'git status')) 'coordinator git-guard blocked a read-only status'
+    Assert (-not (Invoke-GuardAt $repo 'git diff HEAD')) 'coordinator git-guard blocked git diff HEAD'
+    Assert ((Invoke-GuardAt $repo 'git apply delivery.patch') -match 'deny') 'coordinator git-guard allowed direct git apply'
+    Assert ((Invoke-GuardAt $repo 'git worktree add x') -match 'deny') 'coordinator git-guard allowed direct git worktree'
+    Assert ((Invoke-GuardAt $repo 'git add -A') -match 'deny') 'coordinator git-guard allowed git add'
+    Assert ((Invoke-GuardAt $repo 'git restore x') -match 'deny') 'coordinator git-guard allowed git restore'
+    Assert ((Invoke-GuardAt $repo 'git reset') -match 'deny') 'coordinator git-guard allowed git reset'
+
+    # --- plain task: pipe/allowlist behaviour must stay exactly as before ---
+
+    Get-ChildItem -LiteralPath $resolved.task_root -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+    Assert (-not (Invoke-GuardAt $repo 'git diff | Select-String x')) 'a plain task''s git-guard behaviour changed for a piped read-only command'
+    Assert ((Invoke-GuardAt $repo 'git commit -m x') -match 'ask') 'a plain task''s git-guard no longer asks for git commit'
 } finally {
     $env:USERPROFILE = $oldProfile
     if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }

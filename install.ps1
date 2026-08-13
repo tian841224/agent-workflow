@@ -8,7 +8,7 @@ param(
     [string]$StateRoot = (Join-Path $env:USERPROFILE '.agent-workflow'),
     [string]$CanonicalRoot = (Join-Path $env:USERPROFILE '.agents'),
     [string]$LegacyRoot = (Join-Path $env:USERPROFILE '.agents'),
-    [ValidateSet('Install','Status','Repair','Uninstall')][string]$Action = 'Install',
+    [ValidateSet('Install','Status','Repair','Uninstall','Verify')][string]$Action = 'Install',
     [switch]$DryRun
 )
 
@@ -20,6 +20,24 @@ $stateFile = Join-Path $StateRoot 'managed-runtime.json'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $managed = [System.Collections.Generic.List[object]]::new()
+$forceOverwrite = ($Action -eq 'Repair')
+
+# What this run last wrote to each managed path, so a re-install can tell "canonical evolved"
+# (destination still matches what we delivered) from "someone edited the destination after we
+# delivered it" (e.g. a runtime-only hotfix layered on top by hand). Without this, Install-File's
+# same-hash/marker-text check cannot see that difference and silently clobbers local edits on
+# every re-install.
+$previousInstalledHashes = @{}
+if (Test-Path -LiteralPath $stateFile) {
+    try {
+        $previousState = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($item in @($previousState.files)) {
+            if ($item.path -and $item.sha256) { $previousInstalledHashes[$item.path] = $item.sha256 }
+        }
+    } catch {
+        Write-Warning "could not read previous install state ($stateFile): $($_.Exception.Message); falling back to same-hash/marker detection only"
+    }
+}
 
 function Ensure-Directory([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -51,7 +69,21 @@ function Backup-UserFile([string]$Path) {
 function Install-File([string]$Source, [string]$Destination, [string]$Kind = 'file') {
     Ensure-Directory (Split-Path -Parent $Destination)
     if (Test-Path -LiteralPath $Destination) {
-        $same = (Get-Hash $Source) -eq (Get-Hash $Destination)
+        $destHash = Get-Hash $Destination
+        $sourceHash = Get-Hash $Source
+        $same = $destHash -eq $sourceHash
+        if (-not $same -and -not $forceOverwrite) {
+            $recordedHash = $previousInstalledHashes[$Destination]
+            # Only a match against what THIS installer delivered last time means "safe, nobody
+            # touched it since" - a missing record (pre-tracking install, or a file layered in by
+            # hand and never installed by us) falls back to the old marker-text heuristic below,
+            # same as before this check existed.
+            if ($recordedHash -and $destHash -ne $recordedHash) {
+                Write-Output "[install] kept local changes: $Destination differs from what agent-workflow last installed there ($($recordedHash.Substring(0,12))) and a newer canonical version is available. Not overwriting; re-run with -Action Repair to force the canonical version instead."
+                $managed.Add([ordered]@{ path = $Destination; sha256 = $destHash; kind = $Kind })
+                return
+            }
+        }
         $owned = $same -or (Select-String -LiteralPath $Destination -Pattern 'agent-workflow v4' -Quiet -ErrorAction SilentlyContinue)
         if (-not $owned) { Backup-UserFile $Destination }
     }
@@ -62,7 +94,7 @@ function Install-File([string]$Source, [string]$Destination, [string]$Kind = 'fi
 }
 
 function Install-CanonicalSharedSources {
-    foreach ($relative in @('agents\reviewer.md','agents\verifier.md')) {
+    foreach ($relative in @('agents\reviewer.md','agents\adversarial.md','agents\verifier.md','agents\retrospective.md','agents\worker.md')) {
         Install-File (Join-Path $repoSharedRoot $relative) (Join-Path $CanonicalRoot $relative) 'canonical-shared-source'
     }
     $repoSkillsRoot = Join-Path $repoSharedRoot 'skills'
@@ -296,7 +328,7 @@ function Install-Runtime {
     $manifest = Get-Content -LiteralPath (Join-Path $repoRoot 'adapters\managed-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($relative in $manifest.runtime) {
         $destination = Join-Path $runtimeRoot $relative
-        if ($relative -in @('agents/reviewer.md','agents/verifier.md','skills/workflow/SKILL.md')) {
+        if ($relative -in @('agents/reviewer.md','agents/adversarial.md','agents/verifier.md','agents/retrospective.md','agents/worker.md','skills/workflow/SKILL.md','skills/workflow/risk-flags.md','skills/workflow/orchestration.md','skills/workflow/project-docs.md')) {
             Install-ManagedHardLink (Get-SharedSource $relative) $destination 'canonical-shared-hardlink'
         } else {
             Install-File (Get-SharedSource $relative) $destination 'runtime'
@@ -313,20 +345,21 @@ function Install-CanonicalSkillLinks([string]$DestinationSkillsRoot) {
 }
 
 function Install-Claude {
-    foreach ($name in @('reviewer','verifier')) { Write-MarkdownAgent $name (Join-Path $ClaudeTarget "agents\agent-workflow-$name.md") }
+    # worker is Claude-only in v1: Codex and Antigravity fan-out is unverified, so no adapter is generated there.
+    foreach ($name in @('reviewer','adversarial','verifier','retrospective','worker')) { Write-MarkdownAgent $name (Join-Path $ClaudeTarget "agents\agent-workflow-$name.md") }
     Install-CanonicalSkillLinks (Join-Path $ClaudeTarget 'skills')
     Merge-Hooks (Join-Path $repoRoot 'adapters\claude\settings.hooks.json') (Join-Path $ClaudeTarget 'settings.json') (Join-Path $runtimeRoot 'hooks')
 }
 
 function Install-Codex {
-    foreach ($name in @('reviewer','verifier')) { Write-CodexAgent $name (Join-Path $CodexTarget "agents\agent-workflow-$name.toml") }
+    foreach ($name in @('reviewer','adversarial','verifier','retrospective')) { Write-CodexAgent $name (Join-Path $CodexTarget "agents\agent-workflow-$name.toml") }
     Install-CanonicalSkillLinks (Join-Path $CodexTarget 'skills')
     Install-File (Join-Path $repoRoot 'adapters\codex\execpolicy.rules') (Join-Path $CodexTarget 'rules\agent-workflow.rules') 'rules'
     Merge-Hooks (Join-Path $repoRoot 'adapters\codex\hooks.json') (Join-Path $CodexTarget 'hooks.json') (Join-Path $runtimeRoot 'hooks')
 }
 
 function Install-Antigravity {
-    foreach ($name in @('reviewer','verifier')) { Write-MarkdownAgent $name (Join-Path $AntigravityTarget "config\agents\agent-workflow-$name\agent.md") }
+    foreach ($name in @('reviewer','adversarial','verifier','retrospective')) { Write-MarkdownAgent $name (Join-Path $AntigravityTarget "config\agents\agent-workflow-$name\agent.md") }
     Install-CanonicalSkillLinks (Join-Path $AntigravityTarget 'config\skills')
     Install-File (Join-Path $repoRoot 'adapters\antigravity\workflows\agent-workflow.md') (Join-Path $AntigravityTarget 'config\global_workflows\agent-workflow.md') 'workflow'
     Merge-Hooks (Join-Path $repoRoot 'adapters\antigravity\hooks.json') (Join-Path $AntigravityTarget 'config\hooks.json') (Join-Path $runtimeRoot 'hooks') -TopLevel
@@ -487,6 +520,13 @@ function Uninstall-Managed {
 
 if ($Action -eq 'Status') { Show-Status; exit 0 }
 if ($Action -eq 'Uninstall') { Uninstall-Managed; exit 0 }
+# Verify answers the question Status does not: is the runtime that is actually loaded still
+# intact, still parseable, and still the current repo version. It reads only, so it is safe to
+# run at any time, and it exits non-zero so it can gate a script.
+if ($Action -eq 'Verify') {
+    & (Join-Path $repoRoot 'scripts\runtime-check.ps1') -StateRoot $StateRoot
+    exit $LASTEXITCODE
+}
 if (Test-LegacyKnowledge) { throw 'v3 knowledge or history was found. Run migrate-v3.ps1 through Validate and Activate before installing v4.' }
 
 Install-CanonicalSharedSources

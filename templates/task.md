@@ -4,6 +4,7 @@ project_id: <project-id>
 worktree_id: <worktree-id>
 status: in_progress
 code_change: <true | false>
+change_kind: <fix | feature | refactor | chore；code_change: true 時必填>
 risk_flags: []
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
@@ -32,6 +33,9 @@ frozen_at:
 - checks: <執行項目與結果>
 - skip reason: <只有 SKIP 時填寫>
 - limitations: <未驗證限制；無則填 none>
+- diff_sha256: <code_change: true 且 pre-review PASS 時必填；worktree-fingerprint.ps1 的輸出>
+- mutation check: <financial／data_write 時必填 PASS 或 SKIP：破壞關鍵判斷、確認守住它的測試變紅、再還原>
+- mutation reason: <只有 mutation check 為 SKIP 時填寫>
 
 <!-- 只有實際寫入記憶時加入：
 ## Knowledge result（記憶結果）
@@ -52,7 +56,11 @@ frozen_at:
 ## User confirmation（使用者確認依據）
 -->
 
-<!-- code_change: true 時加入（Impact surface 需在動手改 code 前填寫）：
+<!-- code_change: true 時加入（Project docs 的 read 與 Impact surface 皆需在動手改 code 前填寫）：
+## Project docs（專案文件）
+- read: <project-doc.ps1 -Action Lookup 命中並讀過的 doc 路徑，逗號分隔；專案尚無文件時填 none - 理由>
+- updated: <本次更新或確認過的 doc 路徑，逗號分隔；無則 none - 理由（change_kind: feature／refactor，或 risk_flags 命中 behavior_change／contract／schema／cross_feature 時，close-task.ps1 會檢查這一行）>
+
 ## Impact surface（影響面）
 - 呼叫端：<反向搜尋命令與命中數；需要判斷的命中逐條 path:line>
 - 觸發入口：<HTTP／cron／MQ／CLI／前端；無則 none>
@@ -63,7 +71,36 @@ frozen_at:
 <入口 > 上游 > 修改點 > 下游終點；列出重要錯誤／重送／並發／異步分支與驗證證據>
 
 ## Reviewer result（Reviewer 結果）
+- result: <PASS | FAIL>
+- diff_sha256: <Reviewer 實際審查的那份 diff 指紋；與現況不符時 gate 會要求重審>
+- Architecture consistency: <PASS>
+- Code quality and conventions: <PASS>
+- Data consistency: <PASS | N/A - 理由>
+- Security: <PASS | N/A - 理由>
+- Risk and compatibility: <PASS>
+- Performance: <PASS | N/A - 理由>
+- Flow and impact completeness: <PASS>
+- Failure modes and observability: <PASS>
+
+## Adversarial result（Adversarial 複查結果；risk_flags 命中 financial／data_write／migration／irreversible／schema／contract 任一時才需要）
+- result: <PASS 代表「已嘗試推翻，未成立」>
+- diff_sha256: <Adversarial 實際複查的那份 diff 指紋>
+- Provenance: <PASS>
+- Pattern fan-out: <PASS>
+- Engine semantics: <PASS>
+- Cross-round accumulation: <PASS>
+
 ## Verifier result（Verifier 結果）
+- PASS
+- diff_sha256: <Verifier 實際驗證的那份 diff 指紋>
+
+## Retrospective result（回顧結果；change_kind: fix 時必填，worker 除外）
+- introduced_by: <引入缺陷的 commit sha，或 unknown - 跑過哪些搜尋>
+- classification: <regression | pre_existing | external>
+- miss_category: <只有 regression 時必填；八類見 schemas/retro.schema.json>
+- gap_evidence: <只有 regression 時必填：哪份 task 的哪一段、或哪道 gate 沒攔下；附 task id 或 path:line>
+- framework_change: <只有 regression 時必填：recorded:<retro-id>，或 not_needed - 理由>
+- occurrences: <retro.ps1 回報的同類累積次數>
 -->
 
 <!-- 其他條件式段落：
@@ -72,4 +109,36 @@ contract／schema／data_write／financial／migration：## Contract and data im
 cross_feature／migration／irreversible：## Implementation sequence（實作順序、依賴與回滾點）
 ui：## Browser verification（browser 畫面驗證）
 refactor：## Behavior invariants and before-after evidence（行為不變條件與前後證據）
+-->
+
+<!-- coordinator task 再加入（frontmatter 補 subtask_role: coordinator、integration_status: pending）：
+## Decomposition plan（拆分計畫）
+- 拆分理由與各 worker 範圍
+- split plan JSON 路徑與 split-plan.ps1 的資格判定結果
+
+## Worker results（worker 結果）
+- 每個 worker 的狀態、驗證結果、fix-forward 歷程與 Manual handoff 資訊
+
+## Delivery log（交付紀錄）
+- 每份 patch、ownership／overlap findings、apply 結果
+- 衝突合併：衝突路徑、合併取捨、詢問使用者的問題與答覆
+- 待使用者裁決事項
+
+## Integration verification（整合驗證）
+- 整合後 pre-review、受影響測試集合、Reviewer 與 Verifier 證據
+-->
+
+<!-- worker task 再加入。frontmatter 補以下五欄（file_ownership 必須是 inline array）：
+subtask_role: worker
+parent_task_id: <coordinator-task-id>
+base_commit: <40-hex；worktree baseline，同時是 Reviewer 的 diff 基準>
+file_ownership: [src/payment/, tests/payment/]
+delivery_status: pending
+
+## Parent task（上層 task）
+- coordinator task id 與 base_commit
+
+## File ownership（檔案範圍）
+- 與 frontmatter 的 file_ownership 一致的 repo-relative prefix 清單與理由
+- 需要範圍外檔案時：ownership_request 與停止當下的證據
 -->

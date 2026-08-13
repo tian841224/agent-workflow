@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/retro.schema.json",
+  "title": "Framework gap finding recorded when a fix turns out to be a regression",
+  "type": "object",
+  "required": ["id", "created_at", "task_id", "classification", "summary", "status"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "project_id": { "type": ["string", "null"], "pattern": "^[a-f0-9]{16}$" },
+    "task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
+    "repo": { "type": "string" },
+    "classification": { "enum": ["regression", "pre_existing", "external"] },
+    "miss_category": {
+      "enum": [
+        "impact_surface",
+        "execution_path",
+        "reviewer_dimension",
+        "risk_flag",
+        "completion_criteria",
+        "test_gap",
+        "pre_review_gap",
+        "outside_framework"
+      ]
+    },
+    "introduced_by": { "type": "string", "minLength": 1 },
+    "gap_evidence": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "proposed_change": { "type": "string" },
+    "status": { "enum": ["open", "applied", "rejected"] },
+    "resolved_at": { "type": ["string", "null"], "format": "date-time" },
+    "resolution_note": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false,
+  "x_agent_workflow": {
+    "gap_required": ["regression"],
+    "escalate_threshold": 2
+  }
+}

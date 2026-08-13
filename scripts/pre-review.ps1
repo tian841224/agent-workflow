@@ -53,6 +53,30 @@ function Invoke-Check([string]$Name, [scriptblock]$Action, [switch]$FailOnOutput
 
 Push-Location $repo
 try {
+    # Before checking the change, check the checker. Every mechanical gate in this system has at
+    # some point been broken and silent simultaneously, and a whole session once ran against
+    # hooks that were never reinstalled. This runs first so a compromised guard is never the
+    # thing quietly certifying the work.
+    # Deliberately not counted in $ran: that counter decides SKIP vs PASS for the *project*, and
+    # a guard-health check passing says nothing about whether the change was checked. A repo with
+    # no go.mod must still report SKIP.
+    $runtimeCheck = Join-Path $PSScriptRoot 'runtime-check.ps1'
+    if (Test-Path -LiteralPath $runtimeCheck) {
+        # Check the runtime this script was actually loaded from, not one a profile path guesses
+        # at. Installed, that is <state>\runtime\scripts, so the state root is two levels up;
+        # running straight from the repo has no state root and falls back to the default, where
+        # an absent manifest simply reports SKIP.
+        $runtimeCheckArgs = @{}
+        $runtimeDir = Split-Path -Parent $PSScriptRoot
+        if ((Split-Path -Leaf $runtimeDir) -eq 'runtime') { $runtimeCheckArgs['StateRoot'] = (Split-Path -Parent $runtimeDir) }
+        $runtimeOutput = @(& $runtimeCheck @runtimeCheckArgs 2>&1)
+        $runtimeExit = $LASTEXITCODE
+        @($runtimeOutput) | ForEach-Object { Write-Output $_ }
+        if ($runtimeExit -ne 0) { $script:failures.Add('runtime-check') }
+    } else {
+        Add-Skip 'runtime-check' 'runtime-check.ps1 is not installed next to pre-review.ps1'
+    }
+
     $isGo = Test-Path -LiteralPath (Join-Path $repo 'go.mod')
     $isNode = Test-Path -LiteralPath (Join-Path $repo 'package.json')
     $extraPath = Join-Path $repo '.pre-review-extra.ps1'

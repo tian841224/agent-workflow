@@ -2,7 +2,9 @@
 param(
     [string]$Path = (Get-Location).Path,
     [string]$StateRoot = (Join-Path $env:USERPROFILE '.agent-workflow'),
-    [switch]$Ensure
+    [switch]$Ensure,
+    [string[]]$RegisterWorktree = @(),
+    [string]$RosterFor = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,6 +22,19 @@ function Get-StableId([string]$Value) {
 
 function Normalize-Path([string]$Value) {
     return ([IO.Path]::GetFullPath($Value).TrimEnd('\', '/').Replace('\', '/').ToLowerInvariant())
+}
+
+# project.json is read-modify-write. Coordinators register every worker worktree up front
+# in one call, but hold an exclusive lock anyway so a stray concurrent write cannot lose data.
+function Invoke-WithProjectLock([string]$LockPath, [scriptblock]$Action) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LockPath) | Out-Null
+    $stream = $null
+    for ($attempt = 0; $attempt -lt 200; $attempt++) {
+        try { $stream = [IO.File]::Open($LockPath, 'OpenOrCreate', 'ReadWrite', 'None'); break }
+        catch [IO.IOException] { Start-Sleep -Milliseconds 25 }
+    }
+    if (-not $stream) { throw "could not acquire the project lock: $LockPath" }
+    try { & $Action } finally { $stream.Dispose() }
 }
 
 $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
@@ -54,45 +69,97 @@ $taskRoot = Join-Path $projectDir 'tasks'
 $projectFile = Join-Path $projectDir 'project.json'
 $now = (Get-Date).ToString('o')
 
-if ($Ensure) {
+$registeredWorktrees = @()
+if ($RegisterWorktree.Count -gt 0) {
+    foreach ($candidate in $RegisterWorktree) {
+        $resolvedWorktree = (Resolve-Path -LiteralPath $candidate).Path
+        $registeredWorktrees += [pscustomobject]@{ id = (Get-StableId (Normalize-Path $resolvedWorktree)); path = $resolvedWorktree }
+    }
+}
+
+if ($Ensure -or $registeredWorktrees.Count -gt 0) {
     New-Item -ItemType Directory -Force -Path $taskRoot | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $projectDir 'knowledge\entries') | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $projectDir 'history\tasks') | Out-Null
 
-    if (Test-Path -LiteralPath $projectFile) {
-        $project = Get-Content -LiteralPath $projectFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        $aliases = @($project.aliases)
+    Invoke-WithProjectLock (Join-Path $projectDir '.project.lock') {
+        if (Test-Path -LiteralPath $projectFile) {
+            $project = Get-Content -LiteralPath $projectFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $aliases = @($project.aliases)
+            $worktrees = @($project.worktrees)
+            $createdAt = $project.created_at
+        } else {
+            $aliases = @()
+            $worktrees = @()
+            $createdAt = $now
+        }
         if ($aliases -notcontains $root) { $aliases += $root }
-        $worktrees = @($project.worktrees | Where-Object { $_.id -ne $worktreeId })
-        $worktrees += [pscustomobject]@{ id = $worktreeId; path = $root }
-        $createdAt = $project.created_at
-    } else {
-        $aliases = @($root)
-        $worktrees = @([pscustomobject]@{ id = $worktreeId; path = $root })
-        $createdAt = $now
-    }
 
-    $projectData = [ordered]@{
-        id = $projectId
-        canonical_root = $root
-        git_common_dir = $commonDir
-        remote = $remote
-        repo_fingerprint = $repoFingerprint
-        aliases = @($aliases | Sort-Object -Unique)
-        worktrees = @($worktrees)
-        created_at = $createdAt
-        updated_at = $now
+        $incoming = @()
+        if ($Ensure) { $incoming += [pscustomobject]@{ id = $worktreeId; path = $root } }
+        $incoming += $registeredWorktrees
+        foreach ($entry in $incoming) {
+            $worktrees = @($worktrees | Where-Object { $_.id -ne $entry.id })
+            $worktrees += $entry
+        }
+        if ($worktrees.Count -eq 0) { $worktrees = @([pscustomobject]@{ id = $worktreeId; path = $root }) }
+
+        $projectData = [ordered]@{
+            id = $projectId
+            canonical_root = $root
+            git_common_dir = $commonDir
+            remote = $remote
+            repo_fingerprint = $repoFingerprint
+            aliases = @($aliases | Sort-Object -Unique)
+            worktrees = @($worktrees | Sort-Object -Property id)
+            created_at = $createdAt
+            updated_at = $now
+        }
+        # -Ensure runs on every task creation and every hook that resolves a project, so an
+        # unconditional write would rewrite project.json (and bump updated_at) even when nothing
+        # changed. Compare against what is already on disk with updated_at held equal, and only
+        # write - and only then advance updated_at - if something actually differs.
+        $shouldWrite = $true
+        if (Test-Path -LiteralPath $projectFile) {
+            $projectData.updated_at = $project.updated_at
+            $before = ((Get-Content -LiteralPath $projectFile -Raw -Encoding UTF8 | ConvertFrom-Json) | ConvertTo-Json -Depth 8)
+            $after = ($projectData | ConvertTo-Json -Depth 8)
+            if ($before -eq $after) { $shouldWrite = $false } else { $projectData.updated_at = $now }
+        }
+        if ($shouldWrite) { [IO.File]::WriteAllText($projectFile, ($projectData | ConvertTo-Json -Depth 8), $utf8NoBom) }
     }
-    [IO.File]::WriteAllText($projectFile, ($projectData | ConvertTo-Json -Depth 8), $utf8NoBom)
 }
 
+# [ \t]* and ([^\r\n]*), matching check-task.ps1 and orchestrate.ps1 exactly. \s* is greedy ACROSS
+# newlines, so an empty field would swallow the line break and return the NEXT line's text as its
+# value - e.g. an empty `delivery_status:` reading back as 'subtask_role: worker'.
+function Get-Field([string]$Content, [string]$Name) {
+    if ($Content -match "(?m)^$([regex]::Escape($Name)):[ \t]*([^\r\n]*)") { return $Matches[1].Trim() }
+    return ''
+}
+
+# active_tasks stays scoped to the current worktree; the roster is a separate, explicit query
+# because worker tasks live in other worktrees and must never leak into the active-task gate.
 $activeTasks = @()
+$roster = @()
 if (Test-Path -LiteralPath $taskRoot) {
     foreach ($task in (Get-ChildItem -LiteralPath $taskRoot -Recurse -Filter task.md -File -ErrorAction SilentlyContinue)) {
-        $content = Get-Content -LiteralPath $task.FullName -Raw -Encoding UTF8
-        $taskWorktree = if ($content -match '(?m)^worktree_id:\s*([^\r\n]+)') { $Matches[1].Trim() } else { '' }
-        $status = if ($content -match '(?m)^status:\s*([^\r\n]+)') { $Matches[1].Trim() } else { '' }
+        # Every field read here is frontmatter, and this loop runs over every task in the project
+        # on every hook invocation. Read the head of the file rather than the whole body.
+        $content = (Get-Content -LiteralPath $task.FullName -Encoding UTF8 -TotalCount 64 -ErrorAction SilentlyContinue) -join "`n"
+        $taskWorktree = Get-Field $content 'worktree_id'
+        $status = Get-Field $content 'status'
         if ($taskWorktree -eq $worktreeId -and $status -eq 'in_progress') { $activeTasks += $task.FullName }
+        if ($RosterFor -and (Get-Field $content 'parent_task_id') -eq $RosterFor) {
+            $roster += [pscustomobject]@{
+                id = (Get-Field $content 'id')
+                path = $task.FullName
+                worktree_id = $taskWorktree
+                status = $status
+                subtask_role = (Get-Field $content 'subtask_role')
+                delivery_status = (Get-Field $content 'delivery_status')
+            }
+        }
     }
 }
 
@@ -107,4 +174,6 @@ if (Test-Path -LiteralPath $taskRoot) {
     project_dir = $projectDir
     task_root = $taskRoot
     active_tasks = $activeTasks
+    registered_worktrees = @($registeredWorktrees)
+    roster = @($roster | Sort-Object -Property id)
 } | ConvertTo-Json -Depth 6
