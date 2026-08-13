@@ -59,11 +59,28 @@ function Get-Hash([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+# Every re-install that finds local drift creates one more `<name>.bak.<timestamp>` next to the
+# original - a file via Backup-UserFile, a directory via Install-ManagedJunction. Neither path
+# ever pruned old ones: `.system` alone accumulated 24 full copies of six Codex system skills
+# because its junction check kept missing on repeat installs. Kept last N, called once right
+# after each new backup is created (skipped in -DryRun, which never creates one to rotate).
+$backupRetentionCount = 5
+function Invoke-BackupRotation([string]$OriginalPath) {
+    $parent = Split-Path -Parent $OriginalPath
+    $leaf = Split-Path -Leaf $OriginalPath
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) { return }
+    $stale = Get-ChildItem -LiteralPath $parent -Filter "$leaf.bak.*" -Force -ErrorAction SilentlyContinue |
+        Sort-Object -Property Name -Descending | Select-Object -Skip $backupRetentionCount
+    foreach ($item in $stale) {
+        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Backup-UserFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
     $backup = "$Path.bak.$stamp"
     if ($DryRun) { Write-Output "[dry-run] backup $Path -> $backup" }
-    else { Copy-Item -LiteralPath $Path -Destination $backup -Force }
+    else { Copy-Item -LiteralPath $Path -Destination $backup -Force; Invoke-BackupRotation $Path }
 }
 
 function Install-File([string]$Source, [string]$Destination, [string]$Kind = 'file') {
@@ -188,6 +205,7 @@ function Install-ManagedJunction([string]$Source, [string]$Destination, [string]
         if ((Test-Path -LiteralPath $Destination) -and -not $isJunction) {
             $backup = "$Destination.bak.$stamp"
             Move-Item -LiteralPath $Destination -Destination $backup -Force
+            Invoke-BackupRotation $Destination
         }
         if (-not $isJunction) { New-Item -ItemType Junction -Path $Destination -Target $Source | Out-Null }
     }

@@ -140,7 +140,15 @@ function Get-Field([string]$Content, [string]$Name) {
 
 # active_tasks stays scoped to the current worktree; the roster is a separate, explicit query
 # because worker tasks live in other worktrees and must never leak into the active-task gate.
+#
+# stopped_tasks is a SEPARATE list on purpose. Widening active_tasks to include paused/blocked
+# would break six consumers at once: task-gate.ps1 asserts `status: in_progress` on whatever it
+# is handed, close-task.ps1 refuses anything else, and orchestrate.ps1 deliberately relies on a
+# non-in_progress coordinator dropping out of active_tasks so the recovery actions stay runnable.
+# The Stop hook needs to see these tasks for one reason only - to require a stop_reason - so it
+# gets its own field and every existing reader is untouched.
 $activeTasks = @()
+$stoppedTasks = @()
 $roster = @()
 if (Test-Path -LiteralPath $taskRoot) {
     foreach ($task in (Get-ChildItem -LiteralPath $taskRoot -Recurse -Filter task.md -File -ErrorAction SilentlyContinue)) {
@@ -150,6 +158,13 @@ if (Test-Path -LiteralPath $taskRoot) {
         $taskWorktree = Get-Field $content 'worktree_id'
         $status = Get-Field $content 'status'
         if ($taskWorktree -eq $worktreeId -and $status -eq 'in_progress') { $activeTasks += $task.FullName }
+        if ($taskWorktree -eq $worktreeId -and @('paused', 'blocked') -contains $status) {
+            $stoppedTasks += [pscustomobject]@{
+                path = $task.FullName
+                status = $status
+                stop_reason = (Get-Field $content 'stop_reason')
+            }
+        }
         if ($RosterFor -and (Get-Field $content 'parent_task_id') -eq $RosterFor) {
             $roster += [pscustomobject]@{
                 id = (Get-Field $content 'id')
@@ -174,6 +189,7 @@ if (Test-Path -LiteralPath $taskRoot) {
     project_dir = $projectDir
     task_root = $taskRoot
     active_tasks = $activeTasks
+    stopped_tasks = @($stoppedTasks | Sort-Object -Property path)
     registered_worktrees = @($registeredWorktrees)
     roster = @($roster | Sort-Object -Property id)
 } | ConvertTo-Json -Depth 6

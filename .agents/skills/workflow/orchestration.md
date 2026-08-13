@@ -28,6 +28,26 @@ v1 只有 **Manual** 模式：`orchestrate.ps1` 不啟動 agent，由使用者�
 
 任一不成立退回單一 worker 循序處理。
 
+### `.agent-workflow-worktree-init.ps1` 契約
+
+放在**目標 repo 根目錄**；`Init` 對每個新 worktree 呼叫 `& <repo根>\.agent-workflow-worktree-init.ps1 -WorktreePath <worktree 絕對路徑>`，補回裸 `git worktree add` 沒有的 `node_modules`／`.env`／build cache。**收尾後 `git status --porcelain` 必須是空的**——這是唯一被檢查的契約，不看 exit code；腳本只能建在已 `.gitignore` 的位置，留下未忽略的新檔會讓 `Init` 直接 `Fail` 並列出髒污清單。不存在時整段跳過，worker task 需自行記錄因此受限的驗證項目。
+
+```powershell
+param([Parameter(Mandatory)][string]$WorktreePath)
+$repoRoot = Split-Path -Parent $PSCommandPath
+foreach ($dep in @('node_modules', '.env')) {
+    $source = Join-Path $repoRoot $dep
+    $target = Join-Path $WorktreePath $dep
+    if ((Test-Path -LiteralPath $source) -and -not (Test-Path -LiteralPath $target)) {
+        if ((Get-Item -LiteralPath $source).PSIsContainer) {
+            New-Item -ItemType Junction -Path $target -Target $source | Out-Null
+        } else {
+            Copy-Item -LiteralPath $source -Destination $target
+        }
+    }
+}
+```
+
 ## base commit
 
 `Init` 以 `git stash create` 取得 base（乾淨時退回 `HEAD`），worker worktree 從它建立，因此 **worker 看得到主工作目錄的未提交修改**，不存在 stale baseline。`stash create` 只記錄 tracked 修改，所以 untracked 檔與 ownership 有交集時直接拒絕拆分——worker 看不到那個檔，會重新建立，`git apply` 就會撞上已存在的檔案。

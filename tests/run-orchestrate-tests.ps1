@@ -122,6 +122,7 @@ entry > change > end
 - Risk and compatibility: PASS
 - Performance: N/A trivial
 - Flow and impact completeness: PASS
+- Failure modes and observability: PASS
 
 ## Verifier result
 - PASS

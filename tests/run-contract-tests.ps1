@@ -135,8 +135,12 @@ Assert ($workerText -match 'workflow') 'worker role does not defer to the workfl
 Assert ($workerText -match 'delivery\.patch') 'worker role does not state that it must not produce the delivery patch'
 
 # orchestration.md is read on every coordinator run; cap it like the other canonical files.
+# Raised from 150 to 180 to fit the .agent-workflow-worktree-init.ps1 contract and copy-paste
+# example: that script had no template anywhere in the repo, and a prose-only description of
+# "populate node_modules/.env without leaving git status dirty" is exactly the kind of instruction
+# that gets reimplemented wrong per project. A worked example is worth the extra lines here.
 $orchestration = Get-Content -LiteralPath (Join-Path $root '.agents\skills\workflow\orchestration.md') -Encoding UTF8
-Assert ($orchestration.Count -le 150) 'workflow/orchestration.md exceeds 150 lines.'
+Assert ($orchestration.Count -le 180) 'workflow/orchestration.md exceeds 180 lines.'
 $orchestrationText = $orchestration -join "`n"
 foreach ($path in @('agents/worker\.md','skills/workflow/SKILL\.md','skills/workflow/orchestration\.md')) {
     Assert ($orchestrationText -match $path) "orchestration.md is missing a canonical handoff path: $path"

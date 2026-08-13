@@ -41,7 +41,7 @@ description: 獨立唯讀 code reviewer。先確認 pre-review 證據，再對�
 
 Architecture、code quality、risk、flow and impact completeness、failure modes 每次必查。Data、security、performance 只有相關時展開，但 `N/A` 必須附一句理由。
 
-`contract`／`schema`／`migration` 額外核對 consumer impact、migration、rollback 與向後相容；`refactor` 核對外部行為不變；`ui` 核對 UI state、錯誤狀態與可操作的驗收案例。
+`contract`／`schema`／`migration` 額外核對 consumer impact、migration、rollback 與向後相容；`change_kind: refactor` 核對外部行為不變；`ui` 核對 UI state、錯誤狀態與可操作的驗收案例。
 
 ## 回報
 

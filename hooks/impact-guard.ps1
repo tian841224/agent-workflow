@@ -130,6 +130,15 @@ try {
         if ($writeText -match '(?m)^[ \t]*\+?[ \t]*status:[ \t]*done[ \t]*\r?$') {
             Write-Deny "impact-guard: do not set 'status: done' by editing the task file. Run ~/.agent-workflow/runtime/scripts/close-task.ps1 instead - it re-runs the full completion gate (criteria, pre-review, Reviewer/Adversarial/Verifier, diff fingerprint) and only then writes done. Use paused or blocked if the work is stopping without finishing." $isAntigravity
         }
+
+        # roles_waived is the widest hole in the gate system: one frontmatter line switches off
+        # Reviewer, Adversarial, Verifier and the independence check at once. The rule that only
+        # the user may authorise it existed solely as prose, and prose is what the agent writing
+        # the line is already ignoring. Same treatment as `status: done` - deny the direct write
+        # and route it through a script that has to be told the user approved.
+        if ($writeText -match '(?m)^[ \t]*\+?[ \t]*roles_waived:[ \t]*\S') {
+            Write-Deny "impact-guard: do not set 'roles_waived' by editing the task file - waiving the independent roles is the user's decision, not the agent's. If the user explicitly asked to skip them, run ~/.agent-workflow/runtime/scripts/waive-roles.ps1 -Reason '<their reason>' -ConfirmedByUser. Otherwise run the roles, or set the task to blocked and record the next step." $isAntigravity
+        }
     }
 
     $resolver = Join-Path $PSScriptRoot '..\scripts\project-resolver.ps1'
@@ -199,10 +208,33 @@ try {
         # \r?$: orchestrate.ps1 writes worker tasks with CRLF, and .NET's $ will not match past
         # the \r that [ \t]* leaves behind. Without it a worker task never reaches this gate.
         if ($content -match '(?m)^code_change:[ \t]*true[ \t]*\r?$') {
+            # The freeze gate, moved to where it can actually stop something. It used to be
+            # expressed as `status: draft` in SKILL.md - but project-resolver only ever collected
+            # in_progress tasks, so a draft task was invisible to this hook and to the Stop gate.
+            # Following the instruction literally switched the guards OFF for exactly the window
+            # the freeze exists to protect. `frozen_at` is the honest gate - no freeze, no code.
+            $frozenAt = ''
+            if ($content -match '(?m)^frozen_at:[ \t]*(\S+)[ \t]*\r?$') { $frozenAt = $Matches[1] }
+            if (-not $frozenAt) {
+                $schemaPath = Join-Path $PSScriptRoot '..\schemas\task.schema.json'
+                if (Test-Path -LiteralPath $schemaPath) {
+                    $taskSchema = Get-Content -LiteralPath $schemaPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $freezeFlags = @($taskSchema.x_agent_workflow.freeze_required)
+                    $riskLine = if ($content -match '(?m)^risk_flags:[ \t]*\[(.*?)\][ \t]*\r?$') { $Matches[1] } else { '' }
+                    $flags = @($riskLine -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                    $hit = @($flags | Where-Object { $freezeFlags -contains $_ })
+                    if ($hit.Count -gt 0) {
+                        $reason = "impact-guard: $taskPath carries freeze-required risk flag(s) [$($hit -join ', ')] but has no 'frozen_at'. Get the user to confirm the goal, non-goals and completion criteria first, then record frozen_at. Do not start editing code before the freeze."
+                    }
+                }
+            }
+
             # Stricter than quality-gate: an untouched <placeholder> template counts as unfilled.
-            $impact = Get-Section $content 'Impact surface'
-            if (-not $impact -or $impact -match '<[^>]*>') {
-                $reason = "impact-guard: fill '## Impact surface' in $taskPath before editing code (callers / entrypoints / shared state / unverified nodes)."
+            if (-not $reason) {
+                $impact = Get-Section $content 'Impact surface'
+                if (-not $impact -or $impact -match '<[^>]*>') {
+                    $reason = "impact-guard: fill '## Impact surface' in $taskPath before editing code (callers / entrypoints / shared state / unverified nodes)."
+                }
             }
 
             # Same shape as Impact surface, one step earlier: exploring project docs only pays

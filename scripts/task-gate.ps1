@@ -199,6 +199,10 @@ try {
 
     $riskLine = if ($content -match '(?m)^risk_flags:[ \t]*\[(.*?)\][ \t]*\r?$') { $Matches[1] } else { '' }
     $flags = @($riskLine -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    # Parsed here (not just at Close, where the retrospective section needs it) because the
+    # Behavior invariants section below is keyed on it too, and both Stop and Close must agree
+    # on what counts as a refactor.
+    $changeKind = if ($content -match '(?m)^change_kind:[ \t]*(\S+)[ \t]*\r?$') { $Matches[1] } else { '' }
     # The allowed set and the freeze/contract/adversarial subsets used to be hard-coded copies in
     # the Stop hook, able to drift from schemas/task.schema.json without any test noticing. The
     # schema is the single source; a gate that cannot read it must fail closed rather than guess.
@@ -239,7 +243,11 @@ try {
     if ($flags -contains 'ui') {
         Add-MissingSection $content 'Browser verification' ([ref]$issues)
     }
-    if ($flags -contains 'refactor') {
+    # Keyed on change_kind, not a risk_flags value: `refactor` used to mean two different things
+    # (a change_kind AND a risk flag, with no rule saying whether setting one implied the other).
+    # change_kind already answers "is this a refactor" without a second, redundant flag to keep
+    # in sync with it.
+    if ($changeKind -eq 'refactor') {
         Add-MissingSection $content 'Behavior invariants and before-after evidence' ([ref]$issues)
     }
 
@@ -334,7 +342,6 @@ try {
     # the whole. That also keeps orchestrate.ps1's worker frontmatter, which has no change_kind,
     # valid without changing it.
     if ($Mode -eq 'Close' -and $isCodeChange -and $subtaskRole -ne 'worker') {
-        $changeKind = if ($content -match '(?m)^change_kind:[ \t]*(\S+)[ \t]*\r?$') { $Matches[1] } else { '' }
         Add-ProjectDocsUpdateIssue $content $Cwd $changeKind $flags ([ref]$issues)
         if (-not $changeKind) {
             $issues += 'code change has no change_kind (fix | feature | refactor | chore); a fix must record a retrospective before it can close'
@@ -380,6 +387,40 @@ try {
                         $frameworkChange = [regex]::Match($retro, '(?mi)^[ \t]*-[ \t]*framework_change:[ \t]*(.+?)[ \t]*\r?$').Groups[1].Value.Trim()
                         if ($frameworkChange -notmatch '^(recorded:[0-9]{8}-[0-9]{6}-[a-f0-9]{8}|not_needed[ \t]*-[ \t]*\S.*)$') {
                             $issues += 'a regression needs framework_change: either "recorded:<retro-id>" from retro.ps1 -Action Record, or "not_needed - <reason>"'
+                        } elseif ($frameworkChange -match '^recorded:([0-9]{8}-[0-9]{6}-[a-f0-9]{8})$') {
+                            # Shape-checking the id only proved the agent can count hex digits. The
+                            # id exists to point at a finding somebody will pick up later, so the
+                            # finding has to be there: an id that resolves to nothing is a
+                            # retrospective that was written but never recorded, which is the exact
+                            # outcome this whole loop exists to prevent.
+                            $retroId = $Matches[1]
+                            # Derived from the task path, not $env:USERPROFILE: a task always lives
+                            # at <state-root>/projects/<pid>/tasks/<task-id>/task.md, and retro.ps1
+                            # takes a -StateRoot that the tests do point elsewhere. Reading the
+                            # real store while the task under inspection belongs to a temporary one
+                            # would make this check pass or fail for reasons nothing in the task
+                            # can explain.
+                            $stateRoot = $TaskPath
+                            for ($i = 0; $i -lt 5; $i++) { $stateRoot = Split-Path -Parent $stateRoot }
+                            if (-not $stateRoot) { $stateRoot = Join-Path $env:USERPROFILE '.agent-workflow' }
+                            $retroIndexPath = Join-Path $stateRoot 'retro\index.json'
+                            $known = $false
+                            $lookupError = ''
+                            if (-not (Test-Path -LiteralPath $retroIndexPath)) {
+                                $lookupError = "no retro store at $retroIndexPath"
+                            } else {
+                                try {
+                                    $retroIndex = Get-Content -LiteralPath $retroIndexPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                                    if ($null -eq $retroIndex.entries) { $lookupError = 'retro index has no entries array' }
+                                    else { $known = @($retroIndex.entries | Where-Object { $_.id -eq $retroId }).Count -gt 0 }
+                                } catch {
+                                    $lookupError = "retro index is unreadable: $($_.Exception.Message)"
+                                }
+                            }
+                            if (-not $known) {
+                                $detail = if ($lookupError) { " ($lookupError)" } else { '' }
+                                $issues += "framework_change names retro finding $retroId, but no such finding exists$detail; record it with retro.ps1 -Action Record -ProposedChange '<change>'"
+                            }
                         }
                     }
                 }

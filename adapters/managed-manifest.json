@@ -21,6 +21,7 @@
     "scripts/validate-task.ps1",
     "scripts/task-gate.ps1",
     "scripts/close-task.ps1",
+    "scripts/waive-roles.ps1",
     "scripts/worktree-fingerprint.ps1",
     "scripts/check-task.ps1",
     "scripts/split-plan.ps1",

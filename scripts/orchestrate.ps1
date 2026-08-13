@@ -410,6 +410,7 @@ delivery_status: pending
 - checks: <what ran and the result>
 - skip reason: <only when SKIP>
 - limitations: <unverified limits; none if there are none>
+- diff_sha256: <required when pre-review PASSes; output of worktree-fingerprint.ps1 -Path <worktree> -Base $baseline>
 
 ## Parent task
 
@@ -421,6 +422,11 @@ delivery_status: pending
 ## File ownership
 
 $(($entry.prefixes | ForEach-Object { "- $_" }) -join "`r`n")
+
+## Project docs
+
+- read: <project-doc.ps1 -Action Lookup path(s) read before editing code, or 'none - <reason>'; impact-guard blocks all code edits until this is filled>
+- updated: <doc path(s) touched, or 'none - <reason>'>
 
 ## Impact surface
 
@@ -860,3 +866,12 @@ $(($entry.prefixes | ForEach-Object { "- $_" }) -join "`r`n")
 }
 
 }
+
+# Every action above ends with the last thing it happened to run, which is very often an
+# internal `git` call via Invoke-Git - and PowerShell's automatic $LASTEXITCODE is process-wide,
+# not scoped to that helper function. Without an explicit exit here, the process's own exit code
+# silently mirrors whatever that last git invocation returned (e.g. a `git diff --quiet` probe
+# used as a boolean check, which is 1 when there ARE differences), even though the action
+# completed and printed success. Fail() already exits 1 explicitly on every error path, so
+# reaching here means the action succeeded.
+exit 0

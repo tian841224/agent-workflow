@@ -11,6 +11,19 @@ updated_at: <ISO-8601>
 frozen_at:
 ---
 
+<!-- frontmatter 欄位補充說明：
+frozen_at：freeze-required flag 命中時必填 ISO-8601。未填時 impact-guard 會擋下所有 code 編輯——
+           先取得使用者對目標、非目標與完成條件的確認，再填入。
+stop_reason：status 改為 paused 或 blocked 時必填（在等什麼、下一步是什麼）。
+           未填時 Stop hook 會擋下結束回合；放棄該任務改用 superseded。
+roles_waived：使用者授權跳過 Reviewer／Adversarial／Verifier 的理由。
+           只能由 waive-roles.ps1 -Reason '<理由>' -ConfirmedByUser 寫入；
+           直接編輯 task 寫這個欄位會被 impact-guard 擋下。
+independence: degraded：原生角色無法載入或未回報、主 agent 因故自行填寫角色段落時如實記錄。
+           close gate 會拒絕 degraded 且未豁免的 task；解法是修好角色後移除本欄位，
+           或由使用者以 roles_waived 明確豁免。無此情況時不加這個欄位。
+-->
+
 # <任務標題>
 
 ## Goal（目標）
@@ -108,7 +121,39 @@ behavior_change／ui：## Acceptance cases（驗收案例）
 contract／schema／data_write／financial／migration：## Contract and data impact（契約與資料影響）
 cross_feature／migration／irreversible：## Implementation sequence（實作順序、依賴與回滾點）
 ui：## Browser verification（browser 畫面驗證）
-refactor：## Behavior invariants and before-after evidence（行為不變條件與前後證據）
+change_kind: refactor：## Behavior invariants and before-after evidence（行為不變條件與前後證據）
+-->
+
+<!-- coordinator task 再加入（frontmatter 補 subtask_role: coordinator、integration_status: pending）：
+## Decomposition plan（拆分計畫）
+- 拆分理由與各 worker 範圍
+- split plan JSON 路徑與 split-plan.ps1 的資格判定結果
+
+## Worker results（worker 結果）
+- 每個 worker 的狀態、驗證結果、fix-forward 歷程與 Manual handoff 資訊
+
+## Delivery log（交付紀錄）
+- 每份 patch、ownership／overlap findings、apply 結果
+- 衝突合併：衝突路徑、合併取捨、詢問使用者的問題與答覆
+- 待使用者裁決事項
+
+## Integration verification（整合驗證）
+- 整合後 pre-review、受影響測試集合、Reviewer 與 Verifier 證據
+-->
+
+<!-- worker task 再加入。frontmatter 補以下五欄（file_ownership 必須是 inline array）：
+subtask_role: worker
+parent_task_id: <coordinator-task-id>
+base_commit: <40-hex；worktree baseline，同時是 Reviewer 的 diff 基準>
+file_ownership: [src/payment/, tests/payment/]
+delivery_status: pending
+
+## Parent task（上層 task）
+- coordinator task id 與 base_commit
+
+## File ownership（檔案範圍）
+- 與 frontmatter 的 file_ownership 一致的 repo-relative prefix 清單與理由
+- 需要範圍外檔案時：ownership_request 與停止當下的證據
 -->
 
 <!-- coordinator task 再加入（frontmatter 補 subtask_role: coordinator、integration_status: pending）：

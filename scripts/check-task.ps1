@@ -90,7 +90,11 @@ if ($Mode -eq 'Worker') {
 
     $review = Get-Section $content 'Reviewer result'
     if (-not $review -or $review -notmatch '(?mi)^[ \t]*-[ \t]*result:[ \t]*PASS[ \t]*\r?$') { $issues += 'Reviewer result is missing or not passed' }
-    foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness')) {
+    # Kept in sync with task-gate.ps1's own list by hand - both enumerate the same eight
+    # dimensions from templates/task.md. This list used to stop at seven and silently accepted a
+    # worker delivery with no Failure modes and observability verdict; a Collect/Apply pass here
+    # is not supposed to be a lower bar than the coordinator's own Stop/Close gate.
+    foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness','Failure modes and observability')) {
         $allowedStatus = if (@('Data consistency','Security','Performance') -contains $dimension) { '(?:PASS|N/A)' } else { 'PASS' }
         $pattern = '(?mi)^[ \t]*-[ \t]*' + [regex]::Escape($dimension) + ':[ \t]*' + $allowedStatus + '(?:[ \t]+.*)?[ \t]*\r?$'
         if ($review -notmatch $pattern) { $issues += "Reviewer result missing or not passed dimension: $dimension" }

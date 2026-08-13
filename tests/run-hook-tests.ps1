@@ -101,6 +101,22 @@ function Invoke-CloseTask([string]$Cwd) {
     return [pscustomobject]@{ ExitCode = $process.ExitCode; Text = ($stdout + $stderr) }
 }
 
+# Generic subprocess runner for scripts (like waive-roles.ps1) that take their own named
+# parameters rather than a stdin JSON payload - the hook helpers above all assume the latter.
+# ProcessStartInfo.ArgumentList is not reliably present on PS 5.1, so this uses the call operator
+# instead, same as run-orchestrate-tests.ps1's own Invoke-Native. 2>&1 on a native command wraps
+# stderr lines as ErrorRecords under this script's ErrorActionPreference = 'Stop', which would
+# abort the whole run instead of just failing one assertion, so the preference is relaxed only
+# around the call.
+function Invoke-Native([string]$Exe, [string[]]$NativeArgs) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Exe @NativeArgs 2>&1
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($output | Out-String) }
+    } finally { $ErrorActionPreference = $previous }
+}
+
 # Codex apply_patch is a freeform tool: tool_input is patch text, paths live in the *** headers.
 function Invoke-ImpactGuardCodex([string]$Cwd, [string]$Patch) {
     $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); tool_name = 'apply_patch'; tool_input = $Patch } | ConvertTo-Json -Compress
@@ -375,6 +391,25 @@ $impactSurface
 - introduced_by: unknown - git log -S on the guard found no earlier occurrence
 - classification: pre_existing
 "@
+    # framework_change: recorded:<id> used to be shape-checked only, so any 8 hex digits passed and
+    # the finding it claimed to point at never had to exist. The id now has to resolve in the retro
+    # index, which means the fixture needs a real one seeded here.
+    $retroIndexPath = Join-Path $state 'retro\index.json'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $retroIndexPath) | Out-Null
+    [IO.File]::WriteAllText($retroIndexPath, (@{
+        schema_version = 1
+        updated_at = '2026-08-13T12:00:00+08:00'
+        entries = @(@{
+            id = '20260813-120000-abcd1234'
+            created_at = '2026-08-13T12:00:00+08:00'
+            task_id = '20260807-000000-hook-test'
+            classification = 'regression'
+            miss_category = 'impact_surface'
+            summary = 'seeded finding so framework_change has something real to point at'
+            status = 'open'
+        })
+    } | ConvertTo-Json -Depth 6), $utf8NoBom)
+
     $retroRegression = @"
 ## Retrospective result
 - introduced_by: 0123456789abcdef0123456789abcdef01234567
@@ -441,17 +476,90 @@ $impactSurface
     $closeOutput = Invoke-CloseTask $repo
     Assert ($closeOutput.ExitCode -eq 0) "a justified not_needed framework_change was refused: $($closeOutput.Text)"
 
+    # a well-formed id that resolves to nothing is the cheap way to fake a recorded finding: the
+    # shape check alone could not tell it from a real one, so the id has to be looked up.
+    Set-TestTask $resolved @() ($roleResults + "`n" + ($retroRegression -replace 'abcd1234', 'deadbeef')) $true 'fix'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a framework_change naming a non-existent retro finding was accepted'
+    Assert ($closeOutput.Text -match 'no such finding exists') 'close-task did not say the retro finding is missing'
+
     # the full regression form closes
     Set-TestTask $resolved @() ($roleResults + "`n" + $retroRegression) $true 'fix'
     $closeOutput = Invoke-CloseTask $repo
     Assert ($closeOutput.ExitCode -eq 0) "a complete regression retrospective was refused: $($closeOutput.Text)"
 
+    # --- stop_reason: paused/blocked has to say what it is waiting for ---
+    # Flipping status to paused used to be a free exit. The task dropped out of active_tasks and
+    # with it every completion check, and nothing asked why. It stays an escape hatch, but a
+    # documented one. Checked through the Stop hook because that is where the exit was taken.
+    $stopTask = Join-Path $resolved.task_root '20260807-000000-hook-test\task.md'
+    foreach ($stopStatus in @('paused', 'blocked')) {
+        Set-TestTask $resolved @() $impactSurface $true 'chore'
+        $stopContent = Get-Content -LiteralPath $stopTask -Raw -Encoding UTF8
+        [IO.File]::WriteAllText($stopTask, ($stopContent -replace '(?m)^status: in_progress\r?$', "status: $stopStatus"), $utf8NoBom)
+        $quality = Invoke-Quality $repo
+        Assert ($quality -match 'stop_reason') "a $stopStatus task with no stop_reason was allowed to stop: $quality"
+
+        # a placeholder is not a reason
+        $stopContent = Get-Content -LiteralPath $stopTask -Raw -Encoding UTF8
+        [IO.File]::WriteAllText($stopTask, ($stopContent -replace '(?m)^(updated_at:.*)$', "`$1`nstop_reason: <what is needed>"), $utf8NoBom)
+        Assert ((Invoke-Quality $repo) -match 'stop_reason') "a placeholder stop_reason was accepted for $stopStatus"
+
+        $stopContent = Get-Content -LiteralPath $stopTask -Raw -Encoding UTF8
+        [IO.File]::WriteAllText($stopTask, ($stopContent -replace '(?m)^stop_reason:.*$', 'stop_reason: waiting on the staging database credentials'), $utf8NoBom)
+        Assert (-not (Invoke-Quality $repo)) "a $stopStatus task with a real stop_reason was still blocked"
+    }
+    # superseded is the "not doing this" exit and needs no reason
+    Set-TestTask $resolved @() $impactSurface $true 'chore'
+    $stopContent = Get-Content -LiteralPath $stopTask -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($stopTask, ($stopContent -replace '(?m)^status: in_progress\r?$', 'status: superseded'), $utf8NoBom)
+    Assert (-not (Invoke-Quality $repo)) 'a superseded task was asked for a stop_reason'
+
+    # --- the freeze gate, now that `draft` is gone ---
+    # SKILL.md used to say "start freeze-required tasks as draft". project-resolver only ever
+    # collected in_progress tasks, so following that instruction made the task invisible to this
+    # hook and to the Stop gate - the guards were off for exactly the window the freeze protects.
+    # frozen_at is the gate instead: no freeze, no code.
+    $sourceFile = Join-Path $repo 'app\x.go'
+    Set-TestTask $resolved @('schema') $impactSurface $true 'feature'
+    $frozenDeny = Invoke-ImpactGuard $repo $sourceFile
+    Assert ($frozenDeny -match 'frozen_at') "a freeze-required task with no frozen_at was allowed to edit code: $frozenDeny"
+    Assert ($frozenDeny -match 'schema') 'impact-guard did not name the freeze-required flag'
+    Set-TestTask $resolved @('schema') $impactSurface $true 'feature' -Frozen
+    Assert (-not (Invoke-ImpactGuard $repo $sourceFile)) 'a frozen freeze-required task was still blocked from editing code'
+    # a task with no freeze-required flag never needed a freeze
+    Set-TestTask $resolved @('behavior_change') $impactSurface $true 'feature'
+    Assert (-not (Invoke-ImpactGuard $repo $sourceFile)) 'a task with no freeze-required flag was asked for frozen_at'
+
+    # --- roles_waived is the user's decision, not the agent's ---
+    Set-TestTask $resolved @() $impactSurface $true 'chore'
+    $waiveDeny = Invoke-ImpactGuardWrite $repo $stopTask "updated_at: 2026-08-07T00:00:00+08:00`nroles_waived: skipping for speed"
+    Assert ($waiveDeny -match 'waive-roles\.ps1') "a direct roles_waived write was allowed: $waiveDeny"
+    # the sanctioned path refuses without explicit user confirmation
+    $waiveScript = Join-Path $root 'scripts\waive-roles.ps1'
+    Assert (Test-Path -LiteralPath $waiveScript) 'scripts\waive-roles.ps1 is missing'
+    $unconfirmed = Invoke-Native $hostExe @('-NoProfile','-ExecutionPolicy','Bypass','-File',$waiveScript,'-Reason','because','-Path',$repo,'-StateRoot',$state)
+    Assert ($unconfirmed.Code -ne 0) 'waive-roles wrote a waiver without -ConfirmedByUser'
+    $confirmed = Invoke-Native $hostExe @('-NoProfile','-ExecutionPolicy','Bypass','-File',$waiveScript,'-Reason','user asked for a single-dialogue run','-ConfirmedByUser','-Path',$repo,'-StateRoot',$state)
+    Assert ($confirmed.Code -eq 0) "waive-roles refused a confirmed waiver: $($confirmed.Text)"
+    Assert ((Get-Content -LiteralPath $stopTask -Raw -Encoding UTF8) -match '(?m)^roles_waived: user asked for a single-dialogue run\r?$') 'waive-roles did not record the reason in frontmatter'
+    # and it will not silently overwrite an existing waiver
+    $again = Invoke-Native $hostExe @('-NoProfile','-ExecutionPolicy','Bypass','-File',$waiveScript,'-Reason','second try','-ConfirmedByUser','-Path',$repo,'-StateRoot',$state)
+    Assert ($again.Code -ne 0) 'waive-roles overwrote an existing waiver'
+
     # every other change kind is untouched by this gate
-    foreach ($kind in @('feature', 'refactor', 'chore')) {
+    foreach ($kind in @('feature', 'chore')) {
         Set-TestTask $resolved @() $roleResults $true $kind
         $closeOutput = Invoke-CloseTask $repo
         Assert ($closeOutput.ExitCode -eq 0) "change_kind $kind was asked for a retrospective: $($closeOutput.Text)"
     }
+    # refactor is exempt from the retrospective gate same as the others, but change_kind: refactor
+    # is itself the trigger for Behavior invariants and before-after evidence (moved off the
+    # retired risk_flags: refactor - see risk-flags.md), so this fixture needs that section too.
+    $refactorResults = $roleResults + "`n`n## Behavior invariants and before-after evidence`nexternal behavior unchanged; before/after outputs identical for the sandbox fixture"
+    Set-TestTask $resolved @() $refactorResults $true 'refactor'
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -eq 0) "change_kind refactor was asked for a retrospective: $($closeOutput.Text)"
 
     # a worker is one slice of a fix; the coordinator does the retrospective once, for the whole.
     # A worker's fingerprint is taken against its base_commit, so the base has to be a real commit

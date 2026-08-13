@@ -26,6 +26,25 @@ try {
     $resolver = Join-Path $PSScriptRoot '..\scripts\project-resolver.ps1'
     if (-not (Test-Path -LiteralPath $resolver)) { exit 0 }
     $resolved = (& $resolver -Path $cwd | Out-String) | ConvertFrom-Json
+
+    # paused/blocked used to be a free exit: flipping the status made the task vanish from
+    # active_tasks, and with it every completion check, without recording why. That is the one
+    # escape hatch the whole gate system had, and it cost nothing to take. It stays an escape
+    # hatch - stopping mid-way is legitimate - but it now has to say what it is waiting for.
+    # Checked before the active-task early exit, because "no active task" is exactly the state a
+    # bare `status: paused` produces.
+    $stopped = @($resolved.stopped_tasks)
+    $unexplained = @($stopped | Where-Object {
+        $reason = [string]$_.stop_reason
+        (-not $reason) -or ($reason -match '^<.*>$')
+    })
+    if ($unexplained.Count -gt 0) {
+        $detail = ($unexplained | ForEach-Object { "$($_.path) [$($_.status)]" }) -join ', '
+        $reason = "quality-gate: $($unexplained.Count) task(s) are $($unexplained[0].status)/blocked with no 'stop_reason:' in frontmatter: $detail. Add 'stop_reason: <what is needed to resume>', or set the task to superseded if it is abandoned."
+        Write-Output (@{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress)
+        exit 0
+    }
+
     $active = @($resolved.active_tasks)
     if ($active.Count -eq 0) { exit 0 }
 

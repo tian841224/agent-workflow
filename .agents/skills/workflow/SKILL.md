@@ -13,7 +13,7 @@ description: 實際修改 source code 邏輯、可執行 script 或 test code �
 3. 預期會修改 code 時，先執行 `~/.agent-workflow/runtime/scripts/project-doc.ps1 -Action Lookup -Paths '<任務涉及的路徑>'`，讀完命中的文件再繼續；讀過的路徑之後要填進 task 的 `## Project docs`（見第 4 節、[project-docs.md](project-docs.md)）。
 4. 依 `templates/task.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`。
 5. 明確填寫 `code_change: true | false`：會修改 source code、可執行 script 或 test code 時為 `true`；只改設定／文件，或只執行測試、調查、code review 而未改 code 時為 `false`。`code_change: true` 時同時填 `change_kind: fix | feature | refactor | chore`；修 bug 或補漏洞是 `fix`，收尾會多一輪回顧（見第 8 節第 3 點）。
-6. 基本任務直接使用 `status: in_progress`；命中 freeze-required flag 時先用 `draft`，經使用者確認後填 `frozen_at` 並改為 `in_progress`。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
+6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `frozen_at` 先留空，取得使用者對目標、非目標與完成條件的確認後才填入；未填之前 `impact-guard` 會擋下所有 code 編輯，等同凍結未完成就不能動工。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
 
@@ -54,7 +54,7 @@ Reviewer／Verifier 是否啟動只看 `code_change`，與 `risk_flags` 無關�
 - SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。
 - PASS：將命令與實際 checks 寫入 `Validation results`。
 - `code_change: true` 時同時記錄 `- diff_sha256:`，值取自 `~/.agent-workflow/runtime/scripts/worktree-fingerprint.ps1 -Path <repo>`（worker task 加 `-Base <base_commit>`）。收尾時會重算比對，之後又動到 code 就得重跑 pre-review。
-- `financial` 或 `data_write` 命中時另做一次 mutation check：把本次最關鍵的 1–2 個判斷人為改壞，確認守住它的測試真的變紅，再還原，於 `- mutation check:` 記 PASS 或 SKIP＋理由。測試全綠但斷言恆真、或 fixture 寫死成通過形狀，只有這一步抓得到。
+- `financial` 或 `data_write` 命中時另做一次 mutation check：把本次最關鍵的 1–2 個判斷人為改壞，確認守住它的測試真的變紅，再還原，於 `- mutation check:` 記 PASS 或 SKIP＋理由。測試全綠但斷言恆真、或 fixture 寫死成通過形狀，只有這一步抓得到。權威清單是 schema 的 `x_agent_workflow.mutation_check_required`。
 
 ## 6. Reviewer、Adversarial 複查與 Verifier
 
@@ -67,12 +67,11 @@ Reviewer／Verifier 是否啟動只看 `code_change`，與 `risk_flags` 無關�
 - Reviewer 必須自行反向搜尋重建 execution path，不得沿用 task 敘述；順序是先重建、後對照，不得先讀 task 的路徑再去驗證它。回報要列出與 task 的差異，無差異時明寫。
 - Reviewer 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task；不得為了避開 gate 而不加 flag。
 - 回填後的 task 路徑即為唯一版本，Verifier、後續複審與 knowledge 回寫都以它為準；差異只存在於審查當下，不留到下游。
-- 測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時，比照實作缺陷退回補齊，重跑 pre-review 與相關驗證後重驗；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
 - Reviewer 有 blocker：主 agent 修正，重新執行相關驗證，再送複審。
 
 ### 6a. Adversarial 複查
 
-Reviewer PASS、且 `risk_flags` 命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 任一時觸發，對象是 Reviewer 已判定 PASS 的同一份 diff。心態與 Reviewer 相反：不是確認正確，而是預設有一處假設是錯的、找證據推翻它，找不到才算過；不重跑 Reviewer 已完成的 execution path／七面向確認。
+Reviewer PASS、且 `risk_flags` 命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 任一時觸發（權威清單是 schema 的 `x_agent_workflow.adversarial_required`），對象是 Reviewer 已判定 PASS 的同一份 diff。這六個旗標的共通點是「巧合正確或假設錯誤的代價高」，Reviewer 的確認式審查不足以攔下這類問題，需要一個心態相反、專找漏洞的獨立角色。心態與 Reviewer 相反：不是確認正確，而是預設有一處假設是錯的、找證據推翻它，找不到才算過；不重跑 Reviewer 已完成的 execution path／八面向確認。
 
 - 溯源（Provenance）：新增或修改的每個判斷依據（時間戳、狀態、餘額基準、旗標…）實際代表的意義，是否等於它被賦值的時機／來源；只要有一個具體情境會讓兩者不一致就是 blocker。
 - 模式擴散（Pattern fan-out）：(a) 新增的守門邏輯，同模組／同 entity 是否已有類似邏輯而未比照；(b) 這次修掉的缺陷是否以同一形態存在於其他位置（重複檔案、同類 entity、同一種呼叫慣例）。兩邊都要附反向搜尋命令與命中數，沒搜尋不得宣稱無擴散。
@@ -82,14 +81,14 @@ Reviewer PASS、且 `risk_flags` 命中 `financial`／`data_write`／`migration`
 - 有 blocker：主 agent 修正、重新驗證、回 Reviewer 重新確認 PASS，再送 Adversarial 複核。沒有 blocker 要明確回報「已嘗試推翻，未成立」，不得只寫「沒問題」。
 
 Reviewer（與命中旗標時的 Adversarial）通過後，Verifier 從實際入口執行完整 path，逐條執行完成條件，補一次最可能找到 bug 的針對性探索；不得以只測修改函式或只測 `C > D` 代替整體流程；`ui` 使用 browser。
-- Verifier 將問題分為實作缺陷、規格缺漏、測試缺口、環境阻塞；實作缺陷批次修正後重驗失敗與波及項。
-- 原生角色（Reviewer／Adversarial／Verifier）載入失敗，或在合理等待內沒有回報，一律先執行 installer `Repair` 再試一次；仍失敗就把 task 設為 `blocked` 並記錄下一步，不得由主 agent 代跑後結案，也不得把段落留空或寫 `SKIPPED` 直接結案。使用者明確決定要跳過角色時，由使用者授權在 frontmatter 填 `roles_waived: <理由>`，主 agent 不得自行填。
+- Verifier 將問題分為實作缺陷、規格缺漏、測試缺口、環境阻塞；實作缺陷批次修正後重驗失敗與波及項。測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時，比照實作缺陷退回補齊，重跑 pre-review 與相關驗證後重驗；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
+- 原生角色（Reviewer／Adversarial／Verifier）載入失敗，或在合理等待內沒有回報，一律先執行 installer `Repair` 再試一次；仍失敗就把 task 設為 `blocked` 並記錄下一步，不得由主 agent 代跑後結案，也不得把段落留空或寫 `SKIPPED` 直接結案。使用者明確決定要跳過角色時，以 `~/.agent-workflow/runtime/scripts/waive-roles.ps1 -Reason '<使用者的理由>' -ConfirmedByUser` 寫入 `roles_waived`；主 agent 直接編輯 task 寫這個欄位會被 `impact-guard` 擋下。豁免只放寬三個角色段落，完成條件、pre-review、Impact surface、Project docs、mutation check 與回顧一律照常。
 
 ## 7. 失敗與續作
 
 - 同一修復假說失敗兩次，不再猜第三次；回到證據與根因重新診斷。
 - Reviewer／Verifier 對同一問題打回三次，停止局部修補，整理證據與架構風險交使用者裁決。
-- 中斷可續作用 `paused`；缺權限、環境或外部決策用 `blocked` 並記錄下一步。
+- 中斷可續作用 `paused`；缺權限、環境或外部決策用 `blocked`。兩者都必須在 frontmatter 填 `stop_reason:`（在等什麼、下一步是什麼），未填時 Stop hook 會擋下結束回合；確定不做了用 `superseded`。
 - 不維護額外 state service；task.md 是唯一任務狀態。
 
 ## 8. 完成

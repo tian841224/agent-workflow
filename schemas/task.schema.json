@@ -7,17 +7,18 @@
     "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
     "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
-    "status": { "enum": ["draft", "in_progress", "paused", "blocked", "done", "superseded"] },
+    "status": { "enum": ["in_progress", "paused", "blocked", "done", "superseded"] },
     "code_change": { "type": "boolean" },
     "change_kind": { "enum": ["fix", "feature", "refactor", "chore"] },
     "risk_flags": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "enum": ["behavior_change", "ui", "external_input", "data_write", "security", "refactor", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] }
+      "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] }
     },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
     "frozen_at": { "type": ["string", "null"], "format": "date-time" },
+    "stop_reason": { "type": "string", "minLength": 1 },
     "independence": { "enum": ["native", "degraded"] },
     "roles_waived": { "type": "string", "minLength": 1 },
     "subtask_role": { "enum": ["coordinator", "worker"] },
