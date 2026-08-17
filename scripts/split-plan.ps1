@@ -14,6 +14,11 @@ $ErrorActionPreference = 'Stop'
 $errors = @()
 $workers = @()
 
+# Test-OwnershipEntry / Test-PrefixOverlap: shared grammar - anything this script accepts is
+# written straight into a worker task's file_ownership, and would fail validate-task.ps1 there
+# if the two ever disagreed. See path-grammar.ps1 for why this is dot-sourced rather than copied.
+. (Join-Path $PSScriptRoot 'path-grammar.ps1')
+
 function Read-Frontmatter([string]$Path) {
     $text = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
     $match = [regex]::Match($text, '(?ms)^---\r?\n(.*?)\r?\n---')
@@ -23,25 +28,6 @@ function Read-Frontmatter([string]$Path) {
         if ($line -match '^([a-z_]+):[ \t]*(.*)$') { $data[$Matches[1]] = $Matches[2].Trim() }
     }
     return $data
-}
-
-# Must stay identical to the grammar in validate-task.ps1: anything this script accepts is
-# written straight into a worker task's file_ownership, and would fail validation there.
-function Test-OwnershipEntry([string]$Entry) {
-    if (-not $Entry) { return 'must not be empty' }
-    if ($Entry -match '^([a-zA-Z]:|/|\\)') { return 'must be repo-relative' }
-    if ($Entry -match '\\') { return 'must use / as the separator' }
-    if ($Entry -like './*') { return 'must not start with ./' }
-    if ($Entry -match '(^|/)\.\.(/|$)') { return 'must not contain ..' }
-    if ($Entry -match '[\[\],]') { return 'must not contain , [ or ]' }
-    return ''
-}
-
-function Test-PrefixOverlap([string]$Left, [string]$Right) {
-    if ($Left.Equals($Right, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    if ($Left.EndsWith('/') -and $Right.StartsWith($Left, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    if ($Right.EndsWith('/') -and $Left.StartsWith($Right, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    return $false
 }
 
 # Shared registration points: two workers editing the same route table, schema, DI container,

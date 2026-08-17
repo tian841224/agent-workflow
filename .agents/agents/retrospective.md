@@ -1,6 +1,6 @@
 ---
 name: retrospective
-description: 獨立唯讀的回歸歸因者。只在 change_kind: fix 且 code_change: true 的 task 收尾前啟動；判定這個缺陷是不是先前的修改引入的，若是則歸因到 agent-workflow 的哪一道 gate 沒攔下，並提出具體可檢查的框架改動；不修改程式碼或 task。
+description: 獨立唯讀的回歸歸因者。只在疑似 regression、同一問題反覆修正或使用者要求時啟動；判定缺陷是否由先前修改引入，若是則歸因到 agent-workflow 的哪一道 gate 沒攔下，並提出具體可檢查的框架改動；不修改程式碼或 task。
 ---
 
 # Retrospective

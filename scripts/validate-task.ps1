@@ -6,6 +6,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $errors = @()
+# Test-OwnershipEntry: shared with orchestrate.ps1, split-plan.ps1 and project-doc.ps1 - see
+# path-grammar.ps1 for why this is dot-sourced rather than copied.
+. (Join-Path $PSScriptRoot 'path-grammar.ps1')
 $content = Get-Content -LiteralPath $TaskPath -Raw -Encoding UTF8
 $schema = Get-Content -LiteralPath $SchemaPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $match = [regex]::Match($content, '(?ms)^---\r?\n(.*?)\r?\n---')
@@ -82,13 +85,11 @@ if ($data.ContainsKey('file_ownership')) {
         # A block array parses as an empty scalar here, so it must fail loudly rather than read as unset.
         $errors += 'file_ownership must use inline array syntax'
     }
+    # Entries reaching here were already comma-split above, so they structurally cannot still
+    # contain a raw comma - Test-OwnershipEntry's comma check is a no-op for this caller in
+    # practice, not a behaviour change from the rule this replaced.
     foreach ($entry in $ownership) {
-        $reason = ''
-        if ($entry -match '^([a-zA-Z]:|/|\\)') { $reason = 'must be repo-relative' }
-        elseif ($entry -match '\\') { $reason = 'must use / as the separator' }
-        elseif ($entry -like './*') { $reason = 'must not start with ./' }
-        elseif ($entry -match '(^|/)\.\.(/|$)') { $reason = 'must not contain ..' }
-        elseif ($entry -match '[\[\]]') { $reason = 'must not contain [ or ]' }
+        $reason = Test-OwnershipEntry $entry
         if ($reason) { $errors += "invalid file_ownership entry '$entry': $reason" }
     }
     if (@($ownership | Sort-Object -Unique).Count -ne $ownership.Count) { $errors += 'file_ownership contains duplicates' }

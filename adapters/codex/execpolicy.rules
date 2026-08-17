@@ -10,3 +10,7 @@ prefix_rule(pattern=["git", "stash", "drop"], decision="forbidden", justificatio
 prefix_rule(pattern=["git", "commit"], decision="prompt", justification="Ask before changing repository history.")
 prefix_rule(pattern=["git", "push"], decision="prompt", justification="Ask before mutating the remote repository.")
 prefix_rule(pattern=["git", "rebase"], decision="prompt", justification="Ask before rewriting repository history.")
+prefix_rule(pattern=["git", "merge"], decision="prompt", justification="Ask before merging branch history.")
+prefix_rule(pattern=["git", "reset"], decision="prompt", justification="Ask before moving HEAD or unstaging changes; --hard is separately forbidden above.")
+prefix_rule(pattern=["git", "cherry-pick"], decision="prompt", justification="Ask before replaying commits onto the current branch.")
+prefix_rule(pattern=["git", "revert"], decision="prompt", justification="Ask before creating a revert commit.")

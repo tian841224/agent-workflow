@@ -38,6 +38,16 @@
     "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
     "adversarial_required": ["financial", "data_write", "migration", "irreversible", "schema", "contract"],
     "mutation_check_required": ["financial", "data_write"],
-    "retrospective_required": ["fix"]
+    "retrospective_required": ["fix"],
+    "reviewer_dimensions": [
+      { "name": "Architecture consistency", "na_allowed": false },
+      { "name": "Code quality and conventions", "na_allowed": false },
+      { "name": "Data consistency", "na_allowed": true },
+      { "name": "Security", "na_allowed": true },
+      { "name": "Risk and compatibility", "na_allowed": false },
+      { "name": "Performance", "na_allowed": true },
+      { "name": "Flow and impact completeness", "na_allowed": false },
+      { "name": "Failure modes and observability", "na_allowed": false }
+    ]
   }
 }

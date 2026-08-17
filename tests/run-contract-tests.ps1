@@ -35,7 +35,7 @@ foreach ($eventName in @('PreToolUse','Stop')) {
 
 foreach ($path in @(
     '.agents\agents\reviewer.md','.agents\agents\adversarial.md','.agents\agents\verifier.md','hooks\git-guard.ps1','hooks\quality-gate.ps1','hooks\impact-guard.ps1',
-    'scripts\project-resolver.ps1','scripts\knowledge.ps1','scripts\pre-review.ps1','scripts\validate-task.ps1','templates\task.md','schemas\project.schema.json',
+    'scripts\project-resolver.ps1','scripts\path-grammar.ps1','scripts\codex-hook-trust.ps1','scripts\knowledge.ps1','scripts\pre-review.ps1','scripts\validate-task.ps1','templates\task.md','schemas\project.schema.json',
     'schemas\knowledge.schema.json','schemas\task.schema.json','schemas\import-manifest.schema.json',
     'scripts\task-gate.ps1','scripts\close-task.ps1','scripts\worktree-fingerprint.ps1','scripts\runtime-check.ps1',
     '.agents\agents\retrospective.md','scripts\retro.ps1','schemas\retro.schema.json',
@@ -67,6 +67,18 @@ Assert ($reviewer -match $cjkEightDimensions) 'Reviewer description still claims
 $taskSchema = Get-Content -LiteralPath (Join-Path $root 'schemas\task.schema.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 Assert (@($taskSchema.required) -contains 'code_change') 'task schema does not require code_change'
 Assert ($taskSchema.properties.code_change.type -eq 'boolean') 'task schema code_change is not boolean'
+
+# reviewer_dimensions is the single source for task-gate.ps1's and check-task.ps1's Reviewer
+# dimension checks; a hand-copied literal reappearing in either is exactly how the two already
+# drifted once (check-task.ps1 silently missing "Failure modes and observability").
+$expectedDimensions = @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness','Failure modes and observability')
+Assert (-not (Compare-Object @($taskSchema.x_agent_workflow.reviewer_dimensions.name) $expectedDimensions -SyncWindow 0)) 'task schema reviewer_dimensions does not match the eight Reviewer dimensions'
+$taskGateText = Get-Content -LiteralPath (Join-Path $root 'scripts\task-gate.ps1') -Raw -Encoding UTF8
+$checkTaskText = Get-Content -LiteralPath (Join-Path $root 'scripts\check-task.ps1') -Raw -Encoding UTF8
+Assert ($taskGateText -notmatch "'Architecture consistency','Code quality and conventions'") 'task-gate.ps1 still hardcodes the Reviewer dimension list instead of reading the schema'
+Assert ($checkTaskText -notmatch "'Architecture consistency','Code quality and conventions'") 'check-task.ps1 still hardcodes the Reviewer dimension list instead of reading the schema'
+Assert ($taskGateText -match 'reviewer_dimensions') 'task-gate.ps1 does not read reviewer_dimensions from the task schema'
+Assert ($checkTaskText -match 'reviewer_dimensions') 'check-task.ps1 does not read reviewer_dimensions from the task schema'
 $workflowText = $workflow -join "`n"
 Assert ($workflowText -match 'code_change: true') 'workflow does not define the code-change role gate'
 Assert ($workflowText -match 'code_change: false') 'workflow does not define legacy code_change false compatibility'
@@ -116,6 +128,10 @@ Assert ($task.Contains('Adversarial result')) 'Task template missing Adversarial
 $manifest = Get-Content -LiteralPath (Join-Path $root 'adapters\managed-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 Assert (@($manifest.runtime) -contains 'scripts/pre-review.ps1') 'managed runtime is missing pre-review.ps1'
 Assert (@($manifest.runtime) -contains 'hooks/impact-guard.ps1') 'managed runtime is missing impact-guard.ps1'
+foreach ($adapterPath in @('adapters\claude\settings.hooks.json','adapters\codex\hooks.json','adapters\antigravity\hooks.json')) {
+    $adapterText = Get-Content -LiteralPath (Join-Path $root $adapterPath) -Raw -Encoding UTF8
+    Assert ($adapterText -notmatch 'quality-gate|impact-guard') "$adapterPath still registers a legacy quality/impact hook by default"
+}
 $installer = Get-Content -LiteralPath (Join-Path $root 'install.ps1') -Raw -Encoding UTF8
 Assert ($installer -match 'CanonicalRoot') 'installer does not define the canonical global root'
 Assert ($installer -match 'Install-CanonicalEntrypoints') 'installer does not install canonical entrypoints'

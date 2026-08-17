@@ -4,10 +4,10 @@ $guard = Join-Path $root 'hooks\git-guard.ps1'
 $hostExe = if ($PSVersionTable.PSEdition -eq 'Core') { Join-Path $PSHOME 'pwsh.exe' } else { Join-Path $PSHOME 'powershell.exe' }
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
-function Invoke-HookUtf8([string]$ScriptPath, [string]$Payload) {
+function Invoke-HookUtf8([string]$ScriptPath, [string]$Payload, [string]$ExtraArgs = '') {
     $startInfo = New-Object Diagnostics.ProcessStartInfo
     $startInfo.FileName = $hostExe
-    $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`"" + $(if ($ExtraArgs) { " $ExtraArgs" } else { '' })
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardInput = $true
@@ -32,11 +32,33 @@ function Invoke-Guard([string]$Command) {
     $payload = @{ tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
     return Invoke-HookUtf8 $guard $payload
 }
+# -Platform Codex is what adapters/codex/hooks.json actually passes on the command line (see
+# install.ps1's Merge-Hooks templating); Codex's own hook schema documents permissionDecision:
+# "ask" as unsupported and rejected, so the askPatterns branch must fall back to deny there
+# instead of silently letting the command through unguarded.
+function Invoke-GuardCodex([string]$Command) {
+    $payload = @{ tool_input = @{ command = $Command } } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 $guard $payload '-Platform Codex'
+}
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 
 Assert ((Invoke-Guard 'git reset --hard HEAD') -match 'deny') 'destructive Git was not denied'
 Assert ((Invoke-Guard 'git commit -m test') -match 'ask') 'Git write did not require approval'
 Assert (-not (Invoke-Guard 'git status')) 'read-only Git should pass silently'
+
+# --- Codex cannot honor "ask": the askPatterns commands must come back deny, not ask, and the
+# hard denyPatterns (already deny for every platform) must stay deny. Read-only commands are
+# untouched since Test-ReadOnlyGitCommand exits before -Platform is ever consulted.
+Assert ((Invoke-GuardCodex 'git commit -m test') -match 'deny') 'Codex git commit did not fall back to deny'
+Assert ((Invoke-GuardCodex 'git commit -m test') -notmatch '"ask"') 'Codex git commit still emitted an ask decision Codex does not support'
+Assert ((Invoke-GuardCodex 'git merge feature') -match 'deny') 'Codex git merge did not fall back to deny'
+Assert ((Invoke-GuardCodex 'git reset') -match 'deny') 'Codex bare git reset did not fall back to deny'
+Assert ((Invoke-GuardCodex 'git cherry-pick abc123') -match 'deny') 'Codex git cherry-pick did not fall back to deny'
+Assert ((Invoke-GuardCodex 'git revert abc123') -match 'deny') 'Codex git revert did not fall back to deny'
+Assert ((Invoke-GuardCodex 'git reset --hard HEAD') -match 'deny') 'Codex destructive Git was not denied'
+Assert (-not (Invoke-GuardCodex 'git status')) 'Codex read-only Git should pass silently'
+# Claude/Antigravity behaviour must be unchanged by the Codex branch (no -Platform passed).
+Assert ((Invoke-Guard 'git merge feature') -match 'ask') 'Claude git merge regressed from ask to something else'
 
 $quality = Get-Content -LiteralPath (Join-Path $root 'hooks\quality-gate.ps1') -Raw -Encoding UTF8
 Assert ($quality -match 'active_tasks') 'quality gate does not resolve active tasks'
@@ -130,6 +152,10 @@ function Invoke-QualityUtf8([string]$Cwd, [bool]$StopHookActive) {
     $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $StopHookActive; last_assistant_message = $utf8Text } | ConvertTo-Json -Compress
     return Invoke-HookUtf8 $qualityPath $payload
 }
+function Invoke-QualitySession([string]$Cwd, [string]$SessionId) {
+    $payload = @{ cwd = $Cwd; workspacePaths = @($Cwd); stop_hook_active = $false; session_id = $SessionId } | ConvertTo-Json -Compress
+    return Invoke-HookUtf8 $qualityPath $payload
+}
 function Set-TestTask($Resolved, [string[]]$Flags, [string]$Extra = '', [bool]$CodeChange = $false, [string]$ChangeKind = '', [switch]$Frozen) {
     Get-ChildItem -LiteralPath $Resolved.task_root -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
     $taskDir = Join-Path $Resolved.task_root '20260807-000000-hook-test'
@@ -150,6 +176,7 @@ risk_flags: [$flagText]
 created_at: 2026-08-07T00:00:00+08:00
 updated_at: 2026-08-07T00:00:00+08:00
 frozen_at: $frozenAt
+independence: native
 ---
 
 ## Goal
@@ -327,6 +354,59 @@ $impactSurface
     Assert ((Invoke-Quality $repo) -match 'Verifier result is missing or not passed') 'failed Verifier result was accepted'
     Set-TestTask $resolved @() $roleResults $true
     Assert (-not (Invoke-Quality $repo)) 'valid code_change task was blocked'
+
+    # --- Add-ProjectDocsFormatIssues: read: naming a doc that exists but fails project-doc.ps1
+    # -Action Check (no frontmatter here) must be caught, not just "does the path exist".
+    # Test-ProjectDocsField already covers existence; this is the format layer on top of it.
+    $badDocRelative = 'docs\bad-format.md'
+    $badDocFull = Join-Path $repo $badDocRelative
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $badDocFull) | Out-Null
+    [IO.File]::WriteAllText($badDocFull, "# not a project doc`nno frontmatter here`n", $utf8NoBom)
+    try {
+        $badProjectDocsSection = @"
+## Project docs
+- read: $badDocRelative
+- updated: none - test fixture, no structural change
+"@
+        $roleResultsBadDoc = $roleResults.Replace($projectDocsSection, $badProjectDocsSection)
+        Assert ($roleResultsBadDoc -ne $roleResults) 'Project docs section substitution did not match the fixture text'
+        Set-TestTask $resolved @() $roleResultsBadDoc $true
+        Assert ((Invoke-Quality $repo) -match 'fails project-doc\.ps1 -Action Check') 'read: naming a doc with no frontmatter was accepted'
+    } finally {
+        # Untracked files are folded into worktree-fingerprint's hash (see that script's own
+        # comment); leaving this behind would invalidate $script:fingerprint for every assertion
+        # below that still relies on the roles having reviewed the current diff.
+        Remove-Item -LiteralPath $badDocFull -Force
+    }
+
+    # --- An incomplete code_change task reports via a non-blocking systemMessage: quality-gate.ps1
+    # calls task-gate.ps1 -Mode Stop for its issue text but never returns decision:block, so an
+    # unrelated turn in the same worktree is not forced to resolve someone else's task. ---
+    Set-TestTask $resolved @() '' $true
+    $noticeOutput = Invoke-Quality $repo
+    Assert ($noticeOutput -match 'Impact surface') 'incomplete code_change task produced no notice content at all'
+    Assert ($noticeOutput -notmatch '"decision"') 'incomplete code_change task still emitted a blocking decision'
+    Assert ($noticeOutput -match '"continue":true') 'incomplete code_change task notice did not set continue:true'
+    Assert ($noticeOutput -match 'systemMessage') 'incomplete code_change task notice had no systemMessage'
+
+    # Same worktree state, same session_id: the task is still exactly as incomplete, but a
+    # session only sees the notice once per unfinished-task state.
+    $sessionA = 'test-session-aaa'
+    $firstNotice = Invoke-QualitySession $repo $sessionA
+    Assert ($firstNotice -match 'systemMessage') 'first Stop in a fresh session produced no notice'
+    $secondNotice = Invoke-QualitySession $repo $sessionA
+    Assert (-not $secondNotice) 'second Stop in the same session re-notified about the same unfinished task'
+
+    # A different session_id is a separate conversation as far as this hook is concerned - it
+    # must still see the notice once.
+    $sessionB = 'test-session-bbb'
+    $otherSessionNotice = Invoke-QualitySession $repo $sessionB
+    Assert ($otherSessionNotice -match 'systemMessage') 'a different session_id did not get its own notice'
+
+    # No session_id at all (every other fixture in this file, and any platform payload that omits
+    # it): always notify, since there is nothing to dedupe against. Confirms the dedup path never
+    # accidentally swallows a notice when session_id is absent.
+    Assert ((Invoke-Quality $repo) -match 'systemMessage') 'a payload with no session_id was deduped against a previous one'
 
     # --- eighth review dimension: failure modes must never be waived ---
     $reviewNoFailureModes = $reviewResult -replace '(?m)^- Failure modes and observability: PASS[ \t]*\r?$', ''
@@ -616,7 +696,11 @@ $impactSurface
     Set-TestTask $resolved @() $roleResults $true 'chore'
     $degradedTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
     $degradedContent = Get-Content -LiteralPath $degradedTask -Raw -Encoding UTF8
-    [IO.File]::WriteAllText($degradedTask, ($degradedContent -replace '(?m)^(frozen_at:.*)$', "`$1`nindependence: degraded"), $utf8NoBom)
+    # Every Set-TestTask fixture now ships with `independence: native` (independence is
+    # mandatory at Close as of task-gate.ps1's independence check); overwrite that line rather
+    # than appending a second one, or the first (native) match would win and this case would
+    # stop testing what it claims to.
+    [IO.File]::WriteAllText($degradedTask, ($degradedContent -replace '(?m)^independence:.*$', 'independence: degraded'), $utf8NoBom)
     Assert (-not (Invoke-Quality $repo)) 'a degraded task was blocked from merely stopping'
     $closeOutput = Invoke-CloseTask $repo
     Assert ($closeOutput.ExitCode -ne 0) 'a degraded task was allowed to close'
@@ -627,6 +711,15 @@ $impactSurface
     $closeOutput = Invoke-CloseTask $repo
     Assert ($closeOutput.ExitCode -eq 0) "an explicitly waived task was still refused: $($closeOutput.Text)"
     Assert ($closeOutput.Text -match 'waived') 'close-task did not surface the waiver at the moment of closing'
+
+    # --- independence is mandatory, not "if applicable": an omitted field must not be a free pass ---
+    Set-TestTask $resolved @() $roleResults $true 'chore'
+    $missingIndependenceTask = (Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1).FullName
+    $missingIndependenceContent = Get-Content -LiteralPath $missingIndependenceTask -Raw -Encoding UTF8
+    [IO.File]::WriteAllText($missingIndependenceTask, ($missingIndependenceContent -replace '(?m)^independence:.*\r?\n', ''), $utf8NoBom)
+    $closeOutput = Invoke-CloseTask $repo
+    Assert ($closeOutput.ExitCode -ne 0) 'a task with no independence field at all was allowed to close'
+    Assert ($closeOutput.Text -match 'independence') 'close-task did not name the missing independence field as the reason'
 
     Set-TestTask $resolved @() ($reviewResult + "`n" + $verifierResult) $true
     $pathTask = Get-ChildItem -LiteralPath $resolved.task_root -Recurse -Filter task.md | Select-Object -First 1

@@ -11,7 +11,7 @@ description: 獨立唯讀 code reviewer。先確認 pre-review 證據，再對�
 
 審查前先建立獨立脈絡，不從 task 的敘述推得：
 
-1. 專案模組文件：`~/.agent-workflow/runtime/scripts/project-doc.ps1 -Action Lookup -Paths '<改動的 repo 相對路徑>'`；讀命中的 module 與 architecture／dataflow 文件。文件與自行重建的路徑不一致時一律以程式為準，差異當 finding 回報；文件記錄的入口或共用狀態而本次 `Impact surface` 沒列時是 blocker。無命中時在回報記錄「無模組文件」。
+1. Elevated task 才先讀專案模組文件：`~/.agent-workflow/runtime/scripts/project-doc.ps1 -Action Lookup -Paths '<改動的 repo 相對路徑>'`；文件與自行重建的路徑不一致時一律以程式為準，差異當 finding 回報。Standard task 以現況 code、呼叫端與既有測試建立必要脈絡。
 2. Project knowledge（依賴歷史脈絡時）：`~/.agent-workflow/runtime/scripts/knowledge.ps1 -Action Search -Query '<小寫英文單字，空白分隔>' -Limit 5`；結果含各平台原生記憶（`scope: native`），命中後 Read entry 的 `path` 全文，不以 excerpt 下判斷。
 3. 改動檔案近期歷史：`git log -n 5 --oneline -- <changed files>`，確認是否與既有決策衝突或重蹈已修過的問題。
 
@@ -45,4 +45,4 @@ Architecture、code quality、risk、flow and impact completeness、failure mode
 
 ## 回報
 
-先給 `通過`／`修正後通過`／`不通過`，再列 execution path、回歸證據、correctness 與八面向結果。同時回報主 agent 交付給你的 `diff_sha256`（原樣附回，它會被寫進 task 並在收尾時重算比對，任何在你之後發生的改動都會讓它對不上而要求重審），以及自行重建的路徑、與 task 宣稱路徑的差異（新增與漏列節點，無差異時明寫「無差異」）、未驗證節點與原因。Blocker 逐條附檔案與行號、可觸發情境、影響及最小修正方向；不確定的項目標 `需確認` 並附驗證方法。不得修改 code、設定或 task。
+先給 `通過`／`修正後通過`／`不通過`，再列 execution path、回歸證據、correctness 與適用的面向結果。只有 coordinator／worker 或明確啟用 legacy completion gate 的 Elevated task 才回報 `diff_sha256`；其餘 task 以審查當下的完整 diff 為準。Blocker 逐條附檔案與行號、可觸發情境、影響及最小修正方向；不確定的項目標 `需確認` 並附驗證方法。不得修改 code、設定或 task。

@@ -71,11 +71,11 @@ $pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\project-doc.ps
 
 `stale`：涵蓋路徑在文件之後又被 commit 改動。`stale_pending`：涵蓋路徑有未提交改動而文件沒有。兩者皆源自 git 歷史比較，不是欄位，不可能被手動改假；未進版控的新文件一律 `stale: false`。`stale` 或 `stale_pending` 為 `true` 時只當線索，一律以現況程式為準。
 
-## `read:` 與 `updated:` 的強制與逃生口
+## `read:` 與 `updated:` 的條件式使用
 
-`## Project docs` 的兩個欄位都是「列路徑，或 `none - <理由>`」；理由不得是 placeholder，路徑不存在一律擋下：
+Elevated task 的 `## Project docs` 兩個欄位都是「列路徑，或 `none - <理由>`」；理由不得是 placeholder，路徑不存在一律修正。Standard task 不因單純局部修改而建立或更新 Project docs。
 
-- `- read:`：`impact-guard.ps1`（改 code 前）與 `task-gate.ps1` Stop 模式（結束 turn 前）強制，**無條件**——任何 `code_change: true` 的 task 都要交代讀了什麼。
-- `- updated:`：`task-gate.ps1` Close 模式強制，**有條件**——只有 `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時才檢查；純 bug fix 或 chore 不受影響，`updated:` 可以是任意值（含空白）。
+- `- read:`：在陌生模組、架構／契約／跨功能變更，或 risk flag 要求時填寫；簡單局部修正可省略。
+- `- updated:`：只有 `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時填寫；純 bug fix 或 chore 不受影響。
 
-`read:` 無條件是因為讀取的即時報酬本身就夠，不需要看改動性質；`updated:` 有條件是因為多數 code_change task（尤其 fix）本來就不該動文件——如果連 chore 都要求交代 `updated:`，逼出的會是為了過關而寫的敷衍文字，不是真的維護。
+文件查閱的成本應與風險匹配：架構或跨模組變更需要文件脈絡，局部修正則以現況 code、呼叫端與測試為準，避免為了通過欄位檢查產生沒有資訊量的文件。

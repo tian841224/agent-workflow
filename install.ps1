@@ -1,7 +1,9 @@
 # agent-workflow v4 installer for Windows PowerShell 5.1 and PowerShell 7.
 [CmdletBinding()]
 param(
-    [Alias('Agent','Platform')][ValidateSet('Claude','Codex','Antigravity','Both','All')][string]$TargetAgent = 'Both',
+    # v4 is a three-platform framework; 'Both' (Claude+Codex only) was the v3-era default and is
+    # kept solely for backward compatibility with existing invocations that pass it explicitly.
+    [Alias('Agent','Platform')][ValidateSet('Claude','Codex','Antigravity','Both','All')][string]$TargetAgent = 'All',
     [Alias('Target')][string]$ClaudeTarget = (Join-Path $env:USERPROFILE '.claude'),
     [string]$CodexTarget = (Join-Path $env:USERPROFILE '.codex'),
     [string]$AntigravityTarget = (Join-Path $env:USERPROFILE '.gemini'),
@@ -301,10 +303,20 @@ function Write-MarkdownAgent([string]$Name, [string]$Destination) {
     Install-ManagedHardLink $canonicalDestination $Destination 'canonical-agent-hardlink'
 }
 
+# v3 shipped its own hook scripts under "<platform-root>\hooks\ai-workflow\..." (e.g.
+# ~/.claude/hooks/ai-workflow/post-edit-check.ps1). Backup-V3Runtime already moves that whole
+# directory out of the way on activation, but nothing ever removed the settings.json/hooks.json
+# entries that point at it - so every turn kept invoking commands whose target no longer exists.
+# Matched as a path-segment string, same convention as the v4 $HooksDir check below: cheap,
+# does not need to resolve any path (the v3 directory may already be gone), and cannot collide
+# with a real user-authored hook that happens to live somewhere else.
+$legacyHookMarker = '\hooks\ai-workflow\'
+
 function Test-ManagedHookCommand([string]$Command, [string]$HooksDir) {
     if (-not $Command) { return $false }
     $needle = [IO.Path]::GetFullPath($HooksDir).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
-    return $Command.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    if ($Command.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    return $Command.IndexOf($legacyHookMarker, [StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
 function Remove-ManagedHookCommands($Entry, [string]$HooksDir) {
@@ -332,8 +344,23 @@ function Merge-Hooks([string]$Source, [string]$Destination, [string]$HooksDir, [
         foreach ($property in $fragment.PSObject.Properties) { $data | Add-Member NoteProperty $property.Name $property.Value -Force }
     } else {
         if (-not $data.PSObject.Properties['hooks']) { $data | Add-Member NoteProperty hooks ([pscustomobject]@{}) }
+        # Sweep legacy/managed entries from EVERY event already in the destination file, not
+        # just the events this fragment happens to define. v3 registered hooks under
+        # PostToolUse and SessionEnd that v4 has no equivalent for; a loop scoped to
+        # $fragment.hooks.PSObject.Properties never visits those event names at all, so their
+        # v3 entries survived every repair untouched (confirmed on a real profile: v3's
+        # post-edit-check.ps1 and log-session.ps1 were still present after a Repair that was
+        # specifically supposed to remove them).
+        # @() around an empty PSCustomObject's .Properties.Name does NOT yield an empty array in
+        # PowerShell 5.1 - it yields a single-element array containing $null - so a fresh
+        # install (no pre-existing hooks object) would otherwise iterate once with a null event
+        # name and crash Add-Member below with "Cannot bind argument to parameter 'Name'".
+        foreach ($existingEventName in @($data.hooks.PSObject.Properties.Name | Where-Object { $_ })) {
+            $swept = @($data.hooks.$existingEventName | ForEach-Object { Remove-ManagedHookCommands $_ $HooksDir } | Where-Object { $null -ne $_ })
+            $data.hooks | Add-Member NoteProperty $existingEventName $swept -Force
+        }
         foreach ($event in $fragment.hooks.PSObject.Properties) {
-            $kept = @($data.hooks.$($event.Name) | ForEach-Object { Remove-ManagedHookCommands $_ $HooksDir } | Where-Object { $null -ne $_ })
+            $kept = @($data.hooks.$($event.Name))
             $data.hooks | Add-Member NoteProperty $event.Name (@($kept) + @($event.Value)) -Force
         }
     }
@@ -376,6 +403,19 @@ function Install-Codex {
     Merge-Hooks (Join-Path $repoRoot 'adapters\codex\hooks.json') (Join-Path $CodexTarget 'hooks.json') (Join-Path $runtimeRoot 'hooks')
 }
 
+# Get-CodexHookStateKeys / Get-UntrustedCodexHookKeys: shared with runtime-check.ps1 - see
+# codex-hook-trust.ps1 for why this is dot-sourced rather than copied.
+. (Join-Path $PSScriptRoot 'scripts\codex-hook-trust.ps1')
+
+# install.ps1 can write hooks.json but cannot grant trust - that only happens inside an
+# interactive Codex session - so a v4 hook can be correctly installed and still silently never
+# execute. "managed" here means Test-ManagedHookCommand's definition (matches the current
+# HooksDir; also matches legacy v3 markers, harmlessly - a leftover v3 entry would never have a
+# trust key shaped like a v4 one anyway).
+function Get-UntrustedCodexHooks([string]$HooksJsonPath, [string]$ConfigPath, [string]$HooksDir) {
+    return Get-UntrustedCodexHookKeys $HooksJsonPath $ConfigPath { param($cmd) Test-ManagedHookCommand $cmd $HooksDir }
+}
+
 function Install-Antigravity {
     foreach ($name in @('reviewer','adversarial','verifier','retrospective')) { Write-MarkdownAgent $name (Join-Path $AntigravityTarget "config\agents\agent-workflow-$name\agent.md") }
     Install-CanonicalSkillLinks (Join-Path $AntigravityTarget 'config\skills')
@@ -385,16 +425,32 @@ function Install-Antigravity {
 
 function Test-LegacyKnowledge {
     if (Test-Path -LiteralPath (Join-Path $StateRoot 'activation.json')) { return $false }
-    $candidates = @(
+    # v3-specific paths only. The previous version scanned .claude/projects (recursively, so it
+    # swept up every project's own memory/*.md) and .codex/memories wholesale - both are where
+    # Claude and Codex write their ORDINARY NATIVE memory, unrelated to this framework. Any
+    # machine that had ever used platform memory, v3 or not, was refused installation by this
+    # check; knowledge.ps1's own Get-NativeMemoryFile treats the same two paths as native-only.
+    $legacyPaths = @(
+        (Join-Path $ClaudeTarget 'agent-workflow'),
+        (Join-Path $CodexTarget 'agent-workflow'),
+        (Join-Path $LegacyRoot 'workflow')
+    )
+    foreach ($path in $legacyPaths) {
+        if (Test-Path -LiteralPath $path) { return $true }
+    }
+    # A real v3 signal even inside the native memory roots: v3 tagged its own knowledge/history
+    # notes with this marker (same string Backup-V3Runtime already checks for legacy reviewers
+    # below), so a plain native memory file - which never contains it - is left alone.
+    $markerCandidates = @(
         (Join-Path $ClaudeTarget 'memory'),
         (Join-Path $ClaudeTarget 'projects'),
         (Join-Path $CodexTarget 'memories')
     )
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate) {
-            $found = Get-ChildItem -LiteralPath $candidate -Recurse -File -Include '*.md','*.txt' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { return $true }
-        }
+    foreach ($candidate in $markerCandidates) {
+        if (-not (Test-Path -LiteralPath $candidate)) { continue }
+        $hit = Get-ChildItem -LiteralPath $candidate -Recurse -File -Include '*.md','*.txt' -ErrorAction SilentlyContinue |
+            Select-String -Pattern 'managed by agent-workflow v3|agent-workflow v3' -Quiet -ErrorAction SilentlyContinue
+        if ($hit) { return $true }
     }
     return $false
 }
@@ -562,6 +618,16 @@ Install-CanonicalEntrypoints (Join-Path $runtimeRoot 'AGENTS.md') (Join-Path $Ca
 if ($TargetAgent -in @('Claude','Both','All')) { Install-Claude }
 if ($TargetAgent -in @('Codex','Both','All')) { Install-Codex }
 if ($TargetAgent -in @('Antigravity','All')) { Install-Antigravity }
+
+if ($TargetAgent -in @('Codex','Both','All') -and -not $DryRun) {
+    $untrustedCodexHooks = @(Get-UntrustedCodexHooks (Join-Path $CodexTarget 'hooks.json') (Join-Path $CodexTarget 'config.toml') (Join-Path $runtimeRoot 'hooks'))
+    if ($untrustedCodexHooks.Count -gt 0) {
+        Write-Output "[install] Codex has not trusted $($untrustedCodexHooks.Count) agent-workflow hook(s) yet - they were written to hooks.json but will not run until trusted:"
+        foreach ($key in $untrustedCodexHooks) { Write-Output "  - $key" }
+        Write-Output '[install] Open an interactive Codex session in this profile and approve the hook trust prompt (or use the config/batchWrite app-server method) before relying on git-guard/impact-guard/quality-gate on Codex.'
+    }
+}
+
 Backup-V3Runtime
 
 $state = [ordered]@{

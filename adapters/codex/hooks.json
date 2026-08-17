@@ -7,32 +7,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\git-guard.ps1\"",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\git-guard.ps1\" -Platform Codex",
             "statusMessage": "Checking Git safety"
-          }
-        ]
-      },
-      {
-        "matcher": "^apply_patch$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\impact-guard.ps1\"",
-            "statusMessage": "Checking impact surface"
           }
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\quality-gate.ps1\"",
-            "statusMessage": "Checking active task"
-          }
-        ]
-      }
-    ]
+    "Stop": []
   }
 }

@@ -42,6 +42,13 @@ if (Test-Path -LiteralPath $validator) {
     if (-not $frontmatter.valid) { $issues += @($frontmatter.errors) }
 }
 
+# Single source for the Reviewer dimension list, shared with task-gate.ps1 - see the comment at
+# its own reviewer_dimensions loop for why a hand-copied literal here already drifted once.
+$taskSchemaPath = Join-Path $PSScriptRoot '..\schemas\task.schema.json'
+$taskSchema = $null
+if (Test-Path -LiteralPath $taskSchemaPath) { $taskSchema = Get-Content -LiteralPath $taskSchemaPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+if (-not $taskSchema) { $issues += "task schema is unreadable: $taskSchemaPath" }
+
 $role = Get-Field $content 'subtask_role'
 if ($role -ne $Mode.ToLowerInvariant()) { $issues += "task subtask_role is '$role', expected '$($Mode.ToLowerInvariant())'" }
 
@@ -90,12 +97,14 @@ if ($Mode -eq 'Worker') {
 
     $review = Get-Section $content 'Reviewer result'
     if (-not $review -or $review -notmatch '(?mi)^[ \t]*-[ \t]*result:[ \t]*PASS[ \t]*\r?$') { $issues += 'Reviewer result is missing or not passed' }
-    # Kept in sync with task-gate.ps1's own list by hand - both enumerate the same eight
-    # dimensions from templates/task.md. This list used to stop at seven and silently accepted a
-    # worker delivery with no Failure modes and observability verdict; a Collect/Apply pass here
-    # is not supposed to be a lower bar than the coordinator's own Stop/Close gate.
-    foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness','Failure modes and observability')) {
-        $allowedStatus = if (@('Data consistency','Security','Performance') -contains $dimension) { '(?:PASS|N/A)' } else { 'PASS' }
+    # Read from schemas/task.schema.json's x_agent_workflow.reviewer_dimensions, the same source
+    # task-gate.ps1 reads. This list used to be a hand-copied literal here that had already
+    # drifted once (missing "Failure modes and observability", silently accepting a worker
+    # delivery with no verdict on it) - a Collect/Apply pass here is not supposed to be a lower
+    # bar than the coordinator's own Stop/Close gate.
+    foreach ($dim in @($taskSchema.x_agent_workflow.reviewer_dimensions)) {
+        $dimension = [string]$dim.name
+        $allowedStatus = if ($dim.na_allowed) { '(?:PASS|N/A)' } else { 'PASS' }
         $pattern = '(?mi)^[ \t]*-[ \t]*' + [regex]::Escape($dimension) + ':[ \t]*' + $allowedStatus + '(?:[ \t]+.*)?[ \t]*\r?$'
         if ($review -notmatch $pattern) { $issues += "Reviewer result missing or not passed dimension: $dimension" }
     }

@@ -1,28 +1,30 @@
 # agent-workflow v4
 
-跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改 source code 邏輯、可執行 script 或 test code 才使用 workflow、建立 `task.md` 並執行 Reviewer、Verifier；純註解修改、設定與文件修改等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
+跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改 source code 邏輯或 test code 才使用 workflow、建立 `task.md` 並執行 Reviewer、Verifier；純註解修改、設定與文件修改、script 修改與操作等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
 
 ## 架構
+- `push-back/`: optional reasonableness check for a selected design; use it only when conventions, minimality, or complexity are in doubt.
 
 - `AGENTS.md`：常駐硬規則。
 - `.agents\skills\`：共用 skill source；installer 會將所有 repo skill 同步到使用者的 `.agents\skills`。
   - `workflow/`：主流程、`risk-flags.md`、平行編排規則 `orchestration.md`，與專案文件規則 `project-docs.md`（分工、佈局、staleness 語意，見下方「專案文件」一節）。
   - `planning/`：規劃/架構討論用；也是 `unclear_requirements` 的第一步。
   - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或 `unclear_requirements` 仍有風險時用於第二步。
-  - `push-back/`：使用者選定或即將採用某個做法時的合理性檢查（架構慣例、最小改動、複雜度）；`workflow` 實作階段（第 4 節）與規劃討論皆可觸發，不限程式任務。
-- `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在 `risk_flags` 命中 financial／data_write／migration／irreversible／schema／contract 任一時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在 `change_kind: fix` 時於結案前加開，見下方「回顧」一節）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。
+- `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在高風險 `risk_flags` 命中時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。
 - `scripts/project-resolver.ps1`：解析 project、worktree 與 active task；`-RegisterWorktree` 批次註冊 worker worktree，`-RosterFor` 查詢某 coordinator 底下的 worker task 清單。
-- `scripts/check-task.ps1`：coordinator／worker task 的增量檢查（`-Mode Worker|Coordinator`），供 `quality-gate.ps1` 與 `orchestrate.ps1` 共用，不重複維護規則。
+- `scripts/path-grammar.ps1`：`file_ownership`／`covers` 共用的 repo-relative 路徑文法（`Test-OwnershipEntry`、`Test-PrefixOverlap`），由 `orchestrate.ps1`、`split-plan.ps1`、`project-doc.ps1`、`validate-task.ps1` dot-source，避免四份手抄副本各自漂移。
+- `scripts/codex-hook-trust.ps1`：解析 `~/.codex/config.toml` 的 `[hooks.state]` 信任狀態、算出 hook trust key，由 `install.ps1`（裝完當下提示）與 `runtime-check.ps1`（每次健康檢查）共用讀取邏輯。
+- `scripts/check-task.ps1`：coordinator／worker task 的增量檢查（`-Mode Worker|Coordinator`），供 legacy orchestration 共用；一般 task 不自動呼叫。
 - `scripts/split-plan.ps1`：拆分資格判定（freeze、使用者確認、順序依賴、共用狀態、ownership 文法與 disjoint、預設序列處理的共用註冊點），唯讀，`orchestrate.ps1 -Action Init` 的前置。
 - `scripts/orchestrate.ps1`：coordinator／worker 平行編排的 Manual lifecycle（`-Action Init|Collect|Apply|Resolve|Reject|Cleanup|Status`），細節見下方「平行編排」一節。
 - `scripts/knowledge.ps1`：按需搜尋、去重寫入與重建 knowledge index。
-- `scripts/pre-review.ps1`：在審查或結案前執行 deterministic project checks；開頭先跑 `runtime-check.ps1`。
-- `scripts/task-gate.ps1`：完成條件的單一判定來源（`-Mode Stop|Close`），`quality-gate.ps1` 與 `close-task.ps1` 共用，回傳 JSON issues。
-- `scripts/close-task.ps1`：唯一可將 task 寫成 `status: done` 的入口；先跑 `task-gate.ps1 -Mode Close`，全數通過才改 frontmatter。
-- `scripts/waive-roles.ps1`：唯一可寫入 `roles_waived` 的入口，要求 `-ConfirmedByUser` 與單行 `-Reason`；`impact-guard` 擋下直接編輯。豁免只放寬三個角色段落，其餘 gate 照常。
-- `scripts/worktree-fingerprint.ps1`：算出「相對 base 的完整改動」sha256，含未追蹤檔；角色記錄自己審的那份指紋，收尾時重算比對，簽核後又改 code 就會被要求重跑。
-- `scripts/runtime-check.ps1`：檢查防線本身——已安裝檔案的 sha256、每支 `.ps1` 的可解析性／換行／BOM、repo 與已安裝 runtime 的漂移，以及 `~/.agent-workflow/logs/hook-errors.log`。`install.ps1 -Action Verify` 走同一支。
-- `hooks/git-guard.ps1`、`hooks/quality-gate.ps1`、`hooks/impact-guard.ps1`：git 安全、結案品質與影響面時序三個 hook。`impact-guard` 為 PreToolUse，`code_change: true` 且 task 的 `Impact surface` 未填時擋下 code 編輯（task 檔本身不受限，否則無法補寫）；`code_change: true` 但 task 為 coordinator 時，主工作目錄的 source 編輯一律 deny，不論 Impact surface 是否已填。三平台的編輯工具名稱與參數各不相同，hook 內統一處理：Claude `Edit|Write|NotebookEdit` 走 `tool_input.file_path`；Codex `apply_patch` 是 freeform tool，路徑要從 patch 的 `*** Add/Update/Delete File:` 標頭解析；Antigravity `write_to_file`／`replace_file_content`／`multi_replace_file_content` 走 `toolCall.args.TargetFile`（PascalCase，非 `file_path`）。`impact-guard` 另外攔截「直接把 task 的 `status` 寫成 `done`」——那是唯一不受 Stop hook 檢查的操作（Stop 只解析 `in_progress` task），一律 deny 並指向 `close-task.ps1`；`paused`／`blocked` 不受限。`git-guard.ps1` 對唯讀 Git 命令採允許清單，先判斷是否為完全唯讀組合（不需 resolve project）；worker task 下唯讀清單外一律 deny，coordinator task 下任何直接 Git 寫入一律 deny，一般 task 沿用既有 deny／ask pattern。`git-guard` 與 `impact-guard` 例外時維持 fail-open（放行），但會先把錯誤寫進 `~/.agent-workflow/logs/hook-errors.log`，讓「防線壞掉」不再無聲。
+- `scripts/pre-review.ps1`：在 code task 審查或結案前執行 deterministic project checks；非程式碼任務不因 workflow 自動呼叫。
+- `scripts/task-gate.ps1`：legacy completion gate（`-Mode Stop|Close`），只供 coordinator／worker 或明確啟用的 Elevated task 使用。
+- `scripts/close-task.ps1`：Elevated task 的完整結案入口；Standard task 不因它而增加流程。
+- `scripts/waive-roles.ps1`：legacy gate 的角色豁免入口，仍要求 `-ConfirmedByUser` 與單行 `-Reason`。
+- `scripts/worktree-fingerprint.ps1`：legacy coordinator／worker gate 的 diff 指紋工具；Standard task 不自動執行。
+- `scripts/runtime-check.ps1`：legacy runtime health check；不由 Standard workflow 自動執行。`install.ps1 -Action Verify` 仍可手動使用。
+- 預設只註冊 `hooks/git-guard.ps1`，保護 destructive Git 操作。`quality-gate.ps1` 與 `impact-guard.ps1` 仍保留在 runtime 作為相容性／進階編排工具，但不在一般 agent session 的 adapter 中自動執行；需要 coordinator／worker 或明確的 Elevated workflow 時才手動啟用。三平台 hook payload 差異只由 adapter 處理，README 不重複維護 hook 內部解析細節。
 - `scripts/retro.ps1`：跨專案的框架缺口清單（`-Action Record|List|Resolve`），存放於 `~/.agent-workflow/retro/`；`Record` 回傳同類累積次數與 `escalate`，見下方「回顧」一節。
 - `scripts/project-doc.ps1`：讀取目標 repo 自身 `docs/` 的專案文件（`-Action Lookup|List|Stale|Check`），依路徑反查涵蓋改動的文件並回報是否過期；不提供寫入 action，內容由 agent 直接編輯 markdown。詳見下方「專案文件」一節。
 - `schemas/`、`templates/task.md`：Task 與遷移資料契約，含 coordinator／worker 的 optional 欄位（`subtask_role`、`parent_task_id`、`file_ownership`、`delivery_status`、`integration_status`）與 `change_kind`。`schemas/retro.schema.json` 是回顧詞彙（`classification`、八類 `miss_category`、`escalate_threshold`）與 finding 紀錄結構的單一來源，`task-gate.ps1` 與 `retro.ps1` 都讀它。
@@ -33,13 +35,13 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 ## Task
 
-只有實際修改 source code、可執行 script 或 test code 才建立：
+只有實際修改 source code logic 或 test code logic 才建立：
 
 ```text
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
 ```
 
-同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：修改 source、script 或 test code 為 `true`，只改設定／文件或只執行測試、調查、code review 為 `false`。只有 `true` 強制依序執行 Reviewer、Verifier（命中六個高代價旗標時，中間再加一輪 Adversarial 複查）；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
+同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改 source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。只有 `true` 強制依序執行 Reviewer、Verifier（命中六個高代價旗標時，中間再加一輪 Adversarial 複查）；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
 
 `code_change: true` 時另填 `change_kind: fix | feature | refactor | chore`。它不在 schema 的 `required` 裡（既有 task 與 `orchestrate.ps1` 產生的 worker frontmatter 都沒有這個欄位），由 `task-gate.ps1 -Mode Close` 在結案時要求。
 
@@ -53,7 +55,7 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 ### 實作、Pre-review、角色與收尾
 
-完整操作規則（Impact surface／execution path／TDD、pre-review 的 FAIL／SKIP／PASS、Reviewer 八面向、Adversarial 四項檢查、Verifier 分類、失敗續作、收尾與回顧步驟）以 [`.agents/skills/workflow/SKILL.md`](.agents/skills/workflow/SKILL.md) 為唯一權威，本檔不重述——README 的定位是架構導覽，不是第二份操作手冊。角色 canonical source 見上方「架構」一節；`stop_reason`、`roles_waived`、回顧迴圈的機械強制細節同樣定義在 SKILL.md 與對應的 script 裡（`task-gate.ps1`、`close-task.ps1`、`waive-roles.ps1`、`retro.ps1`）。
+完整操作規則（Standard／Elevated workflow、Reviewer、Verifier 與條件式風險檢查）以 [`.agents/skills/workflow/SKILL.md`](.agents/skills/workflow/SKILL.md) 為唯一權威，本檔不重述——README 的定位是架構導覽，不是第二份操作手冊。角色 canonical source 見上方「架構」一節；legacy runtime gate 僅供 coordinator／worker 或明確啟用的 Elevated task 使用。
 
 ## 平行編排
 
@@ -82,7 +84,7 @@ Search 是關鍵字子字串比對：query 用小寫英文單字、以空白分�
 
 ### 跨平台原生記憶
 
-各平台仍會寫自己的記憶（Codex `~/.codex/memories`、Claude 專案 `memory/`）。Search 會一併讀取並列出，標記 `scope: native`、`source: <平台>`、`status: needs_verification`，讓任一 agent 都看得到其他平台記下的事，避免跨平台記憶分歧。
+各平台仍會寫自己的記憶（Codex `~/.codex/memories`、Claude 專案 `memory/`）。Search 會一併讀取並列出，標記 `scope: native`、`source: <平台>`、`status: needs_verification`，讓任一 agent 都看得到其他平台記下的事，避免跨平台記憶分歧。**Antigravity 不在此列**：其原生記憶存在 protobuf（`~/.gemini/antigravity/brain/<uuid>/`），不是 markdown，`knowledge.ps1` 讀不到；三平台只有 Codex 與 Claude 互見。
 
 原生記憶**只讀不寫**：不複製進 curated store、不改動原檔，所以各平台的功能維持原狀。自動產生的 session 摘要（`rollout_summaries`）預設排除以免淹沒命中，需要時加 `-IncludeSessionSummaries`；只要 curated 結果時加 `-ExcludeNative`。原生記憶未經整理，一律當線索、使用前回查。
 
@@ -109,7 +111,7 @@ $pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\project-doc.ps
 
 `stale`／`stale_pending` 純由 git 歷史推導（涵蓋路徑是否在文件之後又被 commit／有未提交改動），不是可手動填的欄位，不可能被改假；未進版控的新文件一律視為最新。
 
-**讀取與更新都有機械強制，範圍不同**：`code_change: true` 的 task 需在 `## Project docs` 記錄 `read:`（Lookup 命中並讀過的路徑，或 `none - <理由>`），未填、含 placeholder 或路徑不存在時，`impact-guard`（改 code 前）與 `task-gate.ps1 -Mode Stop`（結束 turn 前）都會擋下——這是**無條件**的，任何 code task 都要交代讀了什麼。`updated:` 由 `task-gate.ps1 -Mode Close` 強制，但是**有條件**的：只有 `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時才檢查，純 bug fix 或 chore 不受影響，避免逼出為了過關而寫的敷衍更新。這個設計避免了本框架已知會失效的模式——`project-architecture-index` 這條純指示、無機械檢查的規則，從未被任何真實專案執行過。細節見 [`.agents/skills/workflow/project-docs.md`](.agents/skills/workflow/project-docs.md)。
+**Project docs 採條件式使用**：陌生模組、架構／契約／跨功能變更或高風險 flag 才執行 Lookup 並記錄 `read:`；局部 bug fix、chore 與不依賴架構脈絡的修改以現況 code、呼叫端與測試為準。`updated:` 只在 feature、refactor 或相關 risk flag 命中時要求，避免為了過 gate 產生沒有資訊量的文件。細節見 [`.agents/skills/workflow/project-docs.md`](.agents/skills/workflow/project-docs.md)。
 
 ## 遷移
 
@@ -141,4 +143,4 @@ Global entrypoint 以 `C:\Users\<user>\.agents\AGENTS.md` 為 canonical source�
 
 ## 開發檢查
 
-測試腳本放在 `tests/`，涵蓋靜態契約、task 驗證、平行編排 lifecycle、hook、knowledge、pre-review、installer、migration 與專案文件。Windows PowerShell 5.1 與 PowerShell 7 應分別執行。
+測試腳本放在 `tests/`，涵蓋靜態契約、task 驗證、平行編排 lifecycle、hook、knowledge、pre-review、installer、migration 與專案文件。Windows PowerShell 5.1 與 PowerShell 7 應分別執行。`.pre-review-extra.ps1`（repo 根目錄）依序執行 `tests/` 下全部 `run-*.ps1`；本 repo 沒有 `go.mod`／`package.json`，`pre-review.ps1` 的語言檢查一律 SKIP，這支才是本 repo 實際的 pre-review 驗證入口。

@@ -66,4 +66,21 @@ if ($result.waived) {
     # the moment of closing, not just sit in frontmatter nobody re-reads.
     Write-Output "close-task: WARNING - the independent roles were waived: $($result.waived)"
 }
+
+# retro.ps1 -Action Record accumulates cross-project framework-gap findings; List/Resolve have
+# no automatic trigger point of their own, so a finding below the escalate threshold was never
+# surfaced again after the turn it was recorded in. close-task.ps1 is the one point every
+# code task guaranteed passes through - reading the open count here gives accumulation a floor
+# without gating anything on it (a large open count is a signal for the user to review, not a
+# reason to refuse closing this unrelated task).
+$retroIndexPath = Join-Path $StateRoot 'retro\index.json'
+if (Test-Path -LiteralPath $retroIndexPath) {
+    try {
+        $retroIndex = Get-Content -LiteralPath $retroIndexPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $openCount = @($retroIndex.entries | Where-Object { $_.status -eq 'open' }).Count
+        if ($openCount -gt 0) {
+            Write-Output "close-task: $openCount open framework-gap finding(s) in retro/index.json; run retro.ps1 -Action List -Status open to review."
+        }
+    } catch { }
+}
 exit 0

@@ -1,6 +1,6 @@
 # coordinator／worker 編排
 
-大型 code task 可拆成多個可獨立驗收的 worker，各自在 detached worktree 執行完整 workflow，成果以 patch 移植回主工作目錄的未提交變更。不建 branch、不 commit。
+這是 optional orchestration skill，只在使用者明確需要平行處理，且任務可拆成至少兩個互不重疊、可獨立驗收的 code worker 時載入。一般 code task 不讀取本檔、不建立 detached worktree、不執行下列 lifecycle。各 worker 在 detached worktree 執行 workflow，成果以 patch 移植回主工作目錄的未提交變更；不建 branch、不 commit。
 
 ## 執行模式與平台支援
 
@@ -166,3 +166,7 @@ orchestration context: ~/.agents/skills/workflow/orchestration.md
 worker 邊界是**協作式 guard**，不具備不可繞過的保證。真正的強制需要平台層的 process identity 或 capability 機制，不在 v1 範圍。
 
 同理，衝突合併例外（`integration_status: conflicted` + `conflicts[].paths`）**限制的是能改哪些路徑，不是限制 coordinator 本身**：`orchestration.json` 與 coordinator task 的 frontmatter 都在 coordinator 自己可寫的目錄下，coordinator 技術上可以自行宣告一個衝突來解鎖任意路徑。這與整體協作式 guard 的定位一致，不是這個例外獨有的破口。
+
+**`quality-gate.ps1` 對三平台輸出同一種 `{continue:true, systemMessage}` 提示格式**：未收尾的 task 只在同一 session 內第一次遇到時提示一次，不阻斷任何一輪對話。完成把關在 `hooks/impact-guard.ps1` 擋下直接寫 `status: done`，以及 `scripts/close-task.ps1` 呼叫 `task-gate.ps1 -Mode Close` 的硬性阻斷——兩者都與平台無關，worker／coordinator 編排在三個平台上都受它們保護。
+
+**Antigravity 的 `systemMessage` 是否顯示未驗證**：Antigravity 官方文件（含 Context7 可查到的 CLI／IDE 文件）沒有公開 Stop 事件的 payload 與輸出契約，`adapters/antigravity/hooks.json` 裡 `Stop` 與 `PreToolUse` 也是兩種不同形狀，未經實機驗證。Antigravity 上這個提示是否真的會顯示給使用者看屬未知；Stop 本身不做阻斷，提示沒顯示只影響使用者是否看到提醒，不影響任何 gate 的強制力。

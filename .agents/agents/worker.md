@@ -7,7 +7,7 @@ description: 在指定 detached worktree 內執行完整 workflow 的子任務�
 
 ## 流程
 
-完整流程依 `workflow` skill 執行（Impact surface → TDD → pre-review → Reviewer → Verifier），本檔不重述。編排規則見 `workflow/orchestration.md`。
+完整流程依 `workflow` skill 的 Standard／Elevated 層級執行；需要平行編排時才讀取 `workflow/orchestration.md`。本檔不重述一般流程。
 
 ## 邊界
 
@@ -31,7 +31,7 @@ Reviewer 的 diff 基準是 task frontmatter 的 `base_commit`（`git diff <base
 
 1. 逐條對照完成條件，填入實際指令、結果與未驗證限制。
 2. 回填 Reviewer／Verifier 結果；`risk_flags` 命中 financial／data_write／migration／irreversible／schema／contract 任一時，Adversarial 也要跑並回填，不因為是 worker 而略過——這一輪只豁免 Retrospective（由 coordinator 對整體做一次）。
-3. 執行 `~/.agent-workflow/runtime/scripts/close-task.ps1`（cwd 為自己的 worktree root）結案；它會重跑完整 gate，全數通過才寫 `status: done`。直接把 task 的 `status` 改成 `done` 會被 `impact-guard` 擋下——同一支 hook 也擋 coordinator 之外的其他寫入邊界。未完成用 `paused` 或 `blocked` 並記錄下一步。被打回時在原 worktree fix-forward，保留失敗證據，不建立新 task。
+3. coordinator／worker task 執行 `~/.agent-workflow/runtime/scripts/close-task.ps1`（cwd 為自己的 worktree root）結案；它會重跑完整 legacy gate，全數通過才寫 `status: done`。未完成用 `paused` 或 `blocked` 並記錄下一步。被打回時在原 worktree fix-forward，保留失敗證據，不建立新 task。
 4. 回報 coordinator：完成條件逐條結果、驗證證據、動到 `File ownership` 以外的檔案（若有）、剩餘風險。
 
 範圍不足以完成需求時停止並回報，不擴張到 `File ownership` 之外。

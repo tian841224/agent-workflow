@@ -1,4 +1,16 @@
 # agent-workflow v4 - PreToolUse git safety guard.
+#
+# -Platform is supplied by the adapter's own hooks.json/hooks command line, not sniffed from the
+# payload: Codex's PreToolUse wire shape intentionally mirrors Claude's (same tool_name/tool_input
+# convention, confirmed against Codex's own hook schema), so there is no reliable field to tell
+# the two apart from JSON alone. The adapter that invokes this script already knows which
+# platform it is - adapters/codex/hooks.json passes -Platform Codex explicitly.
+[CmdletBinding()]
+param(
+    [ValidateSet('', 'Claude', 'Codex', 'Antigravity')]
+    [string]$Platform = ''
+)
+
 $ErrorActionPreference = 'Stop'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [Console]::InputEncoding = $utf8NoBom
@@ -108,6 +120,20 @@ function Test-ReadOnlyGitCommand([string]$Command) {
 
 # --- role -------------------------------------------------------------------
 
+# Shared by every decision point below (worker/coordinator hard denies, the pattern-based
+# deny/ask lists). Antigravity uses a flat {decision, reason}; Claude and Codex use the nested
+# hookSpecificOutput.permissionDecision shape - both confirmed against their respective hook
+# schemas. Writes and exits, matching every call site this replaces.
+function Write-Decision([string]$Decision, [string]$Reason, [bool]$IsAntigravity) {
+    $out = if ($IsAntigravity) {
+        @{ decision = $Decision; reason = $Reason }
+    } else {
+        @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = $Decision; permissionDecisionReason = $Reason } }
+    }
+    Write-Output ($out | ConvertTo-Json -Depth 5 -Compress)
+    exit 0
+}
+
 function Get-ActiveSubtaskRole([string]$Cwd) {
     $resolver = Join-Path $PSScriptRoot '..\scripts\project-resolver.ps1'
     if (-not (Test-Path -LiteralPath $resolver)) { return '' }
@@ -146,19 +172,13 @@ try {
         # Already confirmed not fully read-only above; a worker gets nothing else - not `git
         # add`, not `git branch`, not `git config --local`. Deny, not ask: in a subagent there
         # may be nobody to answer an approval prompt.
-        $reason = 'git-guard: worker task may only run allowlisted read-only Git commands.'
-        $out = if ($isAntigravity) { @{ decision = 'deny'; reason = $reason } } else { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'deny'; permissionDecisionReason = $reason } } }
-        Write-Output ($out | ConvertTo-Json -Depth 5 -Compress)
-        exit 0
+        Write-Decision 'deny' 'git-guard: worker task may only run allowlisted read-only Git commands.' $isAntigravity
     }
     if ($role -eq 'coordinator') {
         # The only sanctioned writer of the main working tree is orchestrate.ps1; any direct
         # Git write (apply, worktree, add, restore, reset, ...) is denied, not just the ones
         # that happen to be named here.
-        $reason = 'git-guard: coordinator task must not run direct Git writes; use orchestrate.ps1.'
-        $out = if ($isAntigravity) { @{ decision = 'deny'; reason = $reason } } else { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'deny'; permissionDecisionReason = $reason } } }
-        Write-Output ($out | ConvertTo-Json -Depth 5 -Compress)
-        exit 0
+        Write-Decision 'deny' 'git-guard: coordinator task must not run direct Git writes; use orchestrate.ps1.' $isAntigravity
     }
 
     # Plain task (or no resolvable role): unchanged pattern-based behaviour.
@@ -173,10 +193,7 @@ try {
     )
     foreach ($pattern in $denyPatterns) {
         if ($flat -match $pattern) {
-            $reason = 'git-guard: destructive Git operation denied; ask the user to perform it explicitly.'
-            $out = if ($isAntigravity) { @{ decision = 'deny'; reason = $reason } } else { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'deny'; permissionDecisionReason = $reason } } }
-            Write-Output ($out | ConvertTo-Json -Depth 5 -Compress)
-            exit 0
+            Write-Decision 'deny' 'git-guard: destructive Git operation denied; ask the user to perform it explicitly.' $isAntigravity
         }
     }
 
@@ -187,10 +204,16 @@ try {
     )
     foreach ($pattern in $askPatterns) {
         if ($flat -match $pattern) {
-            $reason = 'git-guard: Git write requires explicit user approval.'
-            $out = if ($isAntigravity) { @{ decision = 'ask'; reason = $reason } } else { @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'ask'; permissionDecisionReason = $reason } } }
-            Write-Output ($out | ConvertTo-Json -Depth 5 -Compress)
-            exit 0
+            if ($Platform -eq 'Codex') {
+                # Codex's own hook schema documents permissionDecision: "ask" as unsupported and
+                # rejected - confirmed against codex-rs/hooks/src/schema.rs and the exit-code
+                # handling in pre_tool_use.rs (an invalid decision falls into HookRunStatus::Failed,
+                # which is not applied as a control effect, so the command runs unguarded). "ask"
+                # is not a safe no-op on Codex; it is silent allow. Deny is the only machine-checked
+                # option Codex actually honors for these commands.
+                Write-Decision 'deny' 'git-guard: Codex does not support an interactive approval prompt for this hook, so the write is denied outright. Ask the user to run this Git command themselves.' $isAntigravity
+            }
+            Write-Decision 'ask' 'git-guard: Git write requires explicit user approval.' $isAntigravity
         }
     }
 } catch {

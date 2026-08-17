@@ -1,6 +1,6 @@
 # Risk Flags
 
-`risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag：
+`risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag。可用值與機械觸發清單以 `schemas/task.schema.json` 為準；本檔只提供判斷與使用說明。
 
 `behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
 
@@ -22,7 +22,7 @@
 
 ## Adversarial 複查與 Mutation check 觸發
 
-`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標任一命中時，加開原生 `agent-workflow-adversarial` 複查；`financial`／`data_write` 命中時另需 mutation check。兩者的觸發時機、程序與權威清單（`x_agent_workflow.adversarial_required`、`x_agent_workflow.mutation_check_required`）定義在 [SKILL.md](SKILL.md) 第 5、6a 節，本檔不重述。
+`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標任一命中時，Elevated code task 才加開原生 `agent-workflow-adversarial` 複查；`financial`／`data_write` 命中時另需 mutation check。兩者的觸發時機、程序與權威清單（`x_agent_workflow.adversarial_required`、`x_agent_workflow.mutation_check_required`）定義在 [SKILL.md](SKILL.md) 第 5、6a 節，本檔不重述。
 
 ## Freeze-required 詳細規則
 

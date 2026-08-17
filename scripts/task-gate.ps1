@@ -81,6 +81,44 @@ function Test-ProjectDocsField([string]$Value, [string]$Cwd, [string]$FieldLabel
     return ''
 }
 
+# Test-ProjectDocsField only proves the named path exists - it says nothing about whether that
+# file is actually a valid doc (correct frontmatter, non-empty required sections). project-doc.ps1
+# -Action Check is the authority for doc format and already exists for exactly this, but nothing
+# called it: `read: docs/whatever.md` was satisfiable by any file with that name, the same
+# "configured but never checked" gap this framework's own README calls out for
+# project-architecture-index (see project-docs.md). Only applied to read: (Add-ProjectDocsIssue),
+# not updated: - the field-existence rules already differ the same way, and a malformed doc that
+# was merely re-confirmed (not authored) this turn is not this task's problem to fix.
+function Add-ProjectDocsFormatIssues([string]$Value, [string]$Cwd, [ref]$Issues) {
+    if (-not $Cwd) { return }
+    if ([regex]::IsMatch($Value, '(?i)^none[ \t]*-')) { return }
+    $projectDocScript = Join-Path $PSScriptRoot 'project-doc.ps1'
+    if (-not (Test-Path -LiteralPath $projectDocScript)) { return }
+    foreach ($rawDocPath in ($Value -split ',')) {
+        $docPath = $rawDocPath.Trim()
+        if (-not $docPath) { continue }
+        $fullDocPath = if ([IO.Path]::IsPathRooted($docPath)) { $docPath } else { Join-Path $Cwd $docPath }
+        # A missing path is already reported by Test-ProjectDocsField; do not double-report it
+        # here, and do not hand a nonexistent path to -Action Check, which would throw.
+        if (-not (Test-Path -LiteralPath $fullDocPath -PathType Leaf)) { continue }
+        try {
+            $checkRaw = (& $projectDocScript -Action Check -Doc $fullDocPath -RepoRoot $Cwd | Out-String)
+            $checkResult = $checkRaw | ConvertFrom-Json
+        } catch {
+            $Issues.Value += "'## Project docs' - read: could not run project-doc.ps1 -Action Check on ${docPath}: $($_.Exception.Message)"
+            continue
+        }
+        # -Doc mode normally returns a one-element JSON array; PowerShell's ConvertFrom-Json
+        # unwraps a single-element array back to a bare object, so @() is needed on the way out
+        # regardless of which shape came back (same trap documented in worktree-fingerprint.ps1).
+        foreach ($entry in @($checkResult)) {
+            foreach ($docIssue in @($entry.issues)) {
+                $Issues.Value += "'## Project docs' - read: ${docPath} fails project-doc.ps1 -Action Check: $docIssue"
+            }
+        }
+    }
+}
+
 # Mirrors impact-guard.ps1's own Project docs check, deliberately not shared code: impact-guard
 # fires on every Edit/Write (a hot path with no Cwd resolution cost to spare) while this runs
 # once at Stop/Close. The two already duplicate the same Impact surface check for the same
@@ -91,7 +129,11 @@ function Add-ProjectDocsIssue([string]$Content, [string]$Cwd, [ref]$Issues) {
     $match = [regex]::Match($section, '(?mi)^[ \t]*-[ \t]*read:[ \t]*(.+?)[ \t]*\r?$')
     $value = if ($match.Success) { $match.Groups[1].Value.Trim() } else { '' }
     $issue = Test-ProjectDocsField $value $Cwd 'read'
-    if ($issue) { $Issues.Value += "$issue (run project-doc.ps1 -Action Lookup, or record 'none - <reason>')" }
+    if ($issue) {
+        $Issues.Value += "$issue (run project-doc.ps1 -Action Lookup, or record 'none - <reason>')"
+        return
+    }
+    Add-ProjectDocsFormatIssues $value $Cwd $Issues
 }
 
 # Close-only, conditional on the same trigger SKILL.md's own write-side rule uses: a structural
@@ -269,9 +311,19 @@ try {
     # Roles cannot be signed off by the main agent standing in for them. Every degraded task in
     # the history either shipped without the checks or left the sections blank, including a
     # seven-item financial fix whose Reviewer and Verifier were both unavailable.
+    #
+    # independence used to be optional ("if applicable" in SKILL.md), and nothing ever required
+    # it - so it protected only the one turn an agent chose, unprompted, to admit a role was
+    # faked. Every real failure mode is the opposite one: the role sections get filled in as if
+    # Reviewer/Verifier actually ran, and omitting this field cost nothing, so it was a dead
+    # check in practice. Mandatory turns silent omission into an explicit claim - 'native' is
+    # now itself asserted, not assumed by default, for the one situation this field exists to
+    # catch: role sections that read PASS but were never independently produced.
     if ($Mode -eq 'Close' -and $isCodeChange -and -not $rolesWaived) {
         if ($independence -eq 'degraded') {
             $issues += 'independence: degraded - the independent roles did not run; set status to blocked and record the next step, or have the user authorise roles_waived'
+        } elseif ($independence -ne 'native') {
+            $issues += "independence must be 'native' or 'degraded' before closing (missing or invalid value: '$independence')"
         }
     }
 
@@ -302,8 +354,16 @@ try {
     if ($needsReviewer -and -not $rolesWaived) {
         $review = Get-Section $content 'Reviewer result'
         if (-not $review -or $review -match '^<.*>$' -or $review -notmatch '(?mi)^[ \t]*-[ \t]*result:[ \t]*PASS[ \t]*\r?$') { $issues += 'Reviewer result is missing or not passed' }
-        foreach ($dimension in @('Architecture consistency','Code quality and conventions','Data consistency','Security','Risk and compatibility','Performance','Flow and impact completeness','Failure modes and observability')) {
-            $allowedStatus = if (@('Data consistency','Security','Performance') -contains $dimension) { '(?:PASS|N/A)' } else { 'PASS' }
+        # Reviewer's eight dimensions and their N/A-eligibility used to be a hand-copied literal
+        # here and a second, independent hand-copied literal in check-task.ps1 - the two have
+        # already drifted once (check-task.ps1 was missing "Failure modes and observability" and
+        # silently accepted a worker delivery with no verdict on it). schema is the single source
+        # for every other flag-driven list in this file; an unreadable schema already fails
+        # closed above, so this list degrades the same way instead of falling back to a literal
+        # that could go stale again unnoticed.
+        foreach ($dim in @($taskSchema.x_agent_workflow.reviewer_dimensions)) {
+            $dimension = [string]$dim.name
+            $allowedStatus = if ($dim.na_allowed) { '(?:PASS|N/A)' } else { 'PASS' }
             $dimensionPattern = '(?mi)^[ \t]*-[ \t]*' + [regex]::Escape($dimension) + ':[ \t]*' + $allowedStatus + '(?:[ \t]+.*)?[ \t]*\r?$'
             if ($review -notmatch $dimensionPattern) { $issues += "Reviewer result missing or not passed dimension: $dimension" }
         }

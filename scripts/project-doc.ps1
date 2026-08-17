@@ -52,25 +52,12 @@ function ConvertFrom-MetadataValue([string]$Value) {
     return $trimmed
 }
 
-# Must stay identical to the grammar in split-plan.ps1's Test-OwnershipEntry / validate-task.ps1's
-# file_ownership check: covers is the same kind of repo-relative path list, and inventing a
-# second grammar for the same shape of data is exactly the drift this comment is here to prevent.
-function Test-CoversEntry([string]$Entry) {
-    if (-not $Entry) { return 'must not be empty' }
-    if ($Entry -match '^([a-zA-Z]:|/|\\)') { return 'must be repo-relative' }
-    if ($Entry -match '\\') { return 'must use / as the separator' }
-    if ($Entry -like './*') { return 'must not start with ./' }
-    if ($Entry -match '(^|/)\.\.(/|$)') { return 'must not contain ..' }
-    if ($Entry -match '[\[\],]') { return 'must not contain , [ or ]' }
-    return ''
-}
-
-function Test-PrefixOverlap([string]$Left, [string]$Right) {
-    if ($Left.Equals($Right, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    if ($Left.EndsWith('/') -and $Right.StartsWith($Left, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    if ($Right.EndsWith('/') -and $Left.StartsWith($Right, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    return $false
-}
+# covers is the same kind of repo-relative path list as file_ownership; Test-PrefixOverlap comes
+# from path-grammar.ps1 (shared with orchestrate.ps1, split-plan.ps1 and validate-task.ps1).
+# Test-CoversEntry keeps its own name here (the call sites below all say "covers", not
+# "ownership") but is a thin alias over the same shared grammar rule.
+. (Join-Path $PSScriptRoot 'path-grammar.ps1')
+function Test-CoversEntry([string]$Entry) { return Test-OwnershipEntry $Entry }
 
 # A directory entry ("game/Seth_1/") already carries its own boundary in the trailing slash, so
 # a plain StartsWith cannot false-match "game/Seth_10017/x.js": character 12 of the entry is '/'

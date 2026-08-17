@@ -144,5 +144,42 @@ if (Test-Path -LiteralPath $hookLog -PathType Leaf) {
     Add-Pass 'hook failure log'
 }
 
+# --- 5. surface Codex hooks that are installed but not yet trusted -------------------------
+# Codex requires each hook entry to be individually trusted in config.toml
+# ([hooks.state."<hooks.json path>:<event>:<matcher index>:<hook index>"], trusted_hash = ...)
+# before it will run at all. install.ps1 can only write hooks.json; granting trust only happens
+# inside an interactive Codex session. Warned, not failed: this is a step the user has to take
+# themselves, not something a re-install can fix - but it must not stay silent, since an
+# untrusted hook and a correctly installed one look identical in every other check above.
+$codexHooksEntry = @($state.files) | Where-Object {
+    $_.kind -eq 'merged-hooks' -and $_.path -match '\\hooks\.json$' -and
+    (Split-Path -Leaf (Split-Path -Parent $_.path)) -ne 'config'
+} | Select-Object -First 1
+if (-not $codexHooksEntry) {
+    Add-Skip 'codex hook trust' 'no merged Codex hooks.json recorded in the runtime manifest (Codex was not installed here)'
+} else {
+    $hooksData = $null
+    try { $hooksData = Get-Content -LiteralPath $codexHooksEntry.path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+    if (-not $hooksData -or -not $hooksData.PSObject.Properties['hooks']) {
+        Add-Skip 'codex hook trust' "cannot read $($codexHooksEntry.path)"
+    } else {
+        # Get-UntrustedCodexHookKeys: shared with install.ps1 - see codex-hook-trust.ps1 for why
+        # this is dot-sourced rather than copied (the two used to carry independent copies of
+        # the same event-name map, TOML-key regex and key-computation loop). The readability
+        # check above stays local: it decides SKIP vs PASS/WARN, a distinction the shared
+        # function does not need to make for install.ps1's caller (which has no SKIP concept).
+        . (Join-Path $PSScriptRoot 'codex-hook-trust.ps1')
+        $codexConfigToml = Join-Path (Split-Path -Parent $codexHooksEntry.path) 'config.toml'
+        $hooksDir = Join-Path $StateRoot 'runtime\hooks'
+        $hooksDirNeedle = [IO.Path]::GetFullPath($hooksDir).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+        $untrusted = @(Get-UntrustedCodexHookKeys $codexHooksEntry.path $codexConfigToml { param($cmd) $cmd.IndexOf($hooksDirNeedle, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+        if ($untrusted.Count -gt 0) {
+            Add-Warn 'codex hook trust' "$($untrusted.Count) agent-workflow hook(s) are installed but not yet trusted by Codex; they will not run until approved in an interactive session: $($untrusted -join '; ')"
+        } else {
+            Add-Pass 'codex hook trust'
+        }
+    }
+}
+
 if ($failures -gt 0) { exit 1 }
 exit 0

@@ -46,7 +46,13 @@ function Assert-JunctionTo([string]$Path, [string]$Target) {
     throw "skill junction target mismatch: $Path"
 }
 
+# v3 shipped its own hooks under "<platform-root>\hooks\ai-workflow\...", registered on event
+# types v4 never defines anything for (Codex: PostToolUse/SessionEnd; Claude: PostToolUse/
+# SessionEnd too). $legacyCommand simulates that: a real profile still had it after several
+# Repairs, because Merge-Hooks used to only sweep events present in the incoming v4 fragment
+# (PreToolUse/Stop) and never even looked at SessionEnd's array.
 function Write-MixedHookFixture([string]$Path, [string]$Matcher) {
+    $legacyCommand = 'powershell.exe -NoProfile -File "C:\legacy-profile\hooks\ai-workflow\log-session.ps1"'
     $data = [ordered]@{
         hooks = [ordered]@{
             PreToolUse = @([ordered]@{ matcher=$Matcher; hooks=@(
@@ -58,6 +64,10 @@ function Write-MixedHookFixture([string]$Path, [string]$Matcher) {
                 $null,
                 [ordered]@{ type='command'; command=$customCommand; timeout=5 },
                 [ordered]@{ type='command'; command=('powershell.exe -File "' + (Join-Path $managedHooksDir 'quality-gate.ps1') + '"'); timeout=15 }
+            ) })
+            SessionEnd = @([ordered]@{ hooks=@(
+                [ordered]@{ type='command'; command=$customCommand; timeout=5 },
+                [ordered]@{ type='command'; command=$legacyCommand; timeout=15 }
             ) })
         }
     }
@@ -169,8 +179,8 @@ try {
     )) {
         $path = $pair.path
         $adapterHooks = (Get-Content -LiteralPath $pair.adapter -Raw -Encoding UTF8 | ConvertFrom-Json).hooks
-        $expectedPre = @($adapterHooks.PreToolUse).Count
-        $expectedStop = @($adapterHooks.Stop).Count
+        $expectedPre = @($adapterHooks.PreToolUse | Where-Object { $null -ne $_ }).Count
+        $expectedStop = @($adapterHooks.Stop | Where-Object { $null -ne $_ }).Count
         $hookConfig = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
         Assert-NoNullHooks $hookConfig $path
         $preCommands = Get-HookCommands $hookConfig 'PreToolUse'
@@ -181,6 +191,13 @@ try {
         if (@($stopCommands | Where-Object { $_.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -ne $expectedStop) { throw "duplicate managed Stop hook after Repair: $path" }
         if (@($preCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom PreToolUse hook was not preserved: $path" }
         if (@($stopCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom Stop hook was not preserved: $path" }
+        # Regression check for the gap a real profile hit: Merge-Hooks used to only sweep events
+        # present in the incoming v4 fragment, so a v3 leftover under an event v4 never defines
+        # (SessionEnd) was never even visited and survived every Repair. It must be gone now,
+        # while a genuinely unrelated custom SessionEnd hook is left alone.
+        $sessionEndCommands = Get-HookCommands $hookConfig 'SessionEnd'
+        if (@($sessionEndCommands | Where-Object { $_ -match '\\hooks\\ai-workflow\\' }).Count -ne 0) { throw "legacy v3 SessionEnd hook survived Repair (event outside the v4 fragment was never swept): $path" }
+        if (@($sessionEndCommands | Where-Object { $_ -eq $customCommand }).Count -ne 1) { throw "custom SessionEnd hook was not preserved: $path" }
     }
     $antigravityHooks = Get-Content -LiteralPath (Join-Path $gemini 'config\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $expectedAntigravity = @((Get-Content -LiteralPath (Join-Path $root 'adapters\antigravity\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties.Name | Where-Object { $_ -like 'agent-workflow-*' }).Count
@@ -237,6 +254,47 @@ try {
     if (-not $conflictFailed -or $conflictOutput -notmatch 'Conflicting unmanaged entrypoint content') { throw 'conflicting entrypoint content was not blocked' }
     if (Test-Path -LiteralPath (Join-Path $conflictCanonical 'AGENTS.md')) { throw 'conflicting migration wrote a canonical file' }
     if (@(Get-ChildItem -LiteralPath $conflictSandbox -Recurse -File -Filter '*.bak.*' -ErrorAction SilentlyContinue).Count -lt 3) { throw 'conflicting migration did not create timestamp backups' }
+
+    # Test-LegacyKnowledge: a v3 signal path must refuse Install before touching anything, but a
+    # machine that only ever had ordinary native Claude/Codex memory (no v3 marker string) must be
+    # let through. Each case gets its own fresh sandbox (no activation.json) since the check
+    # short-circuits to "already installed" once one exists.
+    $legacySandbox = Join-Path $sandbox 'legacy-signal'
+    $legacyClaude = Join-Path $legacySandbox '.claude'
+    $legacyCodex = Join-Path $legacySandbox '.codex'
+    $legacyGemini = Join-Path $legacySandbox '.gemini'
+    $legacyState = Join-Path $legacySandbox '.agent-workflow'
+    $legacyCanonical = Join-Path $legacySandbox '.agents'
+    Write-TestText (Join-Path $legacyCodex 'agent-workflow\marker.txt') 'v3 runtime leftover'
+    $legacyFailed = $false
+    $legacyOutput = ''
+    try {
+        $legacyOutput = & (Join-Path $root 'install.ps1') -TargetAgent All -ClaudeTarget $legacyClaude -CodexTarget $legacyCodex -AntigravityTarget $legacyGemini -StateRoot $legacyState -CanonicalRoot $legacyCanonical -LegacyRoot $legacyCanonical 2>&1 | Out-String
+    } catch {
+        $legacyFailed = $true
+        $legacyOutput = $_.Exception.Message
+    }
+    if (-not $legacyFailed -or $legacyOutput -notmatch 'v3 knowledge or history was found') { throw "a v3 signal path (.codex\agent-workflow) did not block Install: $legacyOutput" }
+
+    $nativeSandbox = Join-Path $sandbox 'native-only'
+    $nativeClaude = Join-Path $nativeSandbox '.claude'
+    $nativeCodex = Join-Path $nativeSandbox '.codex'
+    $nativeGemini = Join-Path $nativeSandbox '.gemini'
+    $nativeState = Join-Path $nativeSandbox '.agent-workflow'
+    $nativeCanonical = Join-Path $nativeSandbox '.agents'
+    Write-TestText (Join-Path $nativeClaude 'projects\some-project\memory\note.md') '# ordinary native Claude memory, unrelated to this framework'
+    $nativeFailed = $false
+    $nativeOutput = ''
+    try {
+        $nativeOutput = & (Join-Path $root 'install.ps1') -TargetAgent All -ClaudeTarget $nativeClaude -CodexTarget $nativeCodex -AntigravityTarget $nativeGemini -StateRoot $nativeState -CanonicalRoot $nativeCanonical -LegacyRoot $nativeCanonical 2>&1 | Out-String
+    } catch {
+        $nativeFailed = $true
+        $nativeOutput = $_.Exception.Message
+    }
+    if ($nativeFailed -and $nativeOutput -match 'v3 knowledge or history was found') { throw "plain native Claude memory with no v3 marker was refused: $nativeOutput" }
+    if ($nativeFailed) { throw "native-memory-only Install failed for an unrelated reason: $nativeOutput" }
+    if (-not (Test-Path -LiteralPath (Join-Path $nativeState 'managed-runtime.json'))) { throw "native-memory-only Install did not proceed past Test-LegacyKnowledge: $nativeOutput" }
+
     Write-Output 'installer tests passed'
 } finally {
     if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }

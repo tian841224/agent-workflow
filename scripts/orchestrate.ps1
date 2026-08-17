@@ -16,6 +16,9 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $scriptRoot = $PSScriptRoot
 $resolverPath = Join-Path $scriptRoot 'project-resolver.ps1'
 $checkTaskPath = Join-Path $scriptRoot 'check-task.ps1'
+# Test-OwnershipEntry / Test-PrefixOverlap: shared with split-plan.ps1, project-doc.ps1 and
+# validate-task.ps1 - see path-grammar.ps1 for why this is dot-sourced rather than copied.
+. (Join-Path $scriptRoot 'path-grammar.ps1')
 
 function Fail([string]$Message) { Write-Error $Message; exit 1 }
 
@@ -166,16 +169,7 @@ function Get-Field([string]$Content, [string]$Name) {
 }
 
 # --- ownership -------------------------------------------------------------
-
-function Test-OwnershipEntry([string]$Entry) {
-    if (-not $Entry) { return 'must not be empty' }
-    if ($Entry -match '^([a-zA-Z]:|/|\\)') { return 'must be repo-relative' }
-    if ($Entry -match '\\') { return 'must use / as the separator' }
-    if ($Entry -like './*') { return 'must not start with ./' }
-    if ($Entry -match '(^|/)\.\.(/|$)') { return 'must not contain ..' }
-    if ($Entry -match '[\[\],]') { return 'must not contain , [ or ]' }
-    return ''
-}
+# Test-OwnershipEntry / Test-PrefixOverlap now come from path-grammar.ps1 (dot-sourced above).
 
 # Windows paths are case-insensitive, so ownership comparison must be too: comparing
 # ordinally would let src/Payment/ and src/payment/ claim the same directory.
@@ -185,13 +179,6 @@ function Test-PathOwned([string]$RepoPath, [string[]]$Prefixes) {
             if ($RepoPath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $true }
         } elseif ($RepoPath.Equals($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
-    return $false
-}
-
-function Test-PrefixOverlap([string]$Left, [string]$Right) {
-    if ($Left.Equals($Right, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    if ($Left.EndsWith('/') -and $Right.StartsWith($Left, [StringComparison]::OrdinalIgnoreCase)) { return $true }
-    if ($Right.EndsWith('/') -and $Left.StartsWith($Right, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     return $false
 }
 
@@ -381,6 +368,7 @@ code_change: true
 risk_flags: []
 created_at: $now
 updated_at: $now
+independence: native
 subtask_role: worker
 parent_task_id: $coordinatorId
 base_commit: $baseline
