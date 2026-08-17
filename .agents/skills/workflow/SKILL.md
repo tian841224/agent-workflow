@@ -42,7 +42,7 @@ Reviewer／Verifier 是否啟動只看 `code_change`，與 `risk_flags` 無關�
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
 - Bug 先重現或取得足以確認根因的證據；修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
 - 遵循 TDD：先寫會失敗的測試涵蓋預期行為，再實作最小修改使其通過，最後視需要重構；以專案既有檢查與 pre-review 驗證。無法自動化測試時在 task 記錄替代驗證與原因，不得省略。
-- 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
+- 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。使用者已選定做法（含 AskUserQuestion 選完的選項）時，用 `push-back` skill 檢查是否符合現有架構慣例、是否為最小改動、有沒有不必要的複雜度；做法明顯有問題才需要提出，沒有疑慮就不用特別講。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 - `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時，在跑 pre-review 之前更新受影響文件（原料是 `Impact surface` 與 `Execution path`，見 [project-docs.md](project-docs.md) 的搬運對照）；其餘情況只在 Lookup 回報 `stale: true` 時確認內容仍正確。填 task 的 `## Project docs` 的 `updated:`：列出更新的路徑，或 `none - <理由>`；上述條件命中時 `close-task.ps1` 會檢查這一行，未填、含 `<placeholder>` 或路徑不存在一律擋下結案。
 

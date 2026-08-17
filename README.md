@@ -9,6 +9,7 @@
   - `workflow/`：主流程、`risk-flags.md`、平行編排規則 `orchestration.md`，與專案文件規則 `project-docs.md`（分工、佈局、staleness 語意，見下方「專案文件」一節）。
   - `planning/`：規劃/架構討論用；也是 `unclear_requirements` 的第一步。
   - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或 `unclear_requirements` 仍有風險時用於第二步。
+  - `push-back/`：使用者選定或即將採用某個做法時的合理性檢查（架構慣例、最小改動、複雜度）；`workflow` 實作階段（第 4 節）與規劃討論皆可觸發，不限程式任務。
 - `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在 `risk_flags` 命中 financial／data_write／migration／irreversible／schema／contract 任一時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在 `change_kind: fix` 時於結案前加開，見下方「回顧」一節）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。
 - `scripts/project-resolver.ps1`：解析 project、worktree 與 active task；`-RegisterWorktree` 批次註冊 worker worktree，`-RosterFor` 查詢某 coordinator 底下的 worker task 清單。
 - `scripts/check-task.ps1`：coordinator／worker task 的增量檢查（`-Mode Worker|Coordinator`），供 `quality-gate.ps1` 與 `orchestrate.ps1` 共用，不重複維護規則。
