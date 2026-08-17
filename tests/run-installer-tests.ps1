@@ -139,6 +139,16 @@ try {
     if (@($installedSchema.required) -notcontains 'code_change' -or $installedSchema.properties.code_change.type -ne 'boolean') { throw 'installed task schema is missing code_change' }
     $installedWorkflow = Get-Content -LiteralPath (Join-Path $state 'runtime\skills\workflow\SKILL.md') -Raw -Encoding UTF8
     if ($installedWorkflow -notmatch 'code_change: true' -or $installedWorkflow -notmatch 'code_change: false') { throw 'installed workflow is missing code_change role rules' }
+    $installedCodexHooks = Get-Content -LiteralPath (Join-Path $codex 'hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($eventName in @('PreToolUse','Stop')) {
+        foreach ($wrapper in @($installedCodexHooks.hooks.$eventName)) {
+            foreach ($hook in @($wrapper.hooks)) {
+                if ($hook.command -and $hook.command.IndexOf($managedHooksDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $hook.PSObject.Properties['timeout']) {
+                    throw "installed Codex managed $eventName hook still has a fixed timeout"
+                }
+            }
+        }
+    }
     $bytes = [IO.File]::ReadAllBytes((Join-Path $codex 'agents\agent-workflow-reviewer.toml'))
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'Codex TOML has a BOM' }
 

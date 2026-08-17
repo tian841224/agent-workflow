@@ -8,7 +8,6 @@
           {
             "type": "command",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\git-guard.ps1\"",
-            "timeout": 15,
             "statusMessage": "Checking Git safety"
           }
         ]
@@ -19,7 +18,6 @@
           {
             "type": "command",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\impact-guard.ps1\"",
-            "timeout": 15,
             "statusMessage": "Checking impact surface"
           }
         ]
@@ -31,7 +29,6 @@
           {
             "type": "command",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\quality-gate.ps1\"",
-            "timeout": 15,
             "statusMessage": "Checking active task"
           }
         ]

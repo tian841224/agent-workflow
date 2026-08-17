@@ -20,6 +20,18 @@ Assert (-not (($agents + $workflow) -match "L0|$cjkLightTrack|$cjkStandardTrack|
 Assert (($agents + $workflow) -match 'pre-review') 'pre-review is missing from runtime instructions.'
 Assert (($agents + $workflow) -match 'TDD') 'TDD requirement is missing from runtime instructions.'
 Assert ($workflow -match '~/.agent-workflow/runtime/scripts/pre-review.ps1') 'workflow does not use the managed pre-review runtime path.'
+Assert (($agents + $workflow) -match 'timed_out') 'runtime instructions do not define wait_agent timeout handling.'
+Assert (($agents + $workflow) -match 'pending_init.*running') 'runtime instructions do not preserve active role states after a polling timeout.'
+Assert (($agents + $workflow) -match 'no response') 'runtime instructions do not define the no-response guard for active roles.'
+
+$codexHooks = Get-Content -LiteralPath (Join-Path $root 'adapters\codex\hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+foreach ($eventName in @('PreToolUse','Stop')) {
+    foreach ($wrapper in @($codexHooks.hooks.$eventName)) {
+        foreach ($hook in @($wrapper.hooks)) {
+            Assert (-not $hook.PSObject.Properties['timeout']) "Codex $eventName hook must not set a fixed timeout."
+        }
+    }
+}
 
 foreach ($path in @(
     '.agents\agents\reviewer.md','.agents\agents\adversarial.md','.agents\agents\verifier.md','hooks\git-guard.ps1','hooks\quality-gate.ps1','hooks\impact-guard.ps1',

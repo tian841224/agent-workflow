@@ -41,7 +41,7 @@ Reviewer／Verifier 是否啟動只看 `code_change`，與 `risk_flags` 無關�
 - 修改程式後先建立 execution path：從實際入口往下追到修改點，再追到所有重要終點；同時確認修改點的上游前置條件、下游契約，以及錯誤、重送、並發與異步分支。不可只看修改點到下一個呼叫點。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
 - Bug 先重現或取得足以確認根因的證據；修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
-- 遵循 TDD：先寫會失敗的測試涵蓋預期行為，再實作最小修改使其通過，最後視需要重構；以專案既有檢查與 pre-review 驗證。無法自動化測試時在 task 記錄替代驗證與原因，不得省略。
+- 遵循 TDD：先寫會失敗的測試涵蓋預期行為，再實作最小修改使其通過，最後視需要重構；以專案既有檢查與 pre-review 驗證。`change_kind: fix`，或修改源自 Reviewer／Adversarial／Verifier／使用者指出的缺陷時，這個失敗測試必須直接重現該缺陷的實際觸發情境（用會觸發原始症狀的輸入／狀態斷言，不是泛用的預期行為覆蓋），修正後保留為回歸測試，避免同一問題再次出現。無法自動化測試時在 task 記錄替代驗證與原因，不得省略。
 - 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。使用者已選定做法（含 AskUserQuestion 選完的選項）時，用 `push-back` skill 檢查是否符合現有架構慣例、是否為最小改動、有沒有不必要的複雜度；做法明顯有問題才需要提出，沒有疑慮就不用特別講。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 - `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時，在跑 pre-review 之前更新受影響文件（原料是 `Impact surface` 與 `Execution path`，見 [project-docs.md](project-docs.md) 的搬運對照）；其餘情況只在 Lookup 回報 `stale: true` 時確認內容仍正確。填 task 的 `## Project docs` 的 `updated:`：列出更新的路徑，或 `none - <理由>`；上述條件命中時 `close-task.ps1` 會檢查這一行，未填、含 `<placeholder>` 或路徑不存在一律擋下結案。
@@ -67,7 +67,7 @@ Reviewer／Verifier 是否啟動只看 `code_change`，與 `risk_flags` 無關�
 - Reviewer 必須自行反向搜尋重建 execution path，不得沿用 task 敘述；順序是先重建、後對照，不得先讀 task 的路徑再去驗證它。回報要列出與 task 的差異，無差異時明寫。
 - Reviewer 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task；不得為了避開 gate 而不加 flag。
 - 回填後的 task 路徑即為唯一版本，Verifier、後續複審與 knowledge 回寫都以它為準；差異只存在於審查當下，不留到下游。
-- Reviewer 有 blocker：主 agent 修正，重新執行相關驗證，再送複審。
+- Reviewer 有 blocker：主 agent 修正，並補上／擴充一個能重現該 blocker 實際情境的回歸測試（無自動化測試基礎設施時記錄替代驗證與原因），重新執行相關驗證，再送複審。
 
 ### 6a. Adversarial 複查
 
@@ -78,10 +78,10 @@ Reviewer PASS、且 `risk_flags` 命中 `financial`／`data_write`／`migration`
 - 底層語意查證（Engine semantics）：依賴特定資料庫／並發原語行為時，要求可查證的官方依據；只有「測試輸出一致」不能結案，查無依據要明確標示為未查證風險，不得默許通過。
 - 迭代累積複查（Cross-round accumulation）：查最近幾輪同一批檔案的異動歷史，確認跨輪疊加沒有引入單輪 diff 看不出來的問題、前幾輪的保護沒有在這輪被拿掉；連續三輪以上都在修同一區塊時明寫輪次並把「重新檢視前提」當選項交給使用者。沒有多輪歷史則略過並註明。
 - 四項結論逐項寫進 `## Adversarial result`（`- Provenance: PASS` 等），gate 會逐項檢查且不接受 `N/A`。
-- 有 blocker：主 agent 修正、重新驗證、回 Reviewer 重新確認 PASS，再送 Adversarial 複核。沒有 blocker 要明確回報「已嘗試推翻，未成立」，不得只寫「沒問題」。
+- 有 blocker：主 agent 修正、補上／擴充能重現該 blocker 情境的回歸測試（無自動化測試基礎設施時記錄替代驗證與原因）、重新驗證、回 Reviewer 重新確認 PASS，再送 Adversarial 複核。沒有 blocker 要明確回報「已嘗試推翻，未成立」，不得只寫「沒問題」。
 
 Reviewer（與命中旗標時的 Adversarial）通過後，Verifier 從實際入口執行完整 path，逐條執行完成條件，補一次最可能找到 bug 的針對性探索；不得以只測修改函式或只測 `C > D` 代替整體流程；`ui` 使用 browser。
-- Verifier 將問題分為實作缺陷、規格缺漏、測試缺口、環境阻塞；實作缺陷批次修正後重驗失敗與波及項。測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時，比照實作缺陷退回補齊，重跑 pre-review 與相關驗證後重驗；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
+- Verifier 將問題分為實作缺陷、規格缺漏、測試缺口、環境阻塞並退回；實作缺陷由主 agent 批次修正、補上能重現該缺陷情境的回歸測試後，Verifier 重驗失敗與波及項。測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時，比照實作缺陷退回由主 agent 補齊，重跑 pre-review 與相關驗證後 Verifier 重驗；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
 - 原生角色（Reviewer／Adversarial／Verifier）載入失敗，或在合理等待內沒有回報，一律先執行 installer `Repair` 再試一次；仍失敗就把 task 設為 `blocked` 並記錄下一步，不得由主 agent 代跑後結案，也不得把段落留空或寫 `SKIPPED` 直接結案。使用者明確決定要跳過角色時，以 `~/.agent-workflow/runtime/scripts/waive-roles.ps1 -Reason '<使用者的理由>' -ConfirmedByUser` 寫入 `roles_waived`；主 agent 直接編輯 task 寫這個欄位會被 `impact-guard` 擋下。豁免只放寬三個角色段落，完成條件、pre-review、Impact surface、Project docs、mutation check 與回顧一律照常。
 
 ## 7. 失敗與續作
