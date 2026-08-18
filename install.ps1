@@ -289,11 +289,13 @@ function Write-CodexAgent([string]$Name, [string]$Destination) {
 }
 
 function Write-MarkdownAgent([string]$Name, [string]$Destination) {
+    # Claude and Antigravity both consume plain markdown and apply the identical name: rewrite
+    # below, so they share one generated adapter instead of each getting their own byte-identical
+    # copy under agents\platforms\<platform>\.
     $source = Join-Path $CanonicalRoot "agents\$Name.md"
     $content = Get-Content -LiteralPath $source -Raw -Encoding UTF8
     $content = [regex]::Replace($content, '(?m)^name:\s*.+$', "name: agent-workflow-$Name", 1)
-    $platform = if ($Destination -like (Join-Path $ClaudeTarget '*')) { 'claude' } else { 'antigravity' }
-    $canonicalDestination = Join-Path $CanonicalRoot "agents\platforms\$platform\agent-workflow-$Name.md"
+    $canonicalDestination = Join-Path $CanonicalRoot "agents\platforms\markdown\agent-workflow-$Name.md"
     Ensure-Directory (Split-Path -Parent $canonicalDestination)
     if ((Test-Path -LiteralPath $canonicalDestination) -and -not $DryRun) { Backup-UserFile $canonicalDestination }
     if ($DryRun) { Write-Output "[dry-run] generate $canonicalDestination" }

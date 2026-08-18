@@ -4,7 +4,7 @@
 
 `behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
 
-`external_input`／`security` 已移除：兩者承諾的「檢查輸入驗證、授權、注入與敏感資料」，Reviewer 的 `Security` 面向本來就對每個 code change 無條件必查（`N/A` 需附理由），單獨加 flag 不改變任何行為。`refactor` 已移除：它同時是 risk flag 與 `change_kind` 值，兩者互不蘊含又無交叉說明；「只重構內部結構」的判斷改由 `change_kind: refactor` 單一入口承載，`## Behavior invariants and before-after evidence` 段落改依 `change_kind` 觸發（見 [SKILL.md](SKILL.md) 第 4 節）。
+「只重構內部結構」的判斷改由 `change_kind: refactor` 單一入口承載，`## Behavior invariants and before-after evidence` 段落改依 `change_kind` 觸發（見 [SKILL.md](SKILL.md) 第 4 節）。
 
 | Flag | 定義（什麼情況標記） | 對應要求 |
 |---|---|---|

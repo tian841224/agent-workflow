@@ -118,19 +118,19 @@ try {
     Assert-JunctionTo (Join-Path $codex 'skills\workflow') (Join-Path $canonical 'skills\workflow')
     Assert-JunctionTo (Join-Path $gemini 'config\skills\workflow') (Join-Path $canonical 'skills\workflow')
     Assert-CanonicalLinks (Join-Path $canonical 'agents\reviewer.md') @((Join-Path $state 'runtime\agents\reviewer.md'))
-    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\claude\agent-workflow-reviewer.md') @((Join-Path $claude 'agents\agent-workflow-reviewer.md'))
-    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\antigravity\agent-workflow-reviewer.md') @((Join-Path $gemini 'config\agents\agent-workflow-reviewer\agent.md'))
+    # Claude and Antigravity share one generated markdown adapter (identical content for both
+    # platforms), so both destinations must resolve to the same canonical hard-link identity.
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\markdown\agent-workflow-reviewer.md') @((Join-Path $claude 'agents\agent-workflow-reviewer.md'),(Join-Path $gemini 'config\agents\agent-workflow-reviewer\agent.md'))
     Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\codex\agent-workflow-reviewer.toml') @((Join-Path $codex 'agents\agent-workflow-reviewer.toml'))
     # retrospective is a review-side role like reviewer/adversarial/verifier, so unlike worker it
     # ships to all three platforms.
     Assert-CanonicalLinks (Join-Path $canonical 'agents\retrospective.md') @((Join-Path $state 'runtime\agents\retrospective.md'))
-    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\claude\agent-workflow-retrospective.md') @((Join-Path $claude 'agents\agent-workflow-retrospective.md'))
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\markdown\agent-workflow-retrospective.md') @((Join-Path $claude 'agents\agent-workflow-retrospective.md'),(Join-Path $gemini 'config\agents\agent-workflow-retrospective\agent.md'))
     Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\codex\agent-workflow-retrospective.toml') @((Join-Path $codex 'agents\agent-workflow-retrospective.toml'))
-    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\antigravity\agent-workflow-retrospective.md') @((Join-Path $gemini 'config\agents\agent-workflow-retrospective\agent.md'))
     # worker is Claude-only in v1 (Codex/Antigravity fan-out is unverified) - only the Claude
     # adapter should exist for it, and its canonical hardlink identity must match reviewer's.
     Assert-CanonicalLinks (Join-Path $canonical 'agents\worker.md') @((Join-Path $state 'runtime\agents\worker.md'))
-    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\claude\agent-workflow-worker.md') @((Join-Path $claude 'agents\agent-workflow-worker.md'))
+    Assert-CanonicalLinks (Join-Path $canonical 'agents\platforms\markdown\agent-workflow-worker.md') @((Join-Path $claude 'agents\agent-workflow-worker.md'))
     if (Test-Path -LiteralPath (Join-Path $codex 'agents\agent-workflow-worker.toml')) { throw 'worker adapter must not be generated for Codex in v1' }
     if (Test-Path -LiteralPath (Join-Path $gemini 'config\agents\agent-workflow-worker')) { throw 'worker adapter must not be generated for Antigravity in v1' }
     foreach ($path in @(

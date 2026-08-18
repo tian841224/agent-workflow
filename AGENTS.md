@@ -37,3 +37,4 @@
 - 高風險與 coordinator／worker task 的 `status: done` 只能由 `~/.agent-workflow/runtime/scripts/close-task.ps1` 寫入；一般 task 由主對話依完成條件更新狀態。
 - 使用台灣慣用語繁體中文回應；程式碼與技術術語保留原文。
 - coordinator 不得直接改主工作目錄 source，僅能經 `orchestrate.ps1 -Action Apply`；worker boundary 為協作式 guard，非安全 sandbox，見 `~/.agent-workflow/runtime/skills/workflow/orchestration.md`。
+- 能用原生指令完成時（git、CLI 工具的批次選取／覆蓋等）不自製程式繞過或重做；原生指令被安全機制擋下時，優先找原生工具的唯讀／迂迴用法，而非自行重新實作同一件事的邏輯。
