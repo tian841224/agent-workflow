@@ -1,6 +1,6 @@
 # agent-workflow v4
 
-跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改 source code 邏輯或 test code 才使用 workflow、建立 `task.md` 並執行 Reviewer、Verifier；純註解修改、設定與文件修改、script 修改與操作等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
+跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改「目標專案」用程式語言撰寫的 application source code 邏輯或 test code 邏輯時才使用 workflow、建立 `task.md` 並執行 Reviewer、Verifier；純註解修改、設定與文件修改、script 修改與操作等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
 
 ## 架構
 - `push-back/`: optional reasonableness check for a selected design; use it only when conventions, minimality, or complexity are in doubt.
@@ -10,6 +10,7 @@
   - `workflow/`：主流程、`risk-flags.md`、平行編排規則 `orchestration.md`，與專案文件規則 `project-docs.md`（分工、佈局、staleness 語意，見下方「專案文件」一節）。
   - `planning/`：規劃/架構討論用；也是 `unclear_requirements` 的第一步。
   - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或 `unclear_requirements` 仍有風險時用於第二步。
+  - `doc-coauthoring/`：與使用者共同撰寫技術文件、決策文件、proposal 或 spec 的結構化流程（脈絡蒐集 → 逐節撰寫 → 讀者測試三階段）；跟 `project-docs.md` 定義的目標 repo `docs/` 文件無關，這個 skill 產出的是給人讀的獨立文件（PRD、design doc、RFC 等）。
 - `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在高風險 `risk_flags` 命中時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。
 - `scripts/project-resolver.ps1`：解析 project、worktree 與 active task；`-RegisterWorktree` 批次註冊 worker worktree，`-RosterFor` 查詢某 coordinator 底下的 worker task 清單。
 - `scripts/path-grammar.ps1`：`file_ownership`／`covers` 共用的 repo-relative 路徑文法（`Test-OwnershipEntry`、`Test-PrefixOverlap`），由 `orchestrate.ps1`、`split-plan.ps1`、`project-doc.ps1`、`validate-task.ps1` dot-source，避免四份手抄副本各自漂移。
@@ -35,13 +36,13 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 ## Task
 
-只有實際修改 source code logic 或 test code logic 才建立：
+只有實際修改「目標專案」source code logic 或 test code logic 才建立：
 
 ```text
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
 ```
 
-同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改 source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。只有 `true` 強制依序執行 Reviewer、Verifier（命中六個高代價旗標時，中間再加一輪 Adversarial 複查）；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
+同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改「目標專案」source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。只有 `true` 強制依序執行 Reviewer、Verifier（命中六個高代價旗標時，中間再加一輪 Adversarial 複查）；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
 
 `code_change: true` 時另填 `change_kind: fix | feature | refactor | chore`。它不在 schema 的 `required` 裡（既有 task 與 `orchestrate.ps1` 產生的 worker frontmatter 都沒有這個欄位），由 `task-gate.ps1 -Mode Close` 在結案時要求。
 
@@ -98,10 +99,11 @@ Project knowledge 可直接更新；Global knowledge 需要跨專案證據與使
 docs/
 ├─ architecture.md        系統總覽（一份）
 ├─ dataflow.md             跨模組主要資料流（一份）
-└─ modules/<slug>.md       模組文件（多份，need-driven）
+├─ modules/<slug>.md       模組文件（多份，need-driven）
+└─ api/<slug>.md           API 規格（多份，need-driven；新增或修改對外端點時才建立）
 ```
 
-Frontmatter 只兩個必填欄位：`doc_type: architecture | dataflow | module` 與 `covers: ["game/gameList/Seth_10017/"]`（repo-relative 路徑陣列，文法與 `file_ownership` 相同）。module 文件固定六區塊：`Responsibility`、`Entrypoints`、`Flow`、`Shared state`、`Invariants and gotchas`、`Unverified`；只記反向搜尋做不出來的東西（為什麼、隱藏入口），不記行號、簽名或呼叫端清單——那些 grep 一次就有且永遠最新。**不設行數上限**：篇幅過長時依 `covers` 拆成多份，而不是刪減內容。
+Frontmatter 只兩個必填欄位：`doc_type: architecture | dataflow | module | api` 與 `covers: ["game/gameList/Seth_10017/"]`（repo-relative 路徑陣列，文法與 `file_ownership` 相同）。module 文件固定六區塊：`Responsibility`、`Entrypoints`、`Flow`、`Shared state`、`Invariants and gotchas`、`Unverified`；只記反向搜尋做不出來的東西（為什麼、隱藏入口），不記行號、簽名或呼叫端清單——那些 grep 一次就有且永遠最新。api 文件固定七區塊（`Endpoint`、`Auth`、`Request`、`Response`、`Errors`、`Invariants and gotchas`、`Unverified`），跟 module 文件相反，**刻意**記錄完整 request／response schema，因為 API 是對外契約，省略細節會讓呼叫端看不到變動。**不設行數上限**：篇幅過長時依 `covers` 拆成多份，而不是刪減內容。
 
 ```powershell
 $pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\project-doc.ps1'

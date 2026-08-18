@@ -205,7 +205,8 @@ switch ($Action) {
     }
     'Check' {
         $moduleRequiredSections = @('Responsibility', 'Entrypoints', 'Flow', 'Shared state', 'Invariants and gotchas', 'Unverified')
-        $allowedDocTypes = @('architecture', 'dataflow', 'module')
+        $apiRequiredSections = @('Endpoint', 'Auth', 'Request', 'Response', 'Errors', 'Invariants and gotchas', 'Unverified')
+        $allowedDocTypes = @('architecture', 'dataflow', 'module', 'api')
 
         function Get-MissingSection([string]$Body, [string[]]$Required) {
             $missing = @()
@@ -232,6 +233,11 @@ switch ($Action) {
                     $issues += "missing or empty section: $name"
                 }
             }
+            if ($DocEntry.doc_type -eq 'api') {
+                foreach ($name in (Get-MissingSection $DocEntry.body $apiRequiredSections)) {
+                    $issues += "missing or empty section: $name"
+                }
+            }
             return $issues
         }
 
@@ -252,16 +258,19 @@ switch ($Action) {
             [pscustomobject]@{ path = $_.path; doc_type = $_.doc_type; issues = @(Get-DocIssue $_); _entry = $_ }
         })
 
-        # Overlap between two module docs only makes sense when checking the whole set together;
-        # a single -Doc check has nothing to compare against.
+        # Overlap only makes sense within the same doc_type checked against the whole set together
+        # (a module doc and an api doc legitimately cover the same file - one is structure, the
+        # other is contract); a single -Doc check has nothing to compare against.
         if (-not $Doc) {
-            $moduleResults = @($results | Where-Object { $_._entry.doc_type -eq 'module' })
-            for ($i = 0; $i -lt $moduleResults.Count; $i++) {
-                for ($j = $i + 1; $j -lt $moduleResults.Count; $j++) {
-                    foreach ($left in @($moduleResults[$i]._entry.covers)) {
-                        foreach ($right in @($moduleResults[$j]._entry.covers)) {
-                            if (Test-PrefixOverlap $left $right) {
-                                $moduleResults[$i].issues = @($moduleResults[$i].issues) + "covers overlaps with $($moduleResults[$j].path) ('$left' vs '$right')"
+            foreach ($overlapType in @('module', 'api')) {
+                $typeResults = @($results | Where-Object { $_._entry.doc_type -eq $overlapType })
+                for ($i = 0; $i -lt $typeResults.Count; $i++) {
+                    for ($j = $i + 1; $j -lt $typeResults.Count; $j++) {
+                        foreach ($left in @($typeResults[$i]._entry.covers)) {
+                            foreach ($right in @($typeResults[$j]._entry.covers)) {
+                                if (Test-PrefixOverlap $left $right) {
+                                    $typeResults[$i].issues = @($typeResults[$i].issues) + "covers overlaps with $($typeResults[$j].path) ('$left' vs '$right')"
+                                }
                             }
                         }
                     }

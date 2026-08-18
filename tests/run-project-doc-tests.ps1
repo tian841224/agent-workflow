@@ -75,6 +75,43 @@ $sections
     return Write-RepoFile $RelativePath $content
 }
 
+function Write-ApiDoc([string]$RelativePath, [string[]]$Covers, [switch]$OmitSections) {
+    $coversJson = '[' + (($Covers | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join ', ') + ']'
+    $sections = if ($OmitSections) { '' } else {
+        @"
+
+## Endpoint
+POST /api/test
+
+## Auth
+none
+
+## Request
+{ "id": "string" }
+
+## Response
+{ "ok": true }
+
+## Errors
+400 invalid id
+
+## Invariants and gotchas
+idempotent
+
+## Unverified
+none
+"@
+    }
+    $content = @"
+---
+doc_type: api
+covers: $coversJson
+---
+$sections
+"@
+    return Write-RepoFile $RelativePath $content
+}
+
 function Invoke-GitCommit([string]$Message) {
     & git -C $repo add -A | Out-Null
     & git -C $repo -c user.name=agent-workflow -c user.email=agent-workflow@example.invalid commit --quiet -m $Message | Out-Null
@@ -275,6 +312,27 @@ none
     Invoke-GitCommit 'seed long doc'
     $longCheck = Invoke-ProjectDocCheck 'docs/modules/long.md'
     Assert (@($longCheck.issues).Count -eq 0) "a long but complete module doc was flagged: $($longCheck.issues -join '; ')"
+
+    # --- 11: api doc_type - complete doc passes, missing sections are reported, and it never
+    # gets flagged as an unknown doc_type ---
+    Write-ApiDoc 'docs/api/complete.md' @('api/complete/') | Out-Null
+    Write-ApiDoc 'docs/api/incomplete.md' @('api/incomplete/') -OmitSections | Out-Null
+    Invoke-GitCommit 'seed api doc fixtures'
+
+    $apiCompleteCheck = Invoke-ProjectDocCheck 'docs/api/complete.md'
+    Assert (@($apiCompleteCheck.issues).Count -eq 0) "a complete api doc was flagged: $($apiCompleteCheck.issues -join '; ')"
+    Assert (@($apiCompleteCheck.issues | Where-Object { $_ -match 'unknown doc_type' }).Count -eq 0) 'api was not accepted as a known doc_type'
+
+    $apiIncompleteCheck = Invoke-ProjectDocCheck 'docs/api/incomplete.md'
+    $apiIncompleteIssues = @($apiIncompleteCheck.issues)
+    foreach ($section in @('Endpoint', 'Auth', 'Request', 'Response', 'Errors', 'Invariants and gotchas', 'Unverified')) {
+        Assert (@($apiIncompleteIssues | Where-Object { $_ -match [regex]::Escape($section) }).Count -gt 0) "Check did not report the missing api section: $section"
+    }
+
+    # a module doc and an api doc covering the same path is not an overlap - they answer
+    # different questions about the same code.
+    $apiLookup = Invoke-ProjectDoc @{ Action = 'Lookup'; Paths = @('api/complete/handler.go') }
+    Assert (@($apiLookup.docs | Where-Object { $_.doc_type -eq 'api' }).Count -eq 1) 'api doc did not participate in Lookup'
 
     Write-Output 'project-doc tests passed'
 } finally {

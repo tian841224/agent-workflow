@@ -4,13 +4,13 @@
 
 ## 適用範圍
 
-只有實際修改 source code 邏輯或 test code 的任務，才載入 `workflow` skill、建立 `task.md`，並依序執行 Reviewer、Verifier。純註解修改、設定／文件修改、script 修改與操作、測試調查、除錯分析、code review、規劃、問答與翻譯等沒有動到程式邏輯的修改與任務，不載入 workflow、不建立 task、不執行角色，由單一主對話直接處理（non-code tasks bypass workflow）。
+只有實際修改「目標專案」用程式語言（如 Golang、Vue、TypeScript）撰寫的 application source code 邏輯或 test code 邏輯時，才載入 `workflow` skill、建立 `task.md`，並依序執行 Reviewer、Verifier。除此之外的任務一律 bypass workflow（包含但不限於：純註解修改、設定／文件修改、script 修改與操作、測試調查、除錯分析、code review、規劃、問答與翻譯），不載入 workflow、不建立 task、不執行角色，由單一主對話直接處理（non-code tasks bypass workflow）。
 
 ## Task
 
 - Task 位於 `~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md`。
 - 每個 worktree 最多一個 `status: in_progress`；不同 worktree 可平行。
-- Task 必須明確填 `code_change: true | false`；只有實際修改 source code logic 或 test code logic 時為 `true`，並同時填 `change_kind: fix | feature | refactor | chore`。script 修改與操作不進入 workflow。
+- Task 必須明確填 `code_change: true | false`；只有實際修改「目標專案」source code logic 或 test code logic 時為 `true`，並同時填 `change_kind: fix | feature | refactor | chore`。script 修改與操作不進入 workflow。
 - 基本 task 只記目標、範圍、完成條件與驗證結果；其他內容與 gate 依 `risk_flags` 增加。
 - 一般 task 在 Reviewer／Verifier 完成後即可更新為 `done`；coordinator／worker 或命中 freeze-required flag 的 task 才使用 `close-task.ps1` 完整結案。中斷改 `paused`，缺外部條件改 `blocked`，兩者都必須填 `stop_reason`；需求變更以新 task 取代並將舊 task 標 `superseded`。
 - 命中 freeze-required flag 時 `frozen_at` 未填前不得改 code；這是高風險流程規則，`impact-guard` 只在對應 profile 啟用時執行機械攔截。
@@ -18,7 +18,7 @@
 ## 品質原則
 
 - 先讀現況與專案規則，保留使用者既有修改，只改需求直接需要的內容。
-- Bug 先重現或取得根因證據；遵循 TDD，先寫會失敗的測試再實作使其通過、視需要重構，修改後執行相關驗證與 `~/.agent-workflow/runtime/scripts/pre-review.ps1`。
+- Bug 先重現或取得根因證據；遵循 TDD，先寫一個在修復前會真正失敗的測試（證明正確捕捉到這次的錯誤），再實作最小修改使其通過（變綠即代表能擋住同樣錯誤再次發生）、視需要重構，修改後執行相關驗證與 `~/.agent-workflow/runtime/scripts/pre-review.ps1`。
 - 選完整滿足目前需求的最簡解法；不順手重構、不增加未要求的抽象或依賴。
 - 只有 `code_change: true` 強制依序執行 Reviewer、Verifier；`risk_flags` 命中 financial／data_write／migration／irreversible／schema／contract 任一時，Reviewer 與 Verifier 之間加開 Adversarial 複查。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動。非程式碼修改不執行角色。Risk flags 仍控制 browser、安全、資料一致性與凍結 gate。
 - 驗證失敗先修根因，再重跑失敗項與受波及回歸項；不改完成條件遷就實作。
