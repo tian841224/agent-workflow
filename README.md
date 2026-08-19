@@ -13,6 +13,7 @@ Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF
   - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或在討論、規劃與任務中遇到 `unclear_requirements` 仍有風險時用於第二步（逐一提問釐清決策樹）。
   - `push-back/`：在使用者選定或即將採用某個做法時，主動評估是否符合現有架構、是否為最小改動、會不會增加不必要複雜度，必要時提出具體替代方案。
   - `doc-coauthoring/`：與使用者共同撰寫技術文件、決策文件、proposal 或 spec；一般任務走 quick path，重大文件才走脈絡蒐集 → 逐節撰寫 → 讀者測試三階段。跟 `project-docs.md` 定義的目標 repo `docs/` 文件無關，這個 skill 產出的是給人讀的獨立文件（PRD、design doc、RFC 等）。
+  - `clean-comments/`：指導如何撰寫精簡、高資訊密度且位置精確的程式碼註解，落實職責分離與就近原則。
   - `localization-tw/`：正體中文（臺灣）在地化與翻譯技能，確保輸出符合臺灣華語母語者慣用方式，避免中國用語與簡體直譯。
 - `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在高風險 `risk_flags` 命中時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。
 - `agent_workflow/`：Python 核心套件，提供完整的 runtime 實作、守門規則、驗證、記憶管理與專案文件邏輯。
