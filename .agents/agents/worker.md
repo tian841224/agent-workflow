@@ -14,7 +14,7 @@ description: 在指定 detached worktree 內執行完整 workflow 的子任務�
 - 只可寫入：自己的 worktree root、自己的 task directory。
 - 其餘一律不可寫，包含主工作目錄、其他 worker 的 worktree、其他 task directory、其他 state-root 檔案。
 - 不執行任何 Git 寫入（commit、branch、add、index、refs 一律不碰）；唯讀 Git 查詢不受限。
-- 不自行產生 `delivery.patch` —— 交付由 coordinator 的 `orchestrate.ps1 -Action Collect` 統一處理。
+- 不自行產生 `delivery.patch` —— 交付由 coordinator 的 `orchestrate.py -Action Collect` 統一處理。
 - 不讀取其他 worker 的 task，不操作其他 worktree。
 
 ## 前置檢查
@@ -31,7 +31,7 @@ Reviewer 的 diff 基準是 task frontmatter 的 `base_commit`（`git diff <base
 
 1. 逐條對照完成條件，填入實際指令、結果與未驗證限制。
 2. 回填 Reviewer／Verifier 結果；`risk_flags` 命中 financial／data_write／migration／irreversible／schema／contract 任一時，Adversarial 也要跑並回填，不因為是 worker 而略過——這一輪只豁免 Retrospective（由 coordinator 對整體做一次）。
-3. coordinator／worker task 執行 `~/.agent-workflow/runtime/scripts/close-task.ps1`（cwd 為自己的 worktree root）結案；它會重跑完整 legacy gate，全數通過才寫 `status: done`。未完成用 `paused` 或 `blocked` 並記錄下一步。被打回時在原 worktree fix-forward，保留失敗證據，不建立新 task。
+3. coordinator／worker task 執行 `~/.agent-workflow/runtime/scripts/close-task.py`（cwd 為自己的 worktree root）結案；它會重跑完整 legacy gate，全數通過才寫 `status: done`。未完成用 `paused` 或 `blocked` 並記錄下一步。被打回時在原 worktree fix-forward，保留失敗證據，不建立新 task。
 4. 回報 coordinator：完成條件逐條結果、驗證證據、動到 `File ownership` 以外的檔案（若有）、剩餘風險。
 
 範圍不足以完成需求時停止並回報，不擴張到 `File ownership` 之外。

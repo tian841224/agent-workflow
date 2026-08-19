@@ -4,7 +4,7 @@
 
 ## 與 knowledge、retro 的分工
 
-| | project docs | `knowledge.ps1` | `retro.ps1` |
+| | project docs | `knowledge.py` | `retro.py` |
 |---|---|---|---|
 | 回答 | 這塊 code 是什麼、流程怎麼走 | 這件事以前踩過嗎 | 框架是不是重複漏接 |
 | 檢索鍵 | path 前綴反查 | topic 關鍵字子字串 | miss_category 計數 |
@@ -51,7 +51,7 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 
 ## API 文件七區塊
 
-`covers` 指向實作該端點的路由／handler 檔案，一個端點（或一組緊密相關的端點）一份文件，need-driven；沒有對外 API 的專案不建立這個資料夾。跟 module 文件不同，這裡**刻意記錄完整 request／response schema**——API 是外部契約，變動必須讓呼叫端立刻看到差異，省略細節反而失去這份文件存在的意義；staleness 判斷跟其他文件一樣走 `covers` 對應的 git 歷史比較（見下方 `project-doc.ps1`），route/handler 一改就會被標 `stale`，不會悄悄過期沒人知道。
+`covers` 指向實作該端點的路由／handler 檔案，一個端點（或一組緊密相關的端點）一份文件，need-driven；沒有對外 API 的專案不建立這個資料夾。跟 module 文件不同，這裡**刻意記錄完整 request／response schema**——API 是外部契約，變動必須讓呼叫端立刻看到差異，省略細節反而失去這份文件存在的意義；staleness 判斷跟其他文件一樣走 `covers` 對應的 git 歷史比較（見下方 `project-doc.py`），route/handler 一改就會被標 `stale`，不會悄悄過期沒人知道。
 
 | 區塊 | 記什麼 |
 |---|---|
@@ -75,10 +75,10 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 | Reviewer 回報的路徑差異 | `## Entrypoints`／`## Flow` | 補進去（獨立重建才發現的節點，價值最高） |
 | 本次踩到的假設／限制 | `## Invariants and gotchas` | 一句話 |
 
-## `project-doc.ps1`
+## `project-doc.py`
 
-```powershell
-$pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\project-doc.ps1'
+```text
+$pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\project-doc.py'
 & $pd -Action Lookup -Paths 'game/gameList/Seth_10017/'   # 命中文件 + uncovered，附帶 architecture/dataflow
 & $pd -Action List                                         # 全部文件與 stale 狀態
 & $pd -Action Stale                                         # 只列 stale／stale_pending 的文件

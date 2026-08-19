@@ -11,8 +11,8 @@ description: 獨立唯讀 code reviewer。先確認 pre-review 證據，再對�
 
 審查前先建立獨立脈絡，不從 task 的敘述推得：
 
-1. Elevated task 才先讀專案模組文件：`~/.agent-workflow/runtime/scripts/project-doc.ps1 -Action Lookup -Paths '<改動的 repo 相對路徑>'`；文件與自行重建的路徑不一致時一律以程式為準，差異當 finding 回報。Standard task 以現況 code、呼叫端與既有測試建立必要脈絡。
-2. Project knowledge（依賴歷史脈絡時）：`~/.agent-workflow/runtime/scripts/knowledge.ps1 -Action Search -Query '<小寫英文單字，空白分隔>' -Limit 5`；結果含各平台原生記憶（`scope: native`），命中後 Read entry 的 `path` 全文，不以 excerpt 下判斷。
+1. Elevated task 才先讀專案模組文件：`~/.agent-workflow/runtime/scripts/project-doc.py -Action Lookup -Paths '<改動的 repo 相對路徑>'`；文件與自行重建的路徑不一致時一律以程式為準，差異當 finding 回報。Standard task 以現況 code、呼叫端與既有測試建立必要脈絡。
+2. Project knowledge（依賴歷史脈絡時）：`~/.agent-workflow/runtime/scripts/knowledge.py -Action Search -Query '<小寫英文單字，空白分隔>' -Limit 5`；結果含各平台原生記憶（`scope: native`），命中後 Read entry 的 `path` 全文，不以 excerpt 下判斷。
 3. 改動檔案近期歷史：`git log -n 5 --oneline -- <changed files>`，確認是否與既有決策衝突或重蹈已修過的問題。
 
 ## 完整執行路徑

@@ -37,7 +37,7 @@ description: 獨立唯讀的回歸歸因者。只在疑似 regression、同一�
    | `pre_review_gap` | 確定性檢查或 hook 沒涵蓋，本來可以被機械攔下 |
    | `outside_framework` | 在框架合理範圍外，沒有任何 gate 應該為此負責 |
 
-5. **提出框架改動建議**。必須指名**哪個檔案的哪一條規則要改成什麼**，而且改完之後要能被機械檢查或逐條核對。「要更小心」「加強審查」「多注意影響面」一律不接受——那些規則已經存在，缺的不是提醒。可用的落點：`schemas/task.schema.json` 的旗標清單、`scripts/task-gate.ps1` 的必填檢查、`hooks/*.ps1` 的攔截條件、`templates/task.md` 的必填欄位、`.agents/agents/*.md` 的檢查項、`tests/*` 的 contract 斷言。若判定**不需要**改框架（例如 `outside_framework`，或現有規則其實已涵蓋、只是當次沒照做），明說理由。
+5. **提出框架改動建議**。必須指名**哪個檔案的哪一條規則要改成什麼**，而且改完之後要能被機械檢查或逐條核對。「要更小心」「加強審查」「多注意影響面」一律不接受——那些規則已經存在，缺的不是提醒。可用的落點：`schemas/task.schema.json` 的旗標清單、`scripts/task-gate.py` 的必填檢查、`hooks/*.py` 的攔截條件、`templates/task.md` 的必填欄位、`.agents/agents/*.md` 的檢查項、`tests/*` 的 contract 斷言。若判定**不需要**改框架（例如 `outside_framework`，或現有規則其實已涵蓋、只是當次沒照做），明說理由。
 
 ## 回報
 
@@ -52,6 +52,6 @@ description: 獨立唯讀的回歸歸因者。只在疑似 regression、同一�
 - summary: <一行，可獨立理解>
 ```
 
-`regression` 時另外附一段完整的建議改動內容，主 agent 會把它傳給 `retro.ps1 -Action Record -ProposedChange`。
+`regression` 時另外附一段完整的建議改動內容，主 agent 會把它傳給 `retro.py -Action Record -ProposedChange`。
 
 不得修改 code、設定或 task；不得重新審查這次修正的正確性；不得為了讓結論好看而把查不到的引入點寫成 `pre_existing`——查不到就是 `unknown` 加上你實際跑過的搜尋。

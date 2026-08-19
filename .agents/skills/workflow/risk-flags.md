@@ -22,7 +22,7 @@
 
 ## Adversarial 複查與 Mutation check 觸發
 
-`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標任一命中時，Elevated code task 才加開原生 `agent-workflow-adversarial` 複查；`financial`／`data_write` 命中時另需 mutation check。兩者的觸發時機、程序與權威清單（`x_agent_workflow.adversarial_required`、`x_agent_workflow.mutation_check_required`）定義在 [SKILL.md](SKILL.md) 第 5、6a 節，本檔不重述。
+`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標任一命中時，所有 `code_change: true` task 都加開原生 `agent-workflow-adversarial` 複查；`financial`／`data_write` 命中時另需 mutation check。觸發集合以 `schemas/task.schema.json` 的 `x_agent_workflow` 為準。
 
 ## Freeze-required 詳細規則
 

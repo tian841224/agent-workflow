@@ -4,7 +4,7 @@
 
 ## 執行模式與平台支援
 
-v1 只有 **Manual** 模式：`orchestrate.ps1` 不啟動 agent，由使用者或外部 agent 以 worker worktree 為 cwd 啟動每個 worker。
+v1 只有 **Manual** 模式：`orchestrate.py` 不啟動 agent，由使用者或外部 agent 以 worker worktree 為 cwd 啟動每個 worker。
 
 | 平台 | 狀態 |
 |---|---|
@@ -14,7 +14,7 @@ v1 只有 **Manual** 模式：`orchestrate.ps1` 不啟動 agent，由使用者�
 
 ## 拆分條件
 
-寫成 split plan JSON 交 `split-plan.ps1` 判定，`Init` 只在 `eligible` 為 true 時才建立任何東西：
+寫成 split plan JSON 交 `split-plan.py` 判定，`Init` 只在 `eligible` 為 true 時才建立任何東西：
 
 ```json
 { "user_confirmed": true, "shared_persistent_state": false, "has_order_dependency": false,
@@ -24,15 +24,15 @@ v1 只有 **Manual** 模式：`orchestrate.ps1` 不啟動 agent，由使用者�
 
 檢查項目：coordinator 已 freeze 且 `subtask_role: coordinator`、使用者已確認、無共用持久化狀態、無順序依賴、至少兩個 worker、每個 worker 達最小規模、ownership 文法合法且 pairwise disjoint、未觸及預設序列處理的共用註冊點（schema、contract、route table、barrel index、DI registration、lockfile、i18n）。
 
-另由 `Init` 檢查：有可用 `HEAD`、非 bare／submodule／sparse／LFS repo、untracked 檔不落在任何 ownership 內、worktree 可執行必要驗證（新 worktree 沒有 `node_modules`／`.env`／build cache；可用 `.agent-workflow-worktree-init.ps1` 補，否則在 worker task 記錄限制）。
+另由 `Init` 檢查：有可用 `HEAD`、非 bare／submodule／sparse／LFS repo、untracked 檔不落在任何 ownership 內、worktree 可執行必要驗證（新 worktree 沒有 `node_modules`／`.env`／build cache；可用 `.agent-workflow-worktree-init.py` 補，否則在 worker task 記錄限制）。
 
 任一不成立退回單一 worker 循序處理。
 
-### `.agent-workflow-worktree-init.ps1` 契約
+### `.agent-workflow-worktree-init.py` 契約
 
-放在**目標 repo 根目錄**；`Init` 對每個新 worktree 呼叫 `& <repo根>\.agent-workflow-worktree-init.ps1 -WorktreePath <worktree 絕對路徑>`，補回裸 `git worktree add` 沒有的 `node_modules`／`.env`／build cache。**收尾後 `git status --porcelain` 必須是空的**——這是唯一被檢查的契約，不看 exit code；腳本只能建在已 `.gitignore` 的位置，留下未忽略的新檔會讓 `Init` 直接 `Fail` 並列出髒污清單。不存在時整段跳過，worker task 需自行記錄因此受限的驗證項目。
+放在**目標 repo 根目錄**；`Init` 對每個新 worktree 呼叫 `& <repo根>\.agent-workflow-worktree-init.py -WorktreePath <worktree 絕對路徑>`，補回裸 `git worktree add` 沒有的 `node_modules`／`.env`／build cache。**收尾後 `git status --porcelain` 必須是空的**——這是唯一被檢查的契約，不看 exit code；腳本只能建在已 `.gitignore` 的位置，留下未忽略的新檔會讓 `Init` 直接 `Fail` 並列出髒污清單。不存在時整段跳過，worker task 需自行記錄因此受限的驗證項目。
 
-```powershell
+```text
 param([Parameter(Mandatory)][string]$WorktreePath)
 $repoRoot = Split-Path -Parent $PSCommandPath
 foreach ($dep in @('node_modules', '.env')) {
@@ -116,13 +116,13 @@ overlap 或 `git apply --check` 失敗時**不自動 rejected**：該 delivery �
 coordinator 讀兩側 patch 與主工作目錄現況，人工合併
 -> 無法判定是否保留某段時，主動詢問使用者
 -> 把衝突路徑、合併取捨與使用者答覆寫進 Delivery log
--> orchestrate.ps1 -Action Resolve -WorkerId <id>
+-> orchestrate.py -Action Resolve -WorkerId <id>
    （驗證 changed paths 都已反映在主工作目錄，才標 merged）
 ```
 
 **impact-guard 的具名例外**：coordinator 平時完全不得改主工作目錄 source。唯一例外是 `integration_status: conflicted` **且**目標路徑在 `conflicts[]` 內；其餘一律 deny，衝突清空後例外自動關閉。已套用的變更不自動 rollback。此例外限制的是能改哪些路徑，不是限制 coordinator 本身——`orchestration.json` 與 `integration_status` 都在 coordinator 自己可寫的目錄下，見「已知限制」。
 
-不合併時：`orchestrate.ps1 -Action Reject -WorkerId <id>`，把該 delivery 標 `rejected`、從 `conflicts[]` 移除，並依 roster 現況重新收斂 `integration_status`。
+不合併時：`orchestrate.py -Action Reject -WorkerId <id>`，把該 delivery 標 `rejected`、從 `conflicts[]` 移除，並依 roster 現況重新收斂 `integration_status`。
 
 **Apply 失敗時 coordinator 的 `status` 不會被自動改動**：out_of_scope 或空 patch 都只讓對應動作 `Fail`，`in_progress` 保持不變，以免 coordinator 因為自動轉 `blocked` 而被 `active_tasks` 排除、連修正用的動作都跑不了。是否要人工把 `status` 改成 `blocked` 交由使用者判斷。
 
@@ -131,7 +131,7 @@ coordinator 讀兩側 patch 與主工作目錄現況，人工合併
 worker 越界時 impact-guard 會當場擋下（見 worker.md 的 `ownership_request`）。Collect 的 `out_of_scope` 是第二層，涵蓋 script 寫檔等 hook 看不到的路徑。發現時停下交使用者裁決，不自動 rejected：
 
 1. 擴大 ownership 後重新 Collect —— 擴大後不得與其他 worker 衝突；碰到拆分禁止項目直接退回循序；在 `Delivery log` 記錄裁決、原／新 ownership 與理由。
-2. `orchestrate.ps1 -Action Reject -WorkerId <id>`，改走循序 task。
+2. `orchestrate.py -Action Reject -WorkerId <id>`，改走循序 task。
 
 ## abandoned
 
@@ -161,12 +161,12 @@ orchestration context: ~/.agents/skills/workflow/orchestration.md
 
 ## 已知限制
 
-`impact-guard` 只掛平台編輯工具，`git-guard` 只看 shell 中的 Git command。透過 PowerShell、Python 或其他 script 改檔無法完整攔截。`orchestrate.ps1` 的 caller 驗證只能看 cwd 與 active task，worker 切換到 coordinator 主工作目錄後無從辨識。
+`impact-guard` 只掛平台編輯工具，`git-guard` 只看 shell 中的 Git command。透過 PowerShell、Python 或其他 script 改檔無法完整攔截。`orchestrate.py` 的 caller 驗證只能看 cwd 與 active task，worker 切換到 coordinator 主工作目錄後無從辨識。
 
 worker 邊界是**協作式 guard**，不具備不可繞過的保證。真正的強制需要平台層的 process identity 或 capability 機制，不在 v1 範圍。
 
 同理，衝突合併例外（`integration_status: conflicted` + `conflicts[].paths`）**限制的是能改哪些路徑，不是限制 coordinator 本身**：`orchestration.json` 與 coordinator task 的 frontmatter 都在 coordinator 自己可寫的目錄下，coordinator 技術上可以自行宣告一個衝突來解鎖任意路徑。這與整體協作式 guard 的定位一致，不是這個例外獨有的破口。
 
-**`quality-gate.ps1` 對三平台輸出同一種 `{continue:true, systemMessage}` 提示格式**：未收尾的 task 只在同一 session 內第一次遇到時提示一次，不阻斷任何一輪對話。完成把關在 `hooks/impact-guard.ps1` 擋下直接寫 `status: done`，以及 `scripts/close-task.ps1` 呼叫 `task-gate.ps1 -Mode Close` 的硬性阻斷——兩者都與平台無關，worker／coordinator 編排在三個平台上都受它們保護。
+**`quality-gate.py` 對三平台輸出同一種 `{continue:true, systemMessage}` 提示格式**：未收尾的 task 只在同一 session 內第一次遇到時提示一次，不阻斷任何一輪對話。完成把關在 `hooks/impact-guard.py` 擋下直接寫 `status: done`，以及 `scripts/close-task.py` 呼叫 `task-gate.py -Mode Close` 的硬性阻斷——兩者都與平台無關，worker／coordinator 編排在三個平台上都受它們保護。
 
 **Antigravity 的 `systemMessage` 是否顯示未驗證**：Antigravity 官方文件（含 Context7 可查到的 CLI／IDE 文件）沒有公開 Stop 事件的 payload 與輸出契約，`adapters/antigravity/hooks.json` 裡 `Stop` 與 `PreToolUse` 也是兩種不同形狀，未經實機驗證。Antigravity 上這個提示是否真的會顯示給使用者看屬未知；Stop 本身不做阻斷，提示沒顯示只影響使用者是否看到提醒，不影響任何 gate 的強制力。

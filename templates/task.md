@@ -18,7 +18,7 @@ frozen_at：freeze-required flag 命中時必填 ISO-8601。未填時 impact-gua
 stop_reason：status 改為 paused 或 blocked 時必填（在等什麼、下一步是什麼）。
            未填時下次同一 worktree 的 Stop 會提示一次；放棄該任務改用 superseded。
 roles_waived：使用者授權跳過 Reviewer／Adversarial／Verifier 的理由。
-           只能由 waive-roles.ps1 -Reason '<理由>' -ConfirmedByUser 寫入；
+           只能由 waive-roles.py -Reason '<理由>' -ConfirmedByUser 寫入；
            直接編輯 task 寫這個欄位會被 impact-guard 擋下。
 independence：coordinator／worker 或明確啟用 legacy completion gate 的 code task 才要求 native 或 degraded；Standard task 不因缺少此欄位而增加流程。
            預設 native（角色確實獨立執行）；原生角色無法載入或未回報、主 agent 因故自行填寫角色段落時
@@ -73,8 +73,8 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 
 <!-- Elevated code task 時加入（Project docs 的 read 與 Impact surface 需在動手改 code 前填寫）：
 ## Project docs（專案文件）
-- read: <project-doc.ps1 -Action Lookup 命中並讀過的 doc 路徑，逗號分隔；專案尚無文件時填 none - 理由>
-- updated: <本次更新或確認過的 doc 路徑，逗號分隔；無則 none - 理由（change_kind: feature／refactor，或 risk_flags 命中 behavior_change／contract／schema／cross_feature 時，close-task.ps1 會檢查這一行）>
+- read: <project-doc.py -Action Lookup 命中並讀過的 doc 路徑，逗號分隔；專案尚無文件時填 none - 理由>
+- updated: <本次更新或確認過的 doc 路徑，逗號分隔；無則 none - 理由（change_kind: feature／refactor，或 risk_flags 命中 behavior_change／contract／schema／cross_feature 時，close-task.py 會檢查這一行）>
 
 ## Impact surface（影響面）
 - 呼叫端：<反向搜尋命令與命中數；需要判斷的命中逐條 path:line>
@@ -109,14 +109,14 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 - PASS
 - diff_sha256: <Verifier 實際驗證的那份 diff 指紋>
 
-## Retrospective result（回顧結果；change_kind: fix 時必填，worker 除外）
+## Retrospective result（回顧結果；只有疑似 regression、重複修正或使用者要求時加入）
 - introduced_by: <引入缺陷的 commit sha，或 unknown - 跑過哪些搜尋>
 - classification: <regression | pre_existing | external>
 - miss_category: <只有 regression 時必填；八類見 schemas/retro.schema.json>
 - gap_evidence: <只有 regression 時必填：哪份 task 的哪一段、或哪道 gate 沒攔下；附 task id 或 path:line>
 - framework_change: <只有 regression 時必填：recorded:<retro-id>，或 not_needed - 理由>
 - summary: <retrospective.md 回報的第六行，一行可獨立理解的摘要>
-- occurrences: <只有 regression 時填：retro.ps1 -Action Record 回傳的同類累積次數>
+- occurrences: <只有 regression 時填：retro.py -Action Record 回傳的同類累積次數>
 -->
 
 <!-- 其他條件式段落：
@@ -130,7 +130,7 @@ change_kind: refactor：## Behavior invariants and before-after evidence（行�
 <!-- coordinator task 再加入（frontmatter 補 subtask_role: coordinator、integration_status: pending）：
 ## Decomposition plan（拆分計畫）
 - 拆分理由與各 worker 範圍
-- split plan JSON 路徑與 split-plan.ps1 的資格判定結果
+- split plan JSON 路徑與 split-plan.py 的資格判定結果
 
 ## Worker results（worker 結果）
 - 每個 worker 的狀態、驗證結果、fix-forward 歷程與 Manual handoff 資訊
