@@ -18,6 +18,11 @@ WRITE_TOOL_NAMES = frozenset({
     "apply_patch", "delete_file", "edit", "edit_file", "multi_edit", "notebookedit",
     "rename_file", "write", "write_file",
 })
+VERIFIER_EPHEMERAL_NAME = r"aw-verifier[-_][a-zA-Z0-9_.-]+"
+SQL_CLIENT = re.compile(r"(?:^|[\s;&|])(?:mysql|mariadb|psql|sqlite3|sqlcmd|isql)(?:\.exe)?\b", re.I)
+SQL_WRITE = re.compile(r"\b(?:insert|update|delete|drop|alter|truncate|replace|grant|revoke|create|load\s+data|copy)\b", re.I)
+DOCKER_READ_COMMANDS = frozenset({"version", "info", "ps", "images", "inspect", "logs", "stats", "top", "port", "history", "diff", "pull"})
+DOCKER_INSPECT_COMMANDS = DOCKER_READ_COMMANDS - {"pull"}
 
 
 def normalize_role(value: str) -> str:
@@ -82,6 +87,56 @@ def shell_writes(command: str) -> bool:
     return False
 
 
+def verifier_docker_allowed(command: str) -> bool:
+    """Allow Docker only for isolated, prefixed, disposable resources."""
+    segments = [item.strip() for item in re.split(r"(?:;|&&|\|\|)", command) if item.strip()]
+    for segment in segments:
+        match = re.search(r"(?:^|\s)docker(?:\.exe)?\s+(.+)$", segment, re.I)
+        if not match:
+            continue
+        args = match.group(1).strip()
+        command_name = args.split(None, 1)[0].casefold()
+        if command_name in DOCKER_READ_COMMANDS:
+            continue
+        if command_name == "run":
+            if not re.search(r"(?:^|\s)--rm(?:\s|$)", args) or not re.search(r"(?:^|\s)--name(?:=|\s+)" + VERIFIER_EPHEMERAL_NAME + r"(?:\s|$)", args, re.I):
+                return False
+            if re.search(r"(?:^|\s)(?:-v|--volume|--mount|--volumes-from|--privileged)(?:=|\s|$)", args, re.I):
+                return False
+            if re.search(r"(?:^|\s)(?:--network\s+host|--pid\s+host)(?:\s|$)", args, re.I):
+                return False
+            continue
+        if command_name == "exec":
+            if not re.search(r"^exec\s+(?:(?:-it|-i|-t|--interactive|--tty)\s+)*" + VERIFIER_EPHEMERAL_NAME + r"(?:\s|$)", args, re.I):
+                return False
+            continue
+        if command_name in {"stop", "rm", "kill"}:
+            if not re.search(r"^(?:stop|rm|kill)\s+(?:(?:-f|--force)\s+)*" + VERIFIER_EPHEMERAL_NAME + r"(?:\s|$)", args, re.I):
+                return False
+            continue
+        return False
+    return True
+
+
+def verifier_shell_allowed(command: str) -> bool:
+    if re.search(r"(?:^|[\s;&|])docker(?:\.exe)?\s+", command, re.I) and not verifier_docker_allowed(command):
+        return False
+    if SQL_CLIENT.search(command) and SQL_WRITE.search(command):
+        return bool(re.search(r"\bdocker(?:\.exe)?\s+exec\b[^;&|]*" + VERIFIER_EPHEMERAL_NAME, command, re.I))
+    return True
+
+
+def protected_external_write(command: str) -> bool:
+    if SQL_CLIENT.search(command) and SQL_WRITE.search(command):
+        return True
+    segments = [item.strip() for item in re.split(r"(?:;|&&|\|\|)", command) if item.strip()]
+    for segment in segments:
+        match = re.search(r"(?:^|\s)docker(?:\.exe)?\s+(.+)$", segment, re.I)
+        if match and match.group(1).split(None, 1)[0].casefold() not in DOCKER_INSPECT_COMMANDS:
+            return True
+    return False
+
+
 def write_requested(payload: dict[str, Any]) -> bool:
     name = tool_name(payload)
     if name in WRITE_TOOL_NAMES or any(token in name for token in ("write", "edit", "delete", "rename")):
@@ -110,6 +165,13 @@ def main(argv: list[str] | None = None) -> int:
         if not role:
             workspace = (payload.get("workspacePaths") or [payload.get("cwd") or ""])[0]
             role = active_role(workspace, args.state_root) if workspace else ""
+        command = command_from_payload(payload)
+        if role == "verifier" and command and not verifier_shell_allowed(command):
+            decision(args.platform, "deny", "role-guard: verifier may use only disposable, prefixed Docker resources and SQL writes inside them.")
+            return 0
+        if role and role != "verifier" and command and protected_external_write(command):
+            decision(args.platform, "deny", "role-guard: only verifier may use mutating Docker or SQL operations, and only in disposable test resources.")
+            return 0
         if role in WRITE_ROLES or not role or not write_requested(payload):
             return 0
         decision(args.platform, "deny", f"role-guard: {role or 'unknown'} role is read-only; write operation denied.")

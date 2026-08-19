@@ -104,7 +104,7 @@ Role polling that returns `timed_out` preserves `pending_init`/`running`; a cont
 
 後續輪次採 delta-first：先檢查修復項、直接呼叫端與本輪新增波及項，不重複輸出未變更內容。若修改入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前輪存在未確認節點，則重新展開完整 execution path。Diff anchor 使用 repo-relative path、symbol 與 diff hunk，不得只依賴行號。
 
-角色對話回報只保留錯誤：有 finding、blocker、FAIL、BLOCKED 或未驗證限制時，輸出具體錯誤、依據、影響與可重現位置，省略所有 PASS 項目；全部通過時只輸出單行 `PASS`。不得以固定 token 截斷輸出。Task 內仍依 schema 回填必要的機械檢查欄位。
+角色對話回報只保留錯誤：有 finding、blocker、FAIL、BLOCKED 或未驗證限制時，輸出具體錯誤、依據、影響與可重現位置，省略所有 PASS 項目；全部通過時只輸出單行 `PASS`。Verifier 可使用 Docker／SQL，但只能操作 `aw-verifier-*` 一次性資源；`docker run` 必須 `--rm`，不得掛載既有資料或修改既有 container／database／volume，SQL 寫入只限一次性 container，完成後必須清除並確認無殘留。不得以固定 token 截斷輸出。Task 內仍依 schema 回填必要的機械檢查欄位。
 ## 7. 失敗與續作
 
 - 同一修復假說失敗兩次，不再猜第三次；回到證據與根因重新診斷。
