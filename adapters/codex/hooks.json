@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\git-guard.ps1\" -Platform Codex",
+            "command": "\"{{PYTHON_EXE}}\" -X utf8 -u \"{{RUNTIME_DIR}}\\agent_workflow.py\" git-guard --platform Codex",
             "statusMessage": "Checking Git safety"
           }
         ]

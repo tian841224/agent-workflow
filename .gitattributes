@@ -2,4 +2,7 @@
 # 否則在 Windows checkout 出來的 CRLF 換行會讓 bash 逐行報 "$'\r': command not found"。
 *.sh text eol=lf
 *.md text eol=lf
-*.ps1 text eol=crlf
+*.py text eol=lf
+*.cmd text eol=crlf
+*.json text eol=lf
+*.zip binary

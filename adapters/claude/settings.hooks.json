@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{{HOOKS_DIR}}\\git-guard.ps1\"",
+            "command": "\"{{PYTHON_EXE}}\" -X utf8 -u \"{{RUNTIME_DIR}}\\agent_workflow.py\" git-guard --platform Claude",
             "timeout": 15
           }
         ]
