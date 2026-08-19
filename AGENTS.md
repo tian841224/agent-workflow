@@ -5,7 +5,7 @@
 ## 分流
 
 - 只有修改「目標專案」application source code 或 test code logic 才進入 workflow、建立 task 並啟動角色。
-- 設定、文件、註解、script、測試調查、除錯分析、code review、規劃、問答與翻譯都是 non-code：non-code tasks bypass workflow，不建立 task、不啟動角色。
+- 設定、文件、註解、script、測試調查、除錯分析、code review、規劃、問答與翻譯都是 non-code：non-code tasks bypass workflow，不建立 task、不啟動角色（但若遇需求籠統或決策未明，主對話仍應適時調用 `planning` 與 `grill-me` 等思維技能輔助釐清）。
 - `code_change: true` 必須填 `change_kind: fix | feature | refactor | chore`；`risk_flags` 只依實際風險填寫，允許值與額外 gate 以 schema／`risk-flags.md` 為準。
 - Standard／Elevated 的流程差異、minimal／extended template 與角色觸發規則只維護在 workflow skill。
 

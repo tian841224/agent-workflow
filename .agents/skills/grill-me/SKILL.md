@@ -1,15 +1,19 @@
 ---
 name: grill-me
-description: 使用者明確要求被 grill、或 agent-workflow 遇到 unclear_requirements 需要在解除凍結前壓力測試計畫與假設時使用；逐一提問直到決策樹清楚、下一步站得住腳。
+description: 使用者明確要求被 grill、或在討論/規劃/任務中遇到需求籠統/決策未明（unclear_requirements）需在動工或解除凍結前壓力測試計畫與假設時使用；逐一提問直到決策樹清楚、下一步站得住腳。
 ---
 
 # Grill Me
 
-Use this skill after the user explicitly asks to be grilled, or when agent-workflow's `unclear_requirements` risk flag requires pressure-testing a plan or assumption before the task can be unfrozen (see the `workflow` skill). Pressure-test the plan until the decision tree is clear and the next move is defensible.
+Use this skill:
+1. After the user explicitly asks to be grilled (e.g., `/grill-me` or asking to challenge/pressure-test their plan).
+2. During discussions, planning, Q&A, conceptual design, or agent-workflow tasks whenever encountering vague or underspecified requirements (`unclear_requirements`) where key assumptions, high-risk trade-offs, or irreversible branches must be pressure-tested.
+
+Pressure-test the plan until the decision tree is clear and the next move is defensible.
 
 ## Workflow
 
-1. Identify the current plan, decision, or assumption being tested.
+1. Identify the current plan, decision, or assumption being tested (usually formulated after or alongside `planning`).
 2. Pick the highest-risk unresolved branch first.
 3. Ask exactly one question at a time.
 4. For each question, include your recommended answer and the reason.

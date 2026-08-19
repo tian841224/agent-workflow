@@ -1,6 +1,6 @@
 ---
 name: planning
-description: 架構設計、功能規劃、重構策略、技術方案比較等規劃工作時使用；agent-workflow 遇到 unclear_requirements 需要先釐清目標與限制時也用這個。輕量腦力激盪流程，優化為快速、聚焦的決策。
+description: 架構設計、功能規劃、重構策略、技術方案比較等規劃工作時使用；在討論/規劃/問答/任務中遇到需求籠統或決策未明（unclear_requirements）時主動用於第一步釐清目標與限制。輕量腦力激盪流程，優化為快速、聚焦的決策。
 ---
 
 # Simple Planning Skill
@@ -12,17 +12,19 @@ Use this skill when the user asks for:
 - refactoring strategy
 - technical decision comparison
 - implementation planning
+- clarifying vague, broad, or underspecified requirements in discussions, Q&A, conceptual design, or agent-workflow tasks hitting `unclear_requirements`
 
-It is also the entry point when agent-workflow hits the `unclear_requirements` risk flag: use it to clarify goals, constraints, and success criteria before the task can be unfrozen (see the `workflow` skill).
+It is the default entry point when encountering `unclear_requirements`: use it to clarify goals, constraints, and success criteria (before a code task can be unfrozen, or before a conceptual proposal proceeds).
 
 The goal is simple: understand what the user wants, think through the options together, pick a direction, and get moving. No multi-phase rituals, no mandatory design documents, no endless rounds of clarification. Just enough structure to make good decisions, and nothing more.
 
 ## Ground Rules
 
 - Do not start coding immediately unless the user explicitly asks. Respect that boundary.
-- First clarify the goal, constraints, and success criteria.
+- When requirements are broad or vague, proactively extract and clarify core goals, constraints, and success criteria instead of giving generic answers.
 - Identify risks, tradeoffs, and simpler alternatives.
-- If requirements are ambiguous, ask concise clarification questions.
+- If the plan involves high-risk branches, major architectural assumptions, or irreversible choices, proactively transition to or combine with `grill-me` to pressure-test them one question at a time.
+- If requirements are ambiguous, ask concise clarification questions (or use `grill-me` if iterative grilling is warranted).
 - If the user already provided enough context, make a reasonable assumption and state it.
 - Keep responses concise.
 - Avoid unnecessary background explanations.

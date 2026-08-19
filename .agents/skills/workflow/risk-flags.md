@@ -35,4 +35,7 @@
 
 ## unclear_requirements 的釐清流程
 
-命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標、限制與成功標準，產出方向後再視需要用 `grill-me` skill 逐一提問、壓力測試計畫與假設，取得使用者明確確認後才能解除凍結、改為 `in_progress`。不必兩個都跑：`planning` 足以釐清就直接繼續；只有計畫或假設仍有風險、需要進一步逼問時才加開 `grill-me`。
+在正式 code task 或前期的需求討論、問答與概念發想中，只要遇到需求籠統或未明（命中 `unclear_requirements` 語意情境）：
+1. 先用 `planning` skill 釐清目標、限制與成功標準，梳理出初步架構與方向。
+2. 若計畫或假設仍有較高風險、分支未明或涉及重大決策，主動加開 `grill-me` skill 逐一提問、壓力測試計畫與假設。
+3. Code task 需取得使用者對目標、非目標與完成條件的明確確認後才能解除凍結（填入 `frozen_at`）、改為 `in_progress`；純討論／規劃則藉此收斂至具體可行的下一步。不必每次都跑兩個：`planning` 足以釐清就直接繼續；只有計畫或假設仍有風險、需要進一步逼問時才加開 `grill-me`。

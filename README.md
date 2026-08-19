@@ -9,8 +9,8 @@ Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF
 - `AGENTS.md`：常駐硬規則。
 - `.agents\skills\`：共用 skill source；installer 會將所有 repo skill 同步到使用者的 `.agents\skills`。
   - `workflow/`：主流程、`risk-flags.md`、平行編排規則 `orchestration.md`，與專案文件規則 `project-docs.md`（分工、佈局、staleness 語意，見下方「專案文件」一節）。
-  - `planning/`：架構設計、功能規劃、重構策略、技術方案比較等規劃工作；也是 `unclear_requirements` 釐清目標與限制的第一步。
-  - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或 `unclear_requirements` 仍有風險時用於第二步（逐一提問釐清決策樹）。
+  - `planning/`：架構設計、功能規劃、重構策略、技術方案比較等規劃工作；在討論、問答或任務中遇到需求籠統（`unclear_requirements`）時主動用於第一步釐清目標與限制。
+  - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或在討論、規劃與任務中遇到 `unclear_requirements` 仍有風險時用於第二步（逐一提問釐清決策樹）。
   - `push-back/`：在使用者選定或即將採用某個做法時，主動評估是否符合現有架構、是否為最小改動、會不會增加不必要複雜度，必要時提出具體替代方案。
   - `doc-coauthoring/`：與使用者共同撰寫技術文件、決策文件、proposal 或 spec；一般任務走 quick path，重大文件才走脈絡蒐集 → 逐節撰寫 → 讀者測試三階段。跟 `project-docs.md` 定義的目標 repo `docs/` 文件無關，這個 skill 產出的是給人讀的獨立文件（PRD、design doc、RFC 等）。
   - `localization-tw/`：正體中文（臺灣）在地化與翻譯技能，確保輸出符合臺灣華語母語者慣用方式，避免中國用語與簡體直譯。
