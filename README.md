@@ -51,7 +51,7 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 ## 平行編排
 
-大型 code task 可拆成多個可獨立驗收的 worker，各自在 detached worktree 執行完整既有 workflow，成果以 `git apply` 移植回主工作目錄的未提交變更；主對話改當 **coordinator**，只負責拆分、worktree／delivery 管理與整合審查，不直接改 source。v1 僅 **Manual** 模式（`orchestrate.py` 不啟動 agent），Claude 自動 fan-out 已證實不可行，Codex／Antigravity 為 sequential fallback。
+每次 code task 開發前，主對話先做輕量拆分評估。若不適合，直接循序處理；若適合，先向使用者說明 worker 分工與依賴並詢問是否平行處理，只有使用者確認後才建立多個 worker。確認後各 worker 在 detached worktree 執行完整既有 workflow，成果以 `git apply` 移植回主工作目錄的未提交變更；主對話改當 **coordinator**，只負責拆分、worktree／delivery 管理與整合審查，不直接改 source。v1 僅 **Manual** 模式（`orchestrate.py` 不啟動 agent），Claude／Codex／Antigravity 皆為 sequential fallback。
 
 ```bat
 agent_workflow split-plan --coordinator-task-path <task.md> --plan-path .\split-plan.json

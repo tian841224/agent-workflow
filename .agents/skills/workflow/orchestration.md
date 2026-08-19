@@ -1,6 +1,6 @@
 # coordinator／worker 編排
 
-這是 optional orchestration skill，只在使用者明確需要平行處理，且任務可拆成至少兩個互不重疊、可獨立驗收的 code worker 時載入。一般 code task 不讀取本檔、不建立 detached worktree、不執行下列 lifecycle。各 worker 在 detached worktree 執行 workflow，成果以 patch 移植回主工作目錄的未提交變更；不建 branch、不 commit。
+這是 optional orchestration skill。每個 code task 開始前先做輕量拆分評估；只有評估為適合且使用者確認平行處理後，才載入本檔、建立至少兩個互不重疊且可獨立驗收的 code worker，並執行下列 lifecycle。未確認前不得建立 detached worktree；不適合、使用者拒絕或未確認時，直接走一般循序 workflow。各 worker 在 detached worktree 執行 workflow，成果以 patch 移植回主工作目錄的未提交變更；不建 branch、不 commit。
 
 ## 執行模式與平台支援
 

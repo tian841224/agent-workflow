@@ -113,4 +113,6 @@ Role polling that returns `timed_out` preserves `pending_init`/`running`; a cont
 
 ## 9. 平行編排
 
-大型 code task 拆成多個可獨立驗收的子功能、且各自需要不同檔案／模組範圍時，主對話改當 coordinator：只拆分、派工、受控套用與整合審查，不直接改 source。詳細拆分條件、狀態機、Git 邊界與已知限制見 [orchestration.md](orchestration.md)；v1 僅 Manual 模式，Claude／Codex／Antigravity 皆為 sequential fallback。
+每次開始 code task 的開發前，主對話都要先做一次輕量拆分評估：確認是否存在至少兩個互不重疊、可獨立驗收、且各自需要不同檔案／模組範圍的子功能。明確不適合拆分時直接記為循序處理，不增加詢問與 orchestration 成本。
+
+若評估結果適合拆分，先向使用者說明候選 worker、ownership、依賴與預期收益，詢問是否要平行處理；在使用者確認前不得建立 coordinator／worker、detached worktree 或執行 `orchestrate.py -Action Init`。使用者拒絕或未確認時，退回單一 agent 循序處理。使用者確認後，主對話改當 coordinator，只負責拆分、派工、受控套用與整合審查，不直接改 source。詳細拆分條件、狀態機、Git 邊界與已知限制見 [orchestration.md](orchestration.md)；v1 僅 Manual 模式，Claude／Codex／Antigravity 皆為 sequential fallback。
