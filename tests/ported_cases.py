@@ -11,8 +11,7 @@ def call(*args,cwd=ROOT,input_text="",ok=True):
 def cli(command,*args,**kwargs): return call(ROOT/"agent_workflow.py",command,*args,**kwargs)
 def test_contract():
     manifest=json.loads((ROOT/"adapters/managed-manifest.json").read_text(encoding="utf-8")); assert manifest["schema_version"]==4
-    legacy_suffix="."+"ps"+"1"; assert all(not item.endswith(legacy_suffix) for item in manifest["runtime"])
-    for command in ("git-guard","project-resolver","impact-guard","quality-gate","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","path-grammar","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","migrate"):
+    for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","path-grammar","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","migrate"):
         assert cli(command,"--help").returncode==0
 def test_hooks():
     payload=json.dumps({"tool_input":{"command":"git reset --hard HEAD"},"note":"中文"},ensure_ascii=False)

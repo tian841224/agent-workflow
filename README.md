@@ -19,7 +19,7 @@ Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF
 - `agent_workflow/`：Python 核心套件，提供完整的 runtime 實作、守門規則、驗證、記憶管理與專案文件邏輯。
 - `agent_workflow.py` / `agent_workflow.cmd`：統一 CLI 入口（例如 `agent_workflow <command> [options]`）。
 - `scripts/`：相容 wrapper 入口（如 `scripts/knowledge.py`、`scripts/project-doc.py` 等）。
-- 預設 adapter 只註冊 `hooks/git-guard.py`，保護 destructive Git 操作。`quality-gate.py` 與 `impact-guard.py` 保留給進階／編排流程手動使用，不會在一般 agent session 自動執行。三平台 hook payload 差異只由 adapter 處理，README 不重複維護 hook 內部解析細節。
+- 預設 adapter 透過 `agent_workflow git-guard` 保護 destructive Git 操作。三平台 hook payload 差異只由 adapter 處理，README 不重複維護 hook 內部解析細節。
 - `schemas/`、`templates/task-minimal.md`、`templates/task.md`：Task 與遷移資料契約。Standard 使用 minimal template；Elevated／coordinator／worker 使用 extended template，後者含 coordinator／worker 的 optional 欄位（`subtask_role`、`parent_task_id`、`file_ownership`、`delivery_status`、`integration_status`）與 legacy gate 欄位。`schemas/retro.schema.json` 是回顧詞彙（`classification`、八類 `miss_category`、`escalate_threshold`）與 finding 紀錄結構的單一來源，`task-gate.py` 與 `retro.py` 都讀它。
 - `install.py` / `install.cmd`：managed-file installer。
 - `migrate-v3.py`：一次性 v3 資料正規化遷移。

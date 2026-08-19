@@ -16,13 +16,11 @@ from agent_workflow.close_task import main as close_task_main
 from agent_workflow.check_task import main as check_task_main
 from agent_workflow.git_guard import main as git_guard_main
 from agent_workflow.knowledge import main as knowledge_main
-from agent_workflow.impact_guard import main as impact_guard_main
 from agent_workflow.installer import main as installer_main
 from agent_workflow.path_grammar import main as path_grammar_main
 from agent_workflow.pre_review import main as pre_review_main
 from agent_workflow.project_resolver import main as project_resolver_main
 from agent_workflow.project_doc import main as project_doc_main
-from agent_workflow.quality_gate import main as quality_gate_main
 from agent_workflow.retro import main as retro_main
 from agent_workflow.runtime_check import main as runtime_check_main
 from agent_workflow.split_plan import main as split_plan_main
@@ -36,14 +34,12 @@ from agent_workflow.migrate import main as migrate_main
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("git-guard", "project-resolver", "impact-guard", "quality-gate", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
+    parser.add_argument("command", choices=("git-guard", "project-resolver", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
     args, rest = parser.parse_known_args()
     if args.command == "git-guard":
         return git_guard_main(rest)
     commands = {
         "project-resolver": project_resolver_main,
-        "impact-guard": impact_guard_main,
-        "quality-gate": quality_gate_main,
         "task-gate": task_gate_main,
         "validate-task": validate_task_main,
         "worktree-fingerprint": fingerprint_main,
