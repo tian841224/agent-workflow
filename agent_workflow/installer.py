@@ -142,7 +142,10 @@ def _install_platform_files(selected, canonical, claude, codex, antigravity, dry
     for target in ([claude/"skills"/"workflow"] if "Claude" in selected else [])+([codex/"skills"/"workflow"] if "Codex" in selected else [])+([antigravity/"config"/"skills"/"workflow"] if "Antigravity" in selected else []):
         if not source.is_dir(): continue
         if not dry_run:
-            if target.exists(): shutil.rmtree(target)
+            if target.exists() or target.is_symlink():
+                is_reparse=getattr(os.path,"isjunction",lambda value:False)(target)
+                if target.is_symlink() or is_reparse: target.unlink()
+                else: shutil.rmtree(target)
             target.parent.mkdir(parents=True,exist_ok=True); shutil.copytree(source,target)
             for file in target.rglob("*"):
                 if file.is_file(): managed.append({"path":str(file),"sha256":_hash(file),"kind":"platform-skill"})

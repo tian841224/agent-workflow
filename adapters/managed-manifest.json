@@ -12,6 +12,7 @@
     "agent_workflow/runtime_manager.py",
     "agent_workflow/close_task.py",
     "agent_workflow/check_task.py",
+    "agent_workflow/codex_hook_trust.py",
     "agent_workflow/impact_guard.py",
     "agent_workflow/installer.py",
     "agent_workflow/knowledge.py",
