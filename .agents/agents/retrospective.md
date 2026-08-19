@@ -41,7 +41,7 @@ description: 獨立唯讀的回歸歸因者。只在疑似 regression、同一�
 
 ## 回報
 
-固定六行，主 agent 會原樣填進 task 的 `## Retrospective result`：
+若沒有發現 regression、流程缺口或其他錯誤，只輸出單行 `PASS`。若有錯誤，才輸出下列必要欄位；省略所有沒有問題的項目。主 agent 會將錯誤回報填進 task 的 `## Retrospective result`：
 
 ```
 - introduced_by: <commit sha，或 unknown - 跑過哪些搜尋>

@@ -108,16 +108,32 @@ def _managed_entrypoint(source: Path, canonical: Path, destinations: list[Path],
     _write(canonical, content)
     for destination in destinations: _write(destination, content)
 
-def _write_agents(canonical, selected, claude, codex, antigravity, dry_run):
+def _claude_readonly_hooks(raw, name, runtime_root, python_executable):
+    if name == "worker":
+        return raw
+    command = f'"{python_executable}" -X utf8 -u "{runtime_root / "agent_workflow.py"}" role-guard --platform Claude --role {name}'
+    hook = "hooks:\n  PreToolUse:\n    - matcher: \"*\"\n      hooks:\n        - type: command\n          command: " + json.dumps(command) + "\n          timeout: 15"
+    marker = re.search(r"(?ms)^---\s*\n(.*?)\n---\s*\n", raw)
+    if not marker:
+        raise RuntimeError(f"canonical agent is missing frontmatter: {name}")
+    frontmatter = marker.group(1).rstrip() + "\n" + hook
+    return "---\n" + frontmatter + "\n---\n" + raw[marker.end():]
+
+
+def _write_agents(canonical, selected, claude, codex, antigravity, runtime_root, python_executable, dry_run):
     managed=[]
     for name in ("reviewer","adversarial","verifier","retrospective","worker"):
         source=canonical/"agents"/(name+".md")
         if not source.is_file(): raise RuntimeError(f"canonical agent is missing: {source}")
         raw=source.read_text(encoding="utf-8-sig"); body=re.sub(r"(?s)^---.*?---\s*", "", raw).strip(); match=re.search(r"(?m)^description:\s*(.+)$",raw); desc=(match.group(1).strip() if match else f"{name} agent").replace('"','\\"')
         targets=[]
-        if "Claude" in selected: targets.append((claude/"agents"/f"agent-workflow-{name}.md",re.sub(r"(?m)^name:\s*.+$",f"name: agent-workflow-{name}",raw)))
+        if "Claude" in selected:
+            claude_raw = re.sub(r"(?m)^name:\s*.+$", f"name: agent-workflow-{name}", raw)
+            targets.append((claude/"agents"/f"agent-workflow-{name}.md", _claude_readonly_hooks(claude_raw, name, runtime_root, python_executable)))
         if "Antigravity" in selected: targets.append((antigravity/"config"/"agents"/f"agent-workflow-{name}"/"agent.md",re.sub(r"(?m)^name:\s*.+$",f"name: agent-workflow-{name}",raw)))
-        if "Codex" in selected: targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v4 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"\nsandbox_mode = "read-only"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
+        if "Codex" in selected:
+            sandbox_mode = "workspace-write" if name == "worker" else "read-only"
+            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v4 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
         for target,text in targets:
             if not dry_run: _write(target,text)
             managed.append({"path":str(target),"sha256":hashlib.sha256(text.encode("utf-8")).hexdigest(),"kind":"canonical-agent-adapter"})
@@ -207,14 +223,14 @@ def install(args: argparse.Namespace) -> int:
         _copy(ROOT / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
     for source in (ROOT / ".agents" / "skills").rglob("*"):
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)
-    files.extend(_write_agents(canonical, selected, claude, codex, antigravity, args.dry_run))
+    python_executable = Path(sys.executable).resolve()
+    files.extend(_write_agents(canonical, selected, claude, codex, antigravity, runtime, python_executable, args.dry_run))
     files.extend(_install_platform_files(selected, canonical, claude, codex, antigravity, args.dry_run))
     entry_targets = []
     if "Claude" in selected: entry_targets.append(claude / "CLAUDE.md")
     if "Codex" in selected: entry_targets.append(codex / "AGENTS.md")
     if "Antigravity" in selected: entry_targets.append(antigravity / "GEMINI.md")
     _managed_entrypoint(runtime / "AGENTS.md", canonical / "AGENTS.md", entry_targets, args.dry_run)
-    python_executable = Path(sys.executable).resolve()
     if "Claude" in selected: _merge_hooks(ROOT / "adapters/claude/settings.hooks.json", claude / "settings.json", runtime, python_executable, False, args.dry_run)
     if "Codex" in selected:
         _merge_hooks(ROOT / "adapters/codex/hooks.json", codex / "hooks.json", runtime, python_executable, False, args.dry_run)

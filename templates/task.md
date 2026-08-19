@@ -36,6 +36,15 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 
 <會修改／審查／驗證哪些行為；不處理哪些項目>
 
+## Review round（審查輪次）
+
+- round: 1
+- prior findings: none
+- fix delta: none
+- impact delta: <direct callers and new affected nodes, or none>
+- validation delta: <new focused validation, or none>
+- unverified nodes: none
+
 ## Completion criteria（完成條件）
 
 - [ ] 預期行為或審查目標完成
@@ -44,6 +53,8 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 ## Validation results（驗證結果）
 
 - pre-review: <PASS | FAIL | SKIP>
+- validation profile: <focused | affected | regression | full>
+- changed paths: <repo-relative paths passed to validation, or none>
 - command: <實際命令>
 - checks: <執行項目與結果>
 - skip reason: <只有 SKIP 時填寫>

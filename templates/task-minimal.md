@@ -21,6 +21,15 @@ frozen_at:
 
 <!-- Included paths and explicit non-goals. -->
 
+## Review round
+
+- round: 1
+- prior findings: none
+- fix delta: none
+- impact delta: <direct callers and new affected nodes, or none>
+- validation delta: <new focused validation, or none>
+- unverified nodes: none
+
 ## Completion criteria
 
 - [ ] <observable result>
@@ -29,6 +38,8 @@ frozen_at:
 ## Validation results
 
 - pre-review: <PASS | FAIL | SKIP + reason>
+- validation profile: <focused | affected | regression | full>
+- changed paths: <repo-relative paths passed to validation, or none>
 - commands: <actual targeted commands>
 - checks: <actual results>
 - limitations: <unverified behaviour or none>

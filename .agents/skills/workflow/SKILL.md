@@ -23,6 +23,8 @@ Optional push-back skill applies only when a chosen design may violate conventio
 | Elevated code | extended task | 依 risk flag 增加 gate | Reviewer → Adversarial（必要時）→ Verifier |
 | coordinator／worker | extended task | orchestration、fingerprint、close gate | 依上列規則 |
 
+`task_profile.py` 的 profile 與額外 risk gate 分離：`behavior_change`／`ui` 可維持 Standard，但仍保留 acceptance cases／browser 等適用 gate；`contract`、`schema`、`data_write`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 才會將一般 code task 升為 Elevated。六個 Adversarial 旗標仍由 schema 的 `adversarial_required` 單獨控制。
+
 ## 1. 建立 Task
 
 1. Standard task 直接沿用已知的 task context；只有需要跨 worktree、coordinator／worker 或 legacy runtime gate 時才執行 `scripts/project-resolver.py -Ensure`。
@@ -65,7 +67,7 @@ Reviewer／Verifier 是否啟動只看 `code_change`；命中 `financial`／`dat
 
 ## 5. Pre-review
 
-Standard code task 在 diff 完成後執行相關測試與必要的 `~/.agent-workflow/runtime/scripts/pre-review.py -RepoRoot <root>`；Elevated task 再依 risk flag 執行完整 deterministic checks。非程式碼任務不因本 skill 執行 pre-review。
+Standard code task 在 diff 完成後執行相關測試與必要的 `~/.agent-workflow/runtime/scripts/pre-review.py -RepoRoot <root>`；Elevated task 再依 risk flag 執行完整 deterministic checks。需要時可傳入 `-Profile focused|affected|regression|full -Path <repo-relative-path>`，runtime 會以 `AGENT_WORKFLOW_VALIDATION_PROFILE` 與 `AGENT_WORKFLOW_CHANGED_PATHS` 傳給 repo extra；未支援這些環境變數的 repo 維持既有命令。非程式碼任務不因本 skill 執行 pre-review。
 
 - FAIL：停止，不得送 Reviewer 或設為 done；修正後重跑。
 - SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。
@@ -88,13 +90,21 @@ Standard task 不需在每個角色前重算 fingerprint；主 agent 在送 Revi
 Reviewer PASS、且 `risk_flags` 命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 任一時觸發（權威清單是 schema 的 `x_agent_workflow.adversarial_required`），對象是 Reviewer 已判定 PASS 的同一份 diff。固定四項檢查：溯源（Provenance）、模式擴散（Pattern fan-out）、底層語意查證（Engine semantics）、迭代累積複查（Cross-round accumulation）；各自的方法論見角色檔案，本節不重述。
 
 - 結論逐項寫進 `## Adversarial result`（`- Provenance: PASS` 等），gate 會逐項檢查且不接受 `N/A`。
-- 有 blocker：主 agent 修正、重新驗證、回 Reviewer 重新確認 PASS，再送 Adversarial 複核。沒有 blocker 要明確回報「已嘗試推翻，未成立」，不得只寫「沒問題」。
+- 有 blocker：主 agent 修正、重新驗證、回 Reviewer 重新確認 PASS，再送 Adversarial 複核。沒有 blocker 時角色只回報單行 `PASS`；有 blocker 時只列 blocker。
 
 Reviewer（與命中旗標時的 Adversarial）通過後才啟動 Verifier；探索範圍與方法論見角色檔案。
 - Verifier 分類為實作缺陷、規格缺漏、測試缺口、環境阻塞（定義見角色檔案）：實作缺陷批次修正後重驗失敗與波及項。測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時，比照實作缺陷退回補齊，重跑 pre-review 與相關驗證後重驗；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
 - 原生角色（Reviewer／Adversarial／Verifier）載入失敗，或在合理等待內沒有回報，一律先執行 installer `Repair` 再試一次；仍失敗就把 task 設為 `blocked` 並記錄下一步，不得由主 agent 代跑後結案，也不得把段落留空或寫 `SKIPPED` 直接結案。使用者明確決定要跳過角色時，以 `~/.agent-workflow/runtime/scripts/waive-roles.py -Reason '<使用者的理由>' -ConfirmedByUser` 寫入 `roles_waived`；主 agent 直接編輯 task 寫這個欄位會被 `impact-guard` 擋下。豁免只放寬三個角色段落，完成條件、pre-review、Impact surface、Project docs、mutation check 與已主動啟動的回顧仍照常。
 
 Role polling that returns `timed_out` preserves `pending_init`/`running`; a continued no response triggers Repair, then marks the task `blocked` if it still fails.
+
+### 6b. Review round 與增量錨定
+
+第一輪依角色檔案建立獨立脈絡。Reviewer blocker 或 Verifier 實作缺陷修正後，後續輪次在 task.md 的 `## Review round` 記錄前一輪 finding、本輪 fix delta、impact delta、重新執行的驗證與未確認節點；角色可用它導航，但仍須自行核對 diff，不得把 task 敘述當成正確性證據。
+
+後續輪次採 delta-first：先檢查修復項、直接呼叫端與本輪新增波及項，不重複輸出未變更內容。若修改入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前輪存在未確認節點，則重新展開完整 execution path。Diff anchor 使用 repo-relative path、symbol 與 diff hunk，不得只依賴行號。
+
+角色對話回報只保留錯誤：有 finding、blocker、FAIL、BLOCKED 或未驗證限制時，輸出具體錯誤、依據、影響與可重現位置，省略所有 PASS 項目；全部通過時只輸出單行 `PASS`。不得以固定 token 截斷輸出。Task 內仍依 schema 回填必要的機械檢查欄位。
 ## 7. 失敗與續作
 
 - 同一修復假說失敗兩次，不再猜第三次；回到證據與根因重新診斷。

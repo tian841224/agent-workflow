@@ -6,6 +6,7 @@
     "agent_workflow/__init__.py",
     "agent_workflow/frontmatter.py",
     "agent_workflow/git_guard.py",
+    "agent_workflow/role_guard.py",
     "agent_workflow/paths.py",
     "agent_workflow/project_resolver.py",
     "agent_workflow/protocol.py",

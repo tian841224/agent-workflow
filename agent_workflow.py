@@ -15,6 +15,7 @@ if SOURCE_ROOT not in sys.path:
 from agent_workflow.close_task import main as close_task_main
 from agent_workflow.check_task import main as check_task_main
 from agent_workflow.git_guard import main as git_guard_main
+from agent_workflow.role_guard import main as role_guard_main
 from agent_workflow.knowledge import main as knowledge_main
 from agent_workflow.installer import main as installer_main
 from agent_workflow.path_grammar import main as path_grammar_main
@@ -34,10 +35,12 @@ from agent_workflow.migrate import main as migrate_main
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("git-guard", "project-resolver", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
+    parser.add_argument("command", choices=("git-guard", "role-guard", "project-resolver", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
     args, rest = parser.parse_known_args()
     if args.command == "git-guard":
         return git_guard_main(rest)
+    if args.command == "role-guard":
+        return role_guard_main(rest)
     commands = {
         "project-resolver": project_resolver_main,
         "task-gate": task_gate_main,

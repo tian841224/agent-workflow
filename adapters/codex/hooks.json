@@ -3,12 +3,16 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^Bash$|^shell_command$",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "\"{{PYTHON_EXE}}\" -X utf8 -u \"{{RUNTIME_DIR}}\\agent_workflow.py\" git-guard --platform Codex",
             "statusMessage": "Checking Git safety"
+          },
+          {
+            "type": "command",
+            "command": "\"{{PYTHON_EXE}}\" -X utf8 -u \"{{RUNTIME_DIR}}\\agent_workflow.py\" role-guard --platform Codex"
           }
         ]
       }
