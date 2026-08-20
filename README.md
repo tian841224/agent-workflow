@@ -66,6 +66,8 @@ agent_workflow orchestrate --action Init|Collect|Apply|Resolve|Reject|Cleanup|St
 程式任務可用少量關鍵字讀取 global 與目前 project 的相關記憶；只有發生可重用踩坑、使用者糾正、重要決策或既有認知失效時才寫入，不強制每個 task 沉澱。
 
 ```bat
+agent_workflow memory-context --platform Codex
+agent_workflow learn --action Capture --scope Project --kind correction --topic "example" --content "<durable conclusion>"
 agent_workflow knowledge --action Search --query "installer hooks" --limit 5
 agent_workflow knowledge --action Upsert --scope Project --topic "installer-hooks" --content "<verified knowledge>"
 agent_workflow knowledge --action Reindex --scope All
@@ -75,7 +77,11 @@ Search 是關鍵字子字串比對：query 用小寫英文單字、以空白分�
 
 ### 跨平台原生記憶
 
-各平台仍會寫自己的記憶（Codex `~/.codex/memories`、Claude 專案 `memory/`）。Search 會一併讀取並列出，標記 `scope: native`、`source: <平台>`、`status: needs_verification`，讓任一 agent 都看得到其他平台記下的事，避免跨平台記憶分歧。**Antigravity 不在此列**：其原生記憶存在 protobuf（`~/.gemini/antigravity/brain/<uuid>/`），不是 markdown，`knowledge` 讀不到；三平台只有 Codex 與 Claude 互見。
+各平台仍會寫自己的記憶（Codex `~/.codex/memories`／`~/.codex/memory`、Claude `~/.claude/memory` 與專案 memory、Antigravity `~/.gemini/antigravity/brain`）。每次 session 啟動及新的 user prompt，三平台 managed hook 會自動執行 `memory-context`，讀取 shared knowledge 並依目前 project／prompt 篩選對應記憶；不需要人工執行 Search。原生記憶仍只讀，不會複製或改寫；session summaries、instruction-only files、credential-like content 與 Antigravity `.pb` 檔案會排除。
+
+### 自動學習
+
+active `learn` skill 會在使用者要求「記住／學習」、糾正 agent、拍板決策，或錯誤已確認修正方式時，自動呼叫 `learn --action Capture`。內容預設寫入目前 project 的 shared knowledge，跨專案偏好或通用教訓才寫入 Global；相同內容會去重，秘密與 credential-like 內容會拒絕。新的 session／prompt 會自動載入相關 entry。學習只保存可重用結論，不保存整段對話。
 
 原生記憶**只讀不寫**：不複製進 curated store、不改動原檔，所以各平台的功能維持原狀。自動產生的 session 摘要（`rollout_summaries`）預設排除以免淹沒命中，需要時加 `--include-session-summaries`；只要 curated 結果時加 `--exclude-native`。原生記憶未經整理，一律當線索、使用前回查。
 

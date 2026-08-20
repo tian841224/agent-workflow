@@ -17,6 +17,8 @@ from agent_workflow.check_task import main as check_task_main
 from agent_workflow.git_guard import main as git_guard_main
 from agent_workflow.role_guard import main as role_guard_main
 from agent_workflow.knowledge import main as knowledge_main
+from agent_workflow.learn import main as learn_main
+from agent_workflow.memory_context import main as memory_context_main
 from agent_workflow.installer import main as installer_main
 from agent_workflow.path_grammar import main as path_grammar_main
 from agent_workflow.pre_review import main as pre_review_main
@@ -35,7 +37,7 @@ from agent_workflow.migrate import main as migrate_main
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("git-guard", "role-guard", "project-resolver", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
+    parser.add_argument("command", choices=("git-guard", "role-guard", "project-resolver", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "learn", "memory-context", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
     args, rest = parser.parse_known_args()
     if args.command == "git-guard":
         return git_guard_main(rest)
@@ -50,6 +52,8 @@ def main() -> int:
         "check-task": check_task_main,
         "install": installer_main,
         "knowledge": knowledge_main,
+        "learn": learn_main,
+        "memory-context": memory_context_main,
         "path-grammar": path_grammar_main,
         "pre-review": pre_review_main,
         "project-doc": project_doc_main,

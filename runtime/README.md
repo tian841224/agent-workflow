@@ -7,3 +7,7 @@ by the user and is validated by `install.py` before hooks are registered.
 resolved `sys.executable` in generated hook commands. Run Repair after moving or
 upgrading Python. Every entrypoint uses `-X utf8 -u`; hook stdout is UTF-8 JSON
 only, diagnostics go to stderr, and child processes have explicit timeouts.
+
+The managed `SessionStart` adapters call `memory-context` for all three
+platforms. It reads the shared curated store plus safe text-only native memory
+sources, emits bounded reference context, and never writes back to native files.

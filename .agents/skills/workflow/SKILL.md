@@ -38,13 +38,13 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 1. 只有任務依賴歷史脈絡、使用者要求或已知回歸時，才以 2–5 個關鍵字執行 `~/.agent-workflow/runtime/scripts/knowledge.py -Action Search -Query '<keywords>' -Limit 5`；簡單、局部且不依賴歷史的修改略過。
 2. Query 用小寫英文單字、以空白分隔（topic 是英文 kebab-case，中文與整串連字號的命中率極低）。Search 只回傳 entry 第一行前 180 字，命中後要 Read `path` 全文。
-3. Search 會一併列出各平台原生記憶（Codex `~/.codex/memories`、Claude 專案 `memory/`），標記 `scope: native`、`source: <平台>`、`status: needs_verification`，確保跨平台看到同一組記憶。原生記憶只讀不寫、不會被複製進 curated store；自動產生的 session 摘要預設排除，需要時加 `-IncludeSessionSummaries`，只要 curated 結果時加 `-ExcludeNative`。
+3. 每次 session 啟動時，三平台 managed `SessionStart` hook 會自動執行 `memory-context`，讀取共用 curated store 與可讀的原生 Markdown／text 記憶並注入 reference context。原生記憶只讀不寫，標記 `needs_verification`，不會被複製進 curated store；session summaries、instruction-only files、credential-like content 與 Antigravity `.pb` 檔案預設排除。完整內容仍可用 Search 回查 `path`。
 4. 專案結構與模組流程不走 knowledge，改走 project docs（讀寫時機見第 1、4 節，分工與寫法見 [project-docs.md](project-docs.md)）。
 5. Reviewer 與 Verifier 可自行執行 Search 建立脈絡。
 6. `needs_verification` 或可能過時的記憶只能當線索，使用前回查目前程式、文件或設定。
-7. 只有使用者糾正、可重用踩坑、重要方案決策、文件與實際行為不符或使用者明說要記住時，才以 `-Action Upsert -Scope Project` 寫入；沒有耐久價值時不增加任何步驟。
+7. 使用者要求記憶、糾正 agent、拍板決策或確認錯誤修正時，立即透過 `agent_workflow learn --action Capture` 寫入目前 project；跨專案偏好或通用教訓才寫入 Global。沒有耐久價值時不增加任何步驟。
 8. 同 topic 由 script 更新既有 native entry；相同內容自動去重。Global knowledge 必須至少有兩個獨立專案證據、經使用者同意，並傳入 `-ApprovedByUser`。
-9. 有寫入時在 task 加 `Knowledge result` 記錄 entry id；沒有寫入時可完全省略。禁止寫入秘密、token、密碼、連線字串或個資。
+9. 有寫入時在回覆中簡短告知摘要；禁止寫入秘密、token、密碼、連線字串或個資。`learn` 會依 content hash 去重。
 
 ## 3. Risk Flags
 

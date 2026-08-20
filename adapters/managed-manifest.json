@@ -16,6 +16,8 @@
     "agent_workflow/codex_hook_trust.py",
     "agent_workflow/installer.py",
     "agent_workflow/knowledge.py",
+    "agent_workflow/learn.py",
+    "agent_workflow/memory_context.py",
     "agent_workflow/migrate.py",
     "agent_workflow/orchestrate.py",
     "agent_workflow/path_grammar.py",
@@ -53,6 +55,7 @@
     "scripts/runtime-check.py",
     "scripts/project-doc.py",
     "scripts/knowledge.py",
+    "scripts/learn.py",
     "scripts/migrate-v3.py",
     "scripts/retro.py",
     "scripts/task-profile.py",
@@ -67,8 +70,8 @@
     "schemas/import-manifest.schema.json"
   ],
   "platform_files": {
-    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-adversarial.md", "agents/agent-workflow-verifier.md", "agents/agent-workflow-retrospective.md", "agents/agent-workflow-worker.md", "skills/workflow/"],
-    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-adversarial.toml", "agents/agent-workflow-verifier.toml", "agents/agent-workflow-retrospective.toml", "skills/workflow/", "rules/agent-workflow.rules"],
-    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-adversarial/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/agents/agent-workflow-retrospective/agent.md", "config/skills/workflow/", "config/global_workflows/agent-workflow.md"]
+    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-reviewer.md", "agents/agent-workflow-adversarial.md", "agents/agent-workflow-verifier.md", "agents/agent-workflow-retrospective.md", "agents/agent-workflow-worker.md", "skills/workflow/", "skills/learn/"],
+    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-reviewer.toml", "agents/agent-workflow-adversarial.toml", "agents/agent-workflow-verifier.toml", "agents/agent-workflow-retrospective.toml", "skills/workflow/", "skills/learn/", "rules/agent-workflow.rules"],
+    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-reviewer/agent.md", "config/agents/agent-workflow-adversarial/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/agents/agent-workflow-retrospective/agent.md", "config/skills/workflow/", "config/skills/learn/", "config/global_workflows/agent-workflow.md"]
   }
 }
