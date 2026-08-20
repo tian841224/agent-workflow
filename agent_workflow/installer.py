@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -152,6 +153,27 @@ def _backup_legacy(args, dry_run):
         if not dry_run:
             target.parent.mkdir(parents=True,exist_ok=True); shutil.move(str(source),str(target))
 
+def _link_skill_dir(source, target):
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(target), str(source)], check=True, capture_output=True)
+    else:
+        target.symlink_to(source, target_is_directory=True)
+
+
+def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
+    # Skills outside the (workflow, learn) copy set are shared read-only from canonical/skills;
+    # link every one so a newly added skill is picked up without a manual per-skill step.
+    if "Claude" not in selected or dry_run: return
+    skills_root = canonical / "skills"
+    if not skills_root.is_dir(): return
+    for source in sorted(p for p in skills_root.iterdir() if p.is_dir() and p.name not in ("workflow", "learn")):
+        target = claude / "skills" / source.name
+        is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
+        if target.is_symlink() or is_reparse or target.exists(): continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _link_skill_dir(source, target)
+
+
 def _install_platform_files(selected, canonical, claude, codex, antigravity, dry_run):
     managed=[]
     for skill in ("workflow", "learn"):
@@ -166,6 +188,7 @@ def _install_platform_files(selected, canonical, claude, codex, antigravity, dry
                 target.parent.mkdir(parents=True,exist_ok=True); shutil.copytree(source,target)
                 for file in target.rglob("*"):
                     if file.is_file(): managed.append({"path":str(file),"sha256":_hash(file),"kind":"platform-skill"})
+    _ensure_shared_skill_links(canonical, claude, selected, dry_run)
     return managed
 
 def _remove_managed_hooks(path, runtime_root, dry_run):
