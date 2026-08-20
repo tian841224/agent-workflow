@@ -1,6 +1,6 @@
-# agent-workflow v4
+# agent-workflow v5
 
-跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改「目標專案」用程式語言撰寫的 application source code 邏輯或 test code 邏輯時才使用 workflow、建立 `task.md` 並執行 Reviewer、Verifier；純註解修改、設定與文件修改、script 修改與操作等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
+跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改「目標專案」用程式語言撰寫的 application source code 邏輯或 test code 邏輯時才使用 workflow、建立 `task.md` 並執行主對話選定的 capability 與角色；純註解修改、設定與文件修改、script 修改與操作等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
 
 Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF-8 bytes、stdout 只輸出一行 JSON、child process 以 bounded timeout 執行。安裝後以 `~/.agent-workflow/runtime/agent_workflow.cmd <command>` 呼叫工具；安裝器會記錄實際 `sys.executable`，不依賴 Windows console code page。
 
@@ -15,9 +15,9 @@ Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF
   - `doc-coauthoring/`：與使用者共同撰寫技術文件、決策文件、proposal 或 spec；一般任務走 quick path，重大文件才走脈絡蒐集 → 逐節撰寫 → 讀者測試三階段。跟 `project-docs.md` 定義的目標 repo `docs/` 文件無關，這個 skill 產出的是給人讀的獨立文件（PRD、design doc、RFC 等）。
   - `clean-comments/`：指導如何撰寫精簡、高資訊密度且位置精確的程式碼註解，落實職責分離與就近原則。
   - `localization-tw/`：正體中文（臺灣）在地化與翻譯技能，確保輸出符合臺灣華語母語者慣用方式，避免中國用語與簡體直譯。
-- `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在高風險 `risk_flags` 命中時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。角色唯讀由 Codex 原生 `sandbox_mode`、Claude agent-scoped hook 與三平台 runtime `role-guard` 共同強制；只有 `worker` 是允許寫入的開發角色。
+- `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source。主對話依任務選擇 Reviewer／Adversarial／Verifier 的必要子集合及順序；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。角色唯讀由 Codex 原生 `sandbox_mode`、Claude agent-scoped hook 與三平台 runtime `role-guard` 共同強制；只有 `worker` 是允許寫入的開發角色。
 - `agent_workflow/`：Python 核心套件，提供完整的 runtime 實作、守門規則、驗證、記憶管理、workflow planning 與專案文件邏輯。
-- `schemas/workflow-policy.json` 與 `agent_workflow/workflow_planner.py`：雙層組合式流程規劃。外層依 task type、`change_kind`、`risk_flags` 與 impact 向度決定跑哪些 capability（六個 `kind: evidence` 的分析流程與三個 `kind: role` 的角色），內層再依同一組向度決定跑該 capability 的哪些 step。角色彼此獨立，任何子集合都是合法組合。宣告的 facts 只能升級流程，抑制一律要 worktree 的 observed evidence，採不到就是 `unknown` 並保留。採證以 git 為單一來源：從 `git diff` hunk context 取出改動到的 symbol，用 `git grep` 查它們在程式碼檔中的呼叫端得出 `symbol_reach`，DDL 另走欄位名採證；`symbol_reach` 只會提高 effective `impact_scope`，用於在 agent 低估影響時自動補上對應流程。
+- `schemas/workflow-policy.json` 與 `agent_workflow/workflow_planner.py`：capability catalog 與 legacy 相容層。新 task 由主對話以 `workflow_mode: main` 和 `workflow_request` 明確選擇流程；`workflow_profile` 僅顯示，不作 gate 依據。
 - `agent_workflow.py` / `agent_workflow.cmd`：統一 CLI 入口（例如 `agent_workflow <command> [options]`）。
 - `scripts/`：相容 wrapper 入口（如 `scripts/knowledge.py`、`scripts/project-doc.py` 等）。
 - 預設 adapter 透過 `agent_workflow git-guard` 保護 destructive Git 操作。三平台 hook payload 差異只由 adapter 處理，README 不重複維護 hook 內部解析細節。
@@ -35,7 +35,7 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
 ```
 
-同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改「目標專案」source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。Code task 由 `workflow-plan` 依 task type、impact 向度與 observed evidence 組合 capability 與 step；沒有角色 capability 時可由主對話 direct handling，但仍需 baseline evidence，且有任何 capability 被抑制時必須在 `## Impact surface` 說明抑制依據。`workflow_request` 是使用者指定的 capability 下限清單，planner 不得抑制。
+同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改「目標專案」source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。新 Code task 由主對話設定 `workflow_mode: main` 與完整的 `workflow_request`，決定必要 capability、角色與順序；runtime 只驗證其執行結果。沒有角色 capability 時可由主對話 direct handling，但仍需 baseline evidence。舊 task 才使用 `workflow-plan` 的 legacy 相容路徑。
 
 `code_change: true` 時另填 `change_kind: fix | feature | refactor | chore`。它不在 schema 的 `required` 裡（既有 task 與 `orchestrate.py` 產生的 worker frontmatter 都沒有這個欄位），由 `task-gate.py --mode Close` 在結案時要求。
 
@@ -53,11 +53,11 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 ## 平行編排
 
-每次 code task 開發前，主對話先做輕量拆分評估。若不適合，直接循序處理；若適合，先向使用者說明 worker 分工與依賴並詢問是否平行處理，只有使用者確認後才建立多個 worker。確認後各 worker 在 detached worktree 執行完整既有 workflow，成果以 `git apply` 移植回主工作目錄的未提交變更；主對話改當 **coordinator**，只負責拆分、worktree／delivery 管理與整合審查，不直接改 source。v1 僅 **Manual** 模式（`orchestrate.py` 不啟動 agent），Claude／Codex／Antigravity 皆為 sequential fallback。
+每次 code task 開發前，主對話自動判定是否拆分。符合資格時，直接建立 worker 並平行處理；有 host-native agent collaboration 時優先使用，沒有時才需要已驗收的 dispatch adapter 來建立 detached worktree。worker 只實作並結束；成功 patch 由主對話整合，失敗範圍改為循序完成。只有全部完成條件完成後，主對話才執行 Review 與驗證。Codex、Claude、Antigravity 的 dispatch adapter 必須回傳正確 worktree 與 parent task id；未完成實機驗收前不得宣稱支援。
 
 ```bat
 agent_workflow split-plan --coordinator-task-path <task.md> --plan-path .\split-plan.json
-agent_workflow orchestrate --action Init|Collect|Apply|Resolve|Reject|Cleanup|Status --plan-path .\split-plan.json
+agent_workflow orchestrate --action Assess|Init|Start|WorkerReady|WorkerFailed|Collect|Integrate|Apply|Cleanup|Status --plan-path .\split-plan.json
 ```
 
 拆分條件、生命週期各動作、狀態機、ownership 與衝突合併、impact-guard 的具名例外、`.agent-workflow-worktree-init.py` 契約、已知限制，完整定義在 [`.agents/skills/workflow/orchestration.md`](.agents/skills/workflow/orchestration.md)——同理，本檔不重述細節。

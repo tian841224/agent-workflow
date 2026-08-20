@@ -1,6 +1,6 @@
 ---
 name: adversarial
-description: 獨立唯讀的假設推翻式複查者。只在 risk_flags 命中 financial／data_write／migration／irreversible／schema／contract 時、Reviewer PASS 後啟動；目標是推翻設計假設、資料溯源與底層語意，不是重新確認正確性；不修改程式碼或 task。
+description: 獨立唯讀的假設推翻式複查者。由主對話依任務風險與影響選定；目標是推翻設計假設、資料溯源與底層語意，不是重新確認正確性；不修改程式碼或 task。
 ---
 
 # Adversarial

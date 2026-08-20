@@ -32,6 +32,8 @@ DECLARED_FACT_KEYS = (
     "public_api_change", "destructive_operation",
 )
 
+COMPLEXITY_HINTS = {"multi_path", "shared_state", "external_boundary"}
+
 CODE_SUFFIXES = {
     ".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".vue", ".java", ".cs", ".rb", ".php",
     ".rs", ".kt", ".swift", ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".scala", ".ex", ".erl",
@@ -39,7 +41,10 @@ CODE_SUFFIXES = {
 SKIP_DIRS = {".git", "vendor", "node_modules", "dist", "build", "docs", "__pycache__"}
 GIT_EXCLUDES = (":!*.sql", ":!vendor/**", ":!node_modules/**", ":!dist/**", ":!build/**", ":!docs/**")
 CODE_PATHSPEC = tuple(f"*{suffix}" for suffix in sorted(
-    {".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".vue", ".java", ".cs", ".rb", ".php", ".rs", ".kt", ".swift"}))
+    CODE_SUFFIXES))
+SYMBOL_ANALYSIS_SUFFIXES = {
+    ".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".vue", ".java", ".cs", ".rb", ".php", ".rs", ".kt", ".swift",
+}
 EMBEDDED_DDL = re.compile(
     r"\b(?:ALTER\s+TABLE|CREATE\s+TABLE|DROP\s+TABLE|CREATE\s+INDEX|AutoMigrate|AddColumn|add_column|change_column)\b",
     re.IGNORECASE,
@@ -50,10 +55,36 @@ def planner_enabled(task: Mapping[str, Any]) -> bool:
     return bool(str(task.get("workflow_decision", "")).strip())
 
 
+def main_controlled(task: Mapping[str, Any]) -> bool:
+    return str(task.get("workflow_mode", "")).casefold() == "main"
+
+
+def manual_plan(task: Mapping[str, Any], policy_path: str | Path = POLICY_PATH) -> dict[str, Any]:
+    """Build exactly the capabilities selected by the main conversation."""
+    policy = _load_policy(policy_path)
+    requested = {str(name) for name in task.get("workflow_request", [])}
+    capabilities = {str(item["name"]): item for item in policy["capabilities"]}
+    selected = [{"name": name, "kind": str(item["kind"]), "section": str(item["section"]),
+                 "steps": list(item.get("steps", [])), "waived_dimensions": [],
+                 "reason": "selected by the main conversation"}
+                for name, item in capabilities.items() if name in requested]
+    order = _order([item["name"] for item in selected],
+                   {str(item["name"]): list(item.get("order_after", [])) for item in policy["capabilities"]})
+    selected.sort(key=lambda item: order.index(item["name"]))
+    roles = [item["name"] for item in selected if item["kind"] == "role"]
+    profile = "direct" if not selected else ("elevated" if "adversarial" in roles else "standard" if roles else "light")
+    return {"version": policy["version"], "selected": selected, "suppressed": [], "unknown": [], "order": order,
+            "roles": roles,
+            "sections": sorted({item["section"] for item in selected if item["kind"] == "evidence"}),
+            "baseline": policy.get("baseline", []), "profile": profile,
+            "final_action": "direct" if not selected else "workflow", "facts": {},
+            "complexity": {"declared": [], "observed": [], "effective": [], "analysis_coverage": "not-used"}}
+
+
 def _load_policy(path: str | Path = POLICY_PATH) -> dict[str, Any]:
     policy = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    if policy.get("version") != 2 or not isinstance(policy.get("capabilities"), list):
-        raise ValueError("workflow policy must declare version 2 and capabilities")
+    if policy.get("version") != 3 or not isinstance(policy.get("capabilities"), list):
+        raise ValueError("workflow policy must declare version 3 and capabilities")
     names = [item.get("name") for item in policy["capabilities"]]
     if any(not isinstance(name, str) or not name for name in names) or len(names) != len(set(names)):
         raise ValueError("workflow capabilities must have unique non-empty names")
@@ -135,6 +166,9 @@ def _effective_scope(policy: Mapping[str, Any], task: Mapping[str, Any],
 def _member(value: Any, expected: list[Any]) -> bool:
     if isinstance(value, str):
         return value.casefold() in {str(item).casefold() for item in expected}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        actual = {str(item).casefold() for item in value}
+        return bool(actual.intersection(str(item).casefold() for item in expected))
     return value in expected
 
 
@@ -211,6 +245,10 @@ def _candidate(policy: Mapping[str, Any], task: Mapping[str, Any], capability: M
         checks.append(_member(str(task.get("impact_effect", "")), list(candidate["impact_effect"])))
     if candidate.get("impact_scope"):
         checks.append(_member(_effective_scope(policy, task, facts), list(candidate["impact_scope"])))
+    dynamic = capability.get("candidate_when", [])
+    if dynamic:
+        state = _groups(policy, task, facts, dynamic, trust_declared=True)
+        checks.append(state is True)
     return any(checks)
 
 
@@ -293,6 +331,17 @@ def _changed_paths(cwd: str | Path) -> list[str]:
             continue
         paths.update(line.strip() for line in result.stdout.splitlines() if line.strip())
     return sorted(paths)
+
+
+def _untracked_paths(cwd: str | Path) -> set[str] | None:
+    try:
+        result = subprocess.run(["git", "-C", str(cwd), "ls-files", "--others", "--exclude-standard"],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
 def _read(root: Path, paths: list[str]) -> str:
@@ -464,6 +513,37 @@ def _symbol_reach(root: Path, symbols: set[str], changed: set[str]) -> Any:
     return {"scope": scope, "files": sorted(outside)[:20]}
 
 
+def _complexity(task: Mapping[str, Any], facts: Mapping[str, dict[str, Any]]) -> dict[str, Any]:
+    """Merge declared escalation hints with observed coupling and coverage facts."""
+    declared = {str(value) for value in task.get("complexity_hint", []) if str(value) in COMPLEXITY_HINTS}
+    observed: set[str] = set()
+    for name, signal in (("has_consumer", "multi_path"), ("shared_state_write", "shared_state"),
+                         ("public_api_change", "external_boundary"), ("data_transform", "external_boundary"),
+                         ("destructive_operation", "external_boundary")):
+        entry = facts.get(name)
+        if entry and entry["source"] == OBSERVED and entry["value"] is True:
+            observed.add(signal)
+    reach = facts.get("symbol_reach")
+    if reach and reach["source"] == OBSERVED and reach["value"] in {"module", "multi_module"}:
+        observed.add("multi_path")
+    schema = facts.get("schema_operation")
+    if schema and schema["source"] == OBSERVED and schema["value"] not in {"none", "unknown"}:
+        observed.add("external_boundary")
+    coverage = facts.get("analysis_coverage")
+    if coverage and coverage["source"] == OBSERVED and coverage["value"] != "complete":
+        observed.add("uncertain_impact")
+    if schema and schema["source"] == OBSERVED and schema["value"] == "unknown":
+        observed.add("uncertain_impact")
+    if str(task.get("impact_confidence", "high")).casefold() in {"medium", "low"}:
+        declared.add("uncertain_impact")
+    return {
+        "declared": sorted(declared),
+        "observed": sorted(observed),
+        "effective": sorted(declared | observed),
+        "analysis_coverage": coverage["value"] if coverage else "unknown",
+    }
+
+
 def collect_evidence(cwd: str | Path, task: Mapping[str, Any]) -> dict[str, Any]:
     """Collect only facts that can be proven from the current worktree."""
     root = Path(cwd)
@@ -473,6 +553,14 @@ def collect_evidence(cwd: str | Path, task: Mapping[str, Any]) -> dict[str, Any]
         return evidence
     code_paths = [path for path in paths if Path(path).suffix.casefold() in CODE_SUFFIXES]
     evidence["logic_change"] = bool(code_paths)
+    untracked = _untracked_paths(root)
+    suffixes = {Path(path).suffix.casefold() for path in code_paths}
+    if not code_paths:
+        evidence["analysis_coverage"] = "complete"
+    elif untracked is None or any(path in untracked for path in code_paths):
+        evidence["analysis_coverage"] = "partial"
+    elif not suffixes.issubset(SYMBOL_ANALYSIS_SUFFIXES):
+        evidence["analysis_coverage"] = "unsupported"
     if not code_paths:
         evidence["public_api_change"] = False
     else:
@@ -489,6 +577,8 @@ def collect_evidence(cwd: str | Path, task: Mapping[str, Any]) -> dict[str, Any]
                 evidence["symbol_reach"] = reach["scope"]
                 evidence["symbol_consumers"] = reach["files"]
                 evidence["has_consumer"] = reach["scope"] != "none"
+            if "analysis_coverage" not in evidence:
+                evidence["analysis_coverage"] = "complete" if found["complete"] else "partial"
     sql_paths = [path for path in paths if Path(path).suffix.casefold() == ".sql"]
     embedded = [path for path in code_paths if EMBEDDED_DDL.search(_read(root, [path]))]
     ddl_text = _read(root, sql_paths + embedded)
@@ -536,6 +626,12 @@ def plan_workflows(task: Mapping[str, Any], observed: Mapping[str, Any] | None =
                    declared: Mapping[str, Any] | None = None) -> dict[str, Any]:
     policy = _load_policy(policy_path)
     facts = build_facts(task, declared, observed)
+    complexity = _complexity(task, facts)
+    if complexity["effective"]:
+        facts["complexity_signals"] = {
+            "value": complexity["effective"],
+            "source": OBSERVED if complexity["observed"] else DECLARED,
+        }
     selected: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
     unknown: list[dict[str, Any]] = []
@@ -594,6 +690,7 @@ def plan_workflows(task: Mapping[str, Any], observed: Mapping[str, Any] | None =
         "profile": _profile(task, selected, roles),
         "final_action": "direct" if not selected else "workflow",
         "facts": facts,
+        "complexity": complexity,
     }
 
 
@@ -652,6 +749,13 @@ def decision_projection(plan: Mapping[str, Any]) -> dict[str, Any]:
     projection["selected"].sort(key=lambda item: item["name"])
     for key in ("suppressed", "unknown"):
         projection[key] = sorted(_name(item) for item in plan.get(key, []))
+    complexity = plan.get("complexity", {})
+    projection["complexity"] = {
+        "declared": sorted(str(value) for value in complexity.get("declared", [])),
+        "observed": sorted(str(value) for value in complexity.get("observed", [])),
+        "effective": sorted(str(value) for value in complexity.get("effective", [])),
+        "analysis_coverage": str(complexity.get("analysis_coverage", "unknown")),
+    }
     return projection
 
 

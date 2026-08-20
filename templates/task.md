@@ -4,12 +4,14 @@ project_id: <project-id>
 worktree_id: <worktree-id>
 status: in_progress
 code_change: <true | false>
+workflow_mode: main
 task_type: <fix | feature | refactor | chore | schema | migration | config | docs | investigation>
 change_kind: <fix | feature | refactor | chore；code_change: true 時必填>
 risk_flags: []
 impact_scope: <file | module | multi_module | cross_project>
 impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
 impact_confidence: <high | medium | low>
+complexity_hint: []
 workflow_request: []
 workflow_profile:
 workflow_facts: <JSON object of declared facts；只會升級流程，不會用來抑制>
@@ -21,8 +23,10 @@ independence: native
 ---
 
 <!-- frontmatter 欄位補充說明：
-workflow_request：使用者指定的 capability 下限清單（例如 [verifier, data_impact]），Planner 不得把它們抑制掉。
-           留空代表完全由 Planner 依任務類型、複雜度與影響程度組合。
+workflow_request：主對話選定的完整 capability 清單（例如 [verifier, data_impact]）；可為空。
+           `workflow_mode: main` 時 runtime 只驗證此清單的執行結果，不自行增減角色或 capability。
+complexity_hint：可填 multi_path、shared_state、external_boundary；僅能增加流程。medium／low
+           impact_confidence 與不完整 analysis coverage 會加入 uncertain_impact 並選取 impact discovery。
 workflow_facts：agent 自行宣告的事實。宣告只能「升級」流程；要抑制任何 capability
            必須由 workflow-plan 從 worktree 實際採到的 observed evidence 證明。
 workflow_decision：workflow-plan 產生的決策紀錄，內含 selected（含 step id）、suppressed、unknown
@@ -111,7 +115,7 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 ## Execution path and regression evidence（執行路徑與回歸證據）
 <入口 > 上游 > 修改點 > 下游終點；列出重要錯誤／重送／並發／異步分支與驗證證據>
 
-## Reviewer result（Reviewer 結果；所有 code task 必填）
+## Reviewer result（僅在 `workflow_request` 選定 reviewer 時填寫）
 - result: <PASS | FAIL>
 - diff_sha256: <Reviewer 實際審查的那份 diff 指紋；與現況不符時 gate 會要求重審>
 - Architecture consistency: <PASS；只有 workflow_decision 的 reviewer 紀錄把它列入 waived_dimensions 時，才可填 N/A - 理由>
@@ -123,7 +127,7 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 - Flow and impact completeness: <PASS>
 - Failure modes and observability: <PASS>
 
-## Adversarial result（Adversarial 複查結果；risk_flags 命中 financial／data_write／migration／irreversible／schema／contract 任一時才需要）
+## Adversarial result（僅在 `workflow_request` 選定 adversarial 時填寫）
 - result: <PASS 代表「已嘗試推翻，未成立」>
 - diff_sha256: <Adversarial 實際複查的那份 diff 指紋>
 - Provenance: <PASS>
@@ -131,7 +135,7 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 - Engine semantics: <PASS>
 - Cross-round accumulation: <PASS>
 
-## Verifier result（Verifier 結果；所有 code task 必填）
+## Verifier result（僅在 `workflow_request` 選定 verifier 時填寫）
 - PASS
 - diff_sha256: <Verifier 實際驗證的那份 diff 指紋>
 
@@ -147,6 +151,11 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 
 <!-- Planner 選中的 evidence capability 段落。只寫被選中的 step，未選中的 step 不必填也不會被檢查；
      每個 step 一行 `- <step id>: <結論與證據>`。step 清單以 schemas/workflow-policy.json 為準。
+
+## Impact discovery（impact_discovery）
+- ID1: <變更入口、分析覆蓋度與限制>
+- ID2: <consumer、共享狀態與外部契約盤點>
+- ID3: <升級後的 impact scope／effect 與殘餘 unknown>
 
 ## Schema compatibility（schema_compatibility）
 - SC1: <每個 DDL statement 與操作類別>

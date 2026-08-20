@@ -14,12 +14,18 @@
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
+    "complexity_hint": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["multi_path", "shared_state", "external_boundary"] }
+    },
     "workflow_request": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "enum": ["schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"] }
+      "items": { "enum": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"] }
     },
     "workflow_profile": { "enum": ["direct", "light", "standard", "elevated"] },
+    "workflow_mode": { "enum": ["main", "legacy"] },
     "workflow_facts": { "type": "string", "minLength": 2 },
     "workflow_decision": { "type": "string", "minLength": 2 },
     "risk_flags": {
@@ -46,8 +52,8 @@
   },
   "additionalProperties": false,
   "x_agent_workflow": {
-    "workflow_capabilities": ["schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"],
-    "workflow_sections": ["Schema compatibility", "Migration safety", "Contract and data impact", "Execution path and regression evidence"],
+    "workflow_capabilities": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"],
+    "workflow_sections": ["Impact discovery", "Schema compatibility", "Migration safety", "Contract and data impact", "Execution path and regression evidence"],
     "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
     "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
     "adversarial_required": ["financial", "data_write", "migration", "irreversible", "schema", "contract"],

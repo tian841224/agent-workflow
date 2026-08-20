@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +26,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    # Replace rather than truncate in place so an old platform hard link cannot
+    # make a later adapter write overwrite another platform's generated file.
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\n", dir=path.parent,
+                                     prefix=f".{path.name}.", suffix=".tmp", delete=False) as handle:
+        handle.write(text)
+        temporary = Path(handle.name)
+    os.replace(temporary, path)
 
 
 def _json(path: Path, value: Any) -> None:
@@ -94,12 +101,14 @@ def _merge_hooks(fragment_path: Path, destination: Path, runtime_root: Path, pyt
 
 
 def _managed_entrypoint(source: Path, canonical: Path, destinations: list[Path], dry_run: bool) -> None:
-    begin, end = "<!-- agent-workflow v4 managed:start -->", "<!-- agent-workflow v4 managed:end -->"
+    begin, end = "<!-- agent-workflow v5 managed:start -->", "<!-- agent-workflow v5 managed:end -->"
+    old_begin, old_end = "<!-- agent-workflow v4 managed:start -->", "<!-- agent-workflow v4 managed:end -->"
     prefixes = []
     for path in [canonical, *destinations]:
         if not path.is_file(): continue
         text = path.read_text(encoding="utf-8-sig")
-        text = re.sub(rf"(?s)\r?\n?{re.escape(begin)}.*?{re.escape(end)}\r?\n?", "", text).strip()
+        for start, finish in ((begin, end), (old_begin, old_end)):
+            text = re.sub(rf"(?s)\r?\n?{re.escape(start)}.*?{re.escape(finish)}\r?\n?", "", text).strip()
         if text and text not in prefixes: prefixes.append(text)
     if len(prefixes) > 1: raise RuntimeError("conflicting unmanaged entrypoint content found; installation would overwrite user instructions")
     prefix = (prefixes[0] + "\n\n") if prefixes else ""
@@ -134,7 +143,7 @@ def _write_agents(canonical, selected, claude, codex, antigravity, runtime_root,
         if "Antigravity" in selected: targets.append((antigravity/"config"/"agents"/f"agent-workflow-{name}"/"agent.md",re.sub(r"(?m)^name:\s*.+$",f"name: agent-workflow-{name}",raw)))
         if "Codex" in selected:
             sandbox_mode = "workspace-write" if name == "worker" else "read-only"
-            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v4 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
+            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v5 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
         for target,text in targets:
             if not dry_run: _write(target,text)
             managed.append({"path":str(target),"sha256":hashlib.sha256(text.encode("utf-8")).hexdigest(),"kind":"canonical-agent-adapter"})
@@ -267,7 +276,7 @@ def install(args: argparse.Namespace) -> int:
     if not args.dry_run:
         _json(state_file, {"schema_version": 4, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT), "files": files})
     _backup_legacy(args,args.dry_run)
-    print(f"agent-workflow v4 {args.action} complete for {target}.")
+    print(f"agent-workflow v5 {args.action} complete for {target}.")
     return 0
 
 

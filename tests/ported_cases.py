@@ -119,7 +119,9 @@ def test_workflow_planner():
     # an ordinary local fix must stay exactly as cheap as the legacy standard profile:
     # two roles, no evidence step to write up
     light_fix = plan_workflows({"code_change": True, "task_type": "fix", "change_kind": "fix", "risk_flags": [],
-                                "impact_scope": "file", "impact_effect": "local_behavior"}, observed_logic)
+                                "impact_scope": "file", "impact_effect": "local_behavior"},
+                               {"logic_change": True, "has_consumer": False, "public_api_change": False,
+                                "analysis_coverage": "complete"})
     assert light_fix["roles"] == ["reviewer", "verifier"]
     assert sum(len(item["steps"]) for item in light_fix["selected"]) == 0
 
@@ -179,6 +181,7 @@ def test_workflow_gate():
                          for item in plan["selected"]],
             "suppressed": [item["name"] for item in plan["suppressed"]],
             "unknown": [item["name"] for item in plan["unknown"]],
+            "complexity": plan["complexity"],
         }, ensure_ascii=False, separators=(",", ":"))
 
     def write_task(repo, data, body):
@@ -368,7 +371,8 @@ def test_dimension_waiver():
             "selected": [{"name": item["name"], "kind": item["kind"], "steps": [s["id"] for s in item["steps"]],
                           "waived_dimensions": item.get("waived_dimensions", [])} for item in plan["selected"]],
             "suppressed": [item["name"] for item in plan["suppressed"]],
-            "unknown": [item["name"] for item in plan["unknown"]]}, separators=(",", ":"))
+            "unknown": [item["name"] for item in plan["unknown"]],
+            "complexity": plan["complexity"]}, separators=(",", ":"))
         frontmatter = dict(task, workflow_profile=plan["profile"], workflow_decision=decision)
         lines = []
         for key, value in frontmatter.items():
@@ -404,7 +408,87 @@ def test_dimension_waiver():
                          for name in DIMENSIONS)
         assert any("Flow and impact completeness" in issue for issue in write_and_gate(repo, plan, impact))
 
+def test_v5_complexity_signals():
+    from agent_workflow.workflow_planner import collect_evidence, plan_workflows
+
+    def names(plan): return {item["name"] for item in plan["selected"]}
+
+    local_fix = {"code_change": True, "task_type": "fix", "change_kind": "fix", "risk_flags": [],
+                 "impact_scope": "file", "impact_effect": "local_behavior", "impact_confidence": "high"}
+
+    # A declared complexity signal can only add work, even when the task calls itself local.
+    hinted = plan_workflows(dict(local_fix, complexity_hint=["shared_state"]),
+                             {"logic_change": True, "has_consumer": False, "public_api_change": False,
+                              "data_transform": False, "destructive_operation": False})
+    assert {"execution_path_review", "regression_validation"}.issubset(names(hinted)), hinted
+    assert "shared_state" in hinted["complexity"]["effective"]
+
+    # Medium/low classification confidence must trigger discovery, never suppress it.
+    uncertain = plan_workflows(dict(local_fix, impact_confidence="low"),
+                               {"logic_change": True, "has_consumer": False, "public_api_change": False,
+                                "data_transform": False, "destructive_operation": False})
+    assert "impact_discovery" in names(uncertain), uncertain
+    assert "uncertain_impact" in uncertain["complexity"]["effective"]
+
+    with tempfile.TemporaryDirectory() as temp:
+        repo = Path(temp)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, stdout=subprocess.PIPE)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
+        (repo / "engine.cpp").write_text("int score() { return 1; }\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+        (repo / "engine.cpp").write_text("int score() { return 2; }\n", encoding="utf-8")
+        evidence = collect_evidence(repo, local_fix)
+        assert evidence["analysis_coverage"] == "unsupported", evidence
+        unsupported = plan_workflows(local_fix, evidence)
+        assert "impact_discovery" in names(unsupported), unsupported
+        assert "uncertain_impact" in unsupported["complexity"]["effective"]
+
+        (repo / "new_handler.go").write_text("package app\nfunc NewHandler() {}\n", encoding="utf-8")
+        untracked = collect_evidence(repo, local_fix)
+        assert untracked["analysis_coverage"] == "partial", untracked
+        untracked_plan = plan_workflows(local_fix, untracked)
+        assert "uncertain_impact" in untracked_plan["complexity"]["observed"]
+
+def test_parallel_orchestration():
+    from agent_workflow.orchestrate import assess_repository, capture_patch, integrate_patches, snapshot, snapshot_matches
+
+    with tempfile.TemporaryDirectory() as temp:
+        repo = Path(temp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
+        (repo / "src").mkdir(); (repo / "src" / "base.py").write_text("BASE = 1\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+        base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+        plan = {"shared_persistent_state": False, "has_order_dependency": False,
+                "workers": [{"id": "alpha", "title": "alpha", "goal": "implement alpha", "completion_criteria": ["alpha"], "file_ownership": ["src/alpha.py"]},
+                            {"id": "beta", "title": "beta", "goal": "implement beta", "completion_criteria": ["beta"], "file_ownership": ["src/beta.py"]}]}
+        assert assess_repository(repo, plan, "Codex")["eligible"]
+        (repo / "dirty.py").write_text("dirty\n", encoding="utf-8")
+        dirty_snapshot = snapshot(repo)
+        assert snapshot_matches(repo, dirty_snapshot)
+        assert (repo / "dirty.py").exists()
+
+        worker_root = Path(temp) / "worker"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", str(worker_root), dirty_snapshot["base_commit"]], check=True, stdout=subprocess.PIPE)
+        (worker_root / "src" / "alpha.py").write_text("ALPHA = 1\n", encoding="utf-8")
+        delivery = capture_patch(worker_root, dirty_snapshot["base_commit"], ["src/alpha.py"], Path(temp) / "delivery.patch")
+        assert delivery["changed_paths"] == ["src/alpha.py"]
+        assert delivery["sha256"]
+        assert not (repo / "src" / "alpha.py").exists()
+
+        integration = Path(temp) / "integration"
+        combined = integrate_patches(repo, dirty_snapshot["base_commit"], [delivery], integration, Path(temp) / "combined.patch")
+        assert combined["status"] == "ready"
+        assert (repo / "src" / "alpha.py").exists() is False
+        assert subprocess.run(["git", "-C", str(repo), "apply", "--check", str(combined["patch"])], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0
+        (repo / "dirty.py").write_text("changed after snapshot\n", encoding="utf-8")
+        assert not snapshot_matches(repo, dirty_snapshot)
+
 def test_pre_review(): assert subprocess.run(["git","-C",str(ROOT),"diff","--check"],stdout=subprocess.PIPE,stderr=subprocess.PIPE).returncode==0
 def test_orchestrate(): assert call(ROOT/"scripts/orchestrate.py","--help").returncode==0
 def test_runtime(): assert call(ROOT/"scripts/runtime-check.py","--help").returncode==0
-SUITES={"contract":test_contract,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"migration":test_migration,"project_doc":test_project_doc,"retro":test_retro,"validate_task":test_validate_and_profile,"workflow_planner":test_workflow_planner,"workflow_gate":test_workflow_gate,"symbol_evidence":test_symbol_evidence,"dimension_waiver":test_dimension_waiver,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
+SUITES={"contract":test_contract,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"migration":test_migration,"project_doc":test_project_doc,"retro":test_retro,"validate_task":test_validate_and_profile,"workflow_planner":test_workflow_planner,"workflow_gate":test_workflow_gate,"symbol_evidence":test_symbol_evidence,"dimension_waiver":test_dimension_waiver,"v5_complexity":test_v5_complexity_signals,"parallel_orchestration":test_parallel_orchestration,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}

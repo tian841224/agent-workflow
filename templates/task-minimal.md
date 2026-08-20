@@ -4,12 +4,14 @@ project_id: <project-id>
 worktree_id: <worktree-id>
 status: in_progress
 code_change: true
+workflow_mode: main
 task_type: <fix | feature | refactor | chore | schema | migration | config | docs | investigation>
 change_kind: <fix | feature | refactor | chore>
 risk_flags: []
 impact_scope: <file | module | multi_module | cross_project>
 impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
 impact_confidence: <high | medium | low>
+complexity_hint: []
 workflow_request: []
 workflow_profile:
 workflow_facts:
@@ -78,6 +80,9 @@ verifier alone, or adversarial + verifier without reviewer.
 workflow_request is a floor, not a profile: list the capabilities that must run regardless
 of the plan (for example [verifier]). workflow_facts is declared by the agent and can only
 add work -- suppressing a capability always needs observed evidence from the worktree.
+
+complexity_hint may contain multi_path, shared_state, or external_boundary. It can only add
+work; medium/low impact_confidence and incomplete analysis select impact_discovery.
 
 Use templates/task.md when the plan selects evidence capabilities (their step lines live
 there), or for coordinator/worker tasks.

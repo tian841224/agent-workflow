@@ -1,4 +1,4 @@
-# agent-workflow v4
+# agent-workflow v5
 
 跨 Claude Code、Codex、Antigravity 的共用規則；細節以 `.agents/skills/workflow/SKILL.md`、`risk-flags.md` 與 schema 為準，本檔只保留常駐護欄。
 
@@ -12,7 +12,7 @@
 ## Task 與角色
 
 - Task 位於 `~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md`；每個 worktree 最多一個 `in_progress` task。
-- `code_change: true` 依序執行 Reviewer → Verifier；命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 任一時，在兩者之間加入 Adversarial。
+- `code_change: true` 的 Reviewer／Adversarial／Verifier 由主對話依任務的風險、影響與完成條件選擇；可採任意必要子集合，執行順序與角色規則以 workflow skill 為準。
 - Retrospective 只有疑似 regression、同一問題反覆修正或使用者要求時才啟動。
 - 一般 task 由主對話依完成條件結案；coordinator／worker 或 Elevated legacy gate 使用 `~/.agent-workflow/runtime/agent_workflow.cmd close-task`。角色無法載入時先 Repair，仍失敗就 `blocked`；跳過角色必須由使用者授權並透過 `~/.agent-workflow/runtime/agent_workflow.cmd waive-roles --confirmed-by-user`。
 

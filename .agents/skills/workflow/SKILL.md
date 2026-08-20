@@ -3,7 +3,7 @@ name: workflow
 description: 僅在實際修改 source code logic 或 test code logic 時使用；此時建立並維護 task.md，由 workflow planner 依影響程度組合出該跑的 capability 與角色。其他非程式碼邏輯任務 bypass workflow、不建立 task、不執行角色，由單一主對話處理。
 ---
 
-# agent-workflow v4
+# agent-workflow v5
 Optional push-back skill applies only when a chosen design may violate conventions or add unnecessary complexity.
 
 ## 適用範圍
@@ -12,19 +12,21 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 ### Workflow Planner 與流程層級
 
-Workflow 沒有固定 pipeline，也沒有預設檔位。`schemas/workflow-policy.json` 的 capability planner 依任務類型、複雜度與影響程度，**逐一**組合出這次要跑的流程。
+Workflow 沒有固定 pipeline，也沒有預設檔位。主對話依已知需求與程式脈絡選擇這次要跑的 capability；runtime 只驗證選擇與執行結果，不以靜態推論覆蓋主對話判斷。
 
-**外層選取（跑哪些 capability）**：task type、`change_kind`、`risk_flags`、`impact_scope`、`impact_effect` 產生候選；每個 capability 各自綁自己關心的事實判斷 selected／suppressed／unknown，彼此不連動。任何組合都合法——只跑 `verifier`、`adversarial` + `verifier` 而沒有 `reviewer`、只跑 evidence capability 而沒有角色、或一個都不跑，都是正常結果。
+**外層選取（跑哪些 capability）**：task type、`change_kind`、`risk_flags`、impact 與 complexity signals 產生候選；每個 capability 各自綁自己關心的事實判斷 selected／suppressed／unknown，彼此不連動。任何組合都合法——只跑 `verifier`、`adversarial` + `verifier` 而沒有 `reviewer`、只跑 evidence capability 而沒有角色、或一個都不跑，都是正常結果。
 
 **內層選取（跑該 capability 的哪些 step）**：selected 之後，policy 內每個 step 的 `when` 再依同一組向度決定要不要跑。同一個 `execution_path_review` 在 `impact_scope: file` 只有 EP1、EP4，在 `cross_project` 才展開 EP1–EP5。
 
-九個 capability：`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`，啟動對應原生角色）。`order_after` 只決定順序，不會把缺席的前置補回來。
+十個 capability：`impact_discovery`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`，啟動對應原生角色）。`order_after` 只決定順序，不會把缺席的前置補回來。
 
 **證據方向是單向的**：`workflow_facts` 與 impact 欄位由 agent 宣告，只能讓流程變多；要抑制任何 capability，必須由 planner 從 worktree 實際採到的 observed evidence 證明。採不到證據就是 `unknown`，`unknown` 一律保留、不得當成沒有影響。同一條規則也適用 risk flag：宣告的 flag 只有在它代表的 capability 全部被 observed evidence 抑制時才會解除額外 gate。
 
 **採證來源**：planner 從 `git diff` 的 hunk context 取出這次改動到的 symbol，再用 `git grep` 查它們在**程式碼檔**（文件提到函式名不算呼叫端）中的引用位置，得出 `symbol_reach`：`none`（只有自己的檔案用）、`module`（同目錄）、`multi_module`（跨目錄）。DDL 另走欄位名採證，兩者的 `has_consumer` 取聯集——任一找到就是有，要證明沒有則兩者都得證明。
 
 **呼叫端搜尋看不到資料層耦合**：一個沒有任何外部呼叫端的函式，仍可能寫入被別處讀取的 DB 欄位、Redis key、全域變數或訊息佇列。因此 planner 另外掃描 diff 的新增行，偵測 SQL DML、ORM 寫入、Redis／快取寫入、`sync`／`atomic` 共用狀態、檔案寫入與訊息發送，得出 `shared_state_write`。只要偵測到任一訊號，就一律視為有共用狀態耦合，不得放寬任何檢查。
+
+**Complexity signals 與 impact discovery**：`complexity_hint` 只可宣告 `multi_path`、`shared_state`、`external_boundary`，與 observed signal 聯集後只會增加 capability。`impact_confidence: medium｜low`、untracked diff、generic symbol、掃描失敗或不支援語言會形成 `uncertain_impact`，選取 `impact_discovery` 的 ID1–ID3；完成盤點後只能提高 impact scope／effect，再重算 planner。完整 observed evidence 且無 signal 才可視為 isolated。
 
 `symbol_reach` 只會**提高** effective `impact_scope`，不會降低：agent 宣告 `file` 但實際有跨目錄呼叫端時，`execution_path_review` 會自動被選中並展開 EP2／EP5。這是防止低估影響的機制。反之，抽不出 symbol、symbol 數超過 50、或集合裡含有 `run`／`main` 這類過短或通用的名字時，「找到呼叫端」仍然可信（升級照做），但**不得**據此宣稱沒有呼叫端——此時 `symbol_reach` 為 `unknown`。
 
@@ -40,9 +42,9 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 | 大表 migration + backfill | `execution_path_review` → `schema_compatibility` → `data_impact` → `migration_safety` → `reviewer` → `adversarial` → `verifier` | 20 |
 | coordinator／worker | 依上列規則，另加 orchestration、fingerprint 與 close gate | 依上列規則 |
 
-`workflow_request` 是使用者指定的 capability 下限清單（例如 `[verifier]`），planner 不得抑制它們。`workflow_profile` 只是由組合推導出來的顯示標籤，不決定任何檢查。
+`workflow_mode: main` 時，`workflow_request` 是主對話選定的完整 capability 清單（例如 `[reviewer, verifier]`）；runtime 不新增或抑制它們。`workflow_profile` 只是顯示標籤，不決定任何檢查。沒有 `workflow_mode: main` 的既有 task 繼續使用 legacy planner 相容路徑。
 
-`workflow_planner.py` 是新 task 的流程分流入口；`task_profile.py` 保留 legacy API 與舊 task 的保守 fallback（沒有 `workflow_decision` 的舊 task 仍走既有 `code_change` 與高風險旗標規則）。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
+`workflow_planner.py` 保留舊 task 相容用途；新 task 的流程選擇由主對話寫入 `workflow_request`。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 
 ## 1. 建立 Task
 
@@ -50,7 +52,7 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 只有 Elevated task 預期會修改架構、契約或跨模組行為時，才執行 `~/.agent-workflow/runtime/scripts/project-doc.py -Action Lookup -Paths '<任務涉及的路徑>'`，讀過的路徑填進 task 的 `## Project docs`（見第 4 節、[project-docs.md](project-docs.md)）。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。
-5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 或 test code 邏輯時為 `true`；除此之外（含設定／文件、script 修改與操作，或只執行測試、調查、code review）一律為 `false`。Code task 另填 `task_type`、impact fields，需要指定流程下限時才填 `workflow_request`（capability 清單）；Planner 產生 `workflow_profile` 與 `workflow_decision`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
+5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 或 test code 邏輯時為 `true`。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`；不需要 `workflow_decision`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
 6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `frozen_at` 先留空，取得使用者對目標、非目標與完成條件的確認後才填入；只有啟用進階 `impact-guard` 的 Elevated／編排流程才會機械攔截未凍結的 code 編輯。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
@@ -69,7 +71,7 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 
 依實際風險判斷是否加入 `risk_flags`，不為湊流程加 flag。允許值、各值定義與對應要求見 [risk-flags.md](risk-flags.md)。
 
-新 task 的 Reviewer／Adversarial／Verifier 是否啟動，逐一只看 Planner 的 selected capabilities；三者互相獨立，任何子集合都是合法組合。舊 task 沒有 Planner decision 時才依 `code_change` 與既有高風險旗標 fallback。所有 suppress 必須有 reason/evidence，unknown 必須保留。non-code task 永遠不進入本流程。
+新 `workflow_mode: main` task 的 Reviewer／Adversarial／Verifier 是否啟動，只看主對話寫入的 `workflow_request`；三者互相獨立，任何子集合都是合法組合。舊 task 保持 legacy fallback。non-code task 永遠不進入本流程。
 
 ## 4. 實作
 
@@ -148,4 +150,4 @@ Role polling that returns `timed_out` preserves `pending_init`/`running`; a cont
 
 每次開始 code task 的開發前，主對話都要先做一次輕量拆分評估：確認是否存在至少兩個互不重疊、可獨立驗收、且各自需要不同檔案／模組範圍的子功能。明確不適合拆分時直接記為循序處理，不增加詢問與 orchestration 成本。
 
-若評估結果適合拆分，先向使用者說明候選 worker、ownership、依賴與預期收益，詢問是否要平行處理；在使用者確認前不得建立 coordinator／worker、detached worktree 或執行 `orchestrate.py -Action Init`。使用者拒絕或未確認時，退回單一 agent 循序處理。使用者確認後，主對話改當 coordinator，只負責拆分、派工、受控套用與整合審查，不直接改 source。詳細拆分條件、狀態機、Git 邊界與已知限制見 [orchestration.md](orchestration.md)；v1 僅 Manual 模式，Claude／Codex／Antigravity 皆為 sequential fallback。
+主對話在每個 code task 開始時自動完成拆分評估；若拆分規格符合資格，直接建立 worker worktree 並派發。具備 host-native agent collaboration 時優先使用它；只有要由 runtime 建立 detached worktree 並跨平台派發時才需要設定 dispatcher。worker 只做 implementation，不跑測試或角色；主對話整合並補齊全部完成條件後，才執行選定的 Review 與驗證。詳細 Git snapshot、平台 adapter 與失敗處理見 [orchestration.md](orchestration.md)。

@@ -11,7 +11,7 @@ from typing import Any
 from .frontmatter import frontmatter, read_text
 from .task_profile import get_task_profile
 from .validate_task import validate_task
-from .workflow_planner import decision_projection, plan_task, planner_enabled
+from .workflow_planner import decision_projection, main_controlled, manual_plan, plan_task, planner_enabled
 from .worktree_fingerprint import fingerprint
 
 
@@ -201,16 +201,19 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
         change_kind = str(data.get("change_kind", ""))
         code_change = data.get("code_change") is True
         planner_task = code_change and planner_enabled(data)
+        main_task = code_change and main_controlled(data)
         plan: dict[str, Any] = {}
         planner_failed = False
-        if planner_task:
+        if main_task:
+            plan = manual_plan(data)
+        elif planner_task:
             try:
                 plan = plan_task(data, cwd=cwd)
                 decision_issues(data, plan, issues)
             except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
                 issues.append(f"workflow planner failed: {exc}")
                 planner_failed = True
-        if planner_task and not planner_failed:
+        if (planner_task or main_task) and not planner_failed:
             profile = str(plan["profile"])
             role_set = set(plan.get("roles", []))
         else:
@@ -221,7 +224,7 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
         needs_roles = code_change and not waiting and bool(role_set)
         # 'extended' only drives the legacy profile path; planner tasks derive their
         # requirements from the selected capabilities instead.
-        extended = (not planner_task) and needs_roles and profile == "elevated"
+        extended = (not planner_task and not main_task) and needs_roles and profile == "elevated"
         if planner_task and not planner_failed:
             flags = effective_flags(flags, plan)
         freeze_flags = schema["x_agent_workflow"]["freeze_required"]
@@ -240,9 +243,9 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
             if not current: issues.append(f"cannot compute the working tree fingerprint: {fp.get('error', '')}")
         # A planner task is "deep" when it selected evidence work or an adversarial pass;
         # that is the composable equivalent of the legacy elevated profile.
-        evidence_sections = required_evidence(plan) if planner_task and not planner_failed else {}
-        deep = bool(evidence_sections) or (planner_task and not planner_failed and "adversarial" in role_set)
-        if planner_task and not planner_failed:
+        evidence_sections = required_evidence(plan) if (planner_task or main_task) and not planner_failed else {}
+        deep = bool(evidence_sections) or ((planner_task or main_task) and not planner_failed and "adversarial" in role_set)
+        if (planner_task or main_task) and not planner_failed:
             for name, steps in evidence_sections.items():
                 missing_section(content, name, issues)
                 body = section(content, name)

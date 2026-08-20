@@ -78,11 +78,14 @@ def shell_writes(command: str) -> bool:
         return True
     if re.search(r"(?:^|\s)(?:sed|perl)\b[^;&|]*\s-i(?:\s|$)", flat, re.I):
         return True
-    if re.search(r"(?:^|\s)(?:python|python3|py|node|pwsh|powershell|bash|sh|cmd)\b[^;&|]*(?:open\s*\(|write_text|write_bytes|fs\.write|set-content|out-file)", flat, re.I):
+    if re.search(r"(?:^|\s)(?:python|python3|py|node|pwsh|powershell|bash|sh|cmd)\b[^;&|]*(?:open\s*\([^)]*['\"][waxWAX]|write_text|write_bytes|fs\.write|set-content|out-file)", flat, re.I):
         return True
     if re.search(r"(?:^|\s)(?:npm|pnpm|yarn|pip|go)\s+(?:install|uninstall|update|get)\b", flat, re.I):
         return True
-    if re.search(r"(^|[^<>])>{1,2}[^>]", flat) or re.search(r"\b(?:>>|2>|2>>)", flat):
+    # Redirections to /dev/null, NUL, or another stream (2>&1, >&2) are stderr
+    # plumbing, not writes; strip them before checking for a real file target.
+    scrubbed = re.sub(r"\d?>{1,2}\s*(?:&\d+|/dev/null|nul)\b", " ", flat, flags=re.I)
+    if re.search(r"(^|[^<>])>{1,2}[^>]", scrubbed) or re.search(r"\b(?:>>|2>|2>>)", scrubbed):
         return True
     return False
 

@@ -1,11 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/workflow-policy.json",
-  "version": 2,
+  "version": 3,
   "baseline": ["task_decision", "diff_check"],
   "scope_rank": {"file": 1, "module": 2, "multi_module": 3, "cross_project": 4},
   "effect_rank": {"none": 0, "schema": 1, "local_behavior": 2, "shared_behavior": 3, "contract": 4, "data": 5, "destructive": 6},
   "capabilities": [
+    {
+      "name": "impact_discovery",
+      "kind": "evidence",
+      "section": "Impact discovery",
+      "candidate_when": [[{"code_change": true}, {"fact": "complexity_signals", "equals": ["uncertain_impact"]}]],
+      "suppress_when": [],
+      "order_after": [],
+      "steps": [
+        {"id": "ID1", "title": "列出變更入口、分析覆蓋度與限制", "when": [[{"always": true}]]},
+        {"id": "ID2", "title": "人工盤點 consumer、共享狀態與外部契約", "when": [[{"always": true}]]},
+        {"id": "ID3", "title": "確認可升級的 impact scope／effect 與殘餘 unknown", "when": [[{"always": true}]]}
+      ]
+    },
     {
       "name": "schema_compatibility",
       "kind": "evidence",
@@ -83,10 +96,11 @@
       "kind": "evidence",
       "section": "Execution path and regression evidence",
       "candidate": {"impact_effect": ["shared_behavior", "contract", "data", "destructive"], "impact_scope": ["multi_module", "cross_project"], "change_kinds": ["refactor"]},
+      "candidate_when": [[{"fact": "complexity_signals", "equals": ["multi_path", "shared_state", "external_boundary"]}]],
       "suppress_when": [
         [{"fact": "logic_change", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}]
       ],
-      "order_after": [],
+      "order_after": ["impact_discovery"],
       "steps": [
         {"id": "EP1", "title": "改動函式／模組的進入點盤點", "when": [[{"always": true}]]},
         {"id": "EP2", "title": "呼叫鏈追蹤至模組邊界", "when": [[{"impact_scope_at_least": "module"}]]},
@@ -100,6 +114,7 @@
       "kind": "evidence",
       "section": "Execution path and regression evidence",
       "candidate": {"risk_flags": ["behavior_change"], "change_kinds": ["refactor"], "impact_effect": ["shared_behavior", "contract", "data", "destructive"], "impact_scope": ["multi_module", "cross_project"]},
+      "candidate_when": [[{"fact": "complexity_signals", "equals": ["multi_path", "shared_state", "external_boundary"]}]],
       "suppress_when": [
         [{"fact": "logic_change", "equals": [false]}]
       ],
@@ -120,7 +135,7 @@
       "suppress_when": [
         [{"fact": "logic_change", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}]
       ],
-      "order_after": ["schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
+      "order_after": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
       "steps": [],
       "dimension_waivers": [
         {

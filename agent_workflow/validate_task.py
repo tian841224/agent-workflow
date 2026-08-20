@@ -74,11 +74,23 @@ def validate_task(task_path: str, schema_path: str | None = None) -> dict[str, A
     kind = str(data.get("change_kind", ""))
     if kind and not _ci(kind, properties["change_kind"]["enum"]):
         errors.append(f"invalid change_kind: {kind}")
-    for name in ("task_type", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "workflow_profile"):
+    for name in ("task_type", "impact_scope", "impact_effect", "impact_confidence", "workflow_profile", "workflow_mode"):
         value = str(data.get(name, ""))
         allowed = properties.get(name, {}).get("enum", [])
         if value and not _ci(value, allowed):
             errors.append(f"invalid {name}: {value}")
+    for name in ("complexity_hint", "workflow_request"):
+        value = data.get(name)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            errors.append(f"{name} must use inline array syntax")
+            continue
+        allowed = properties.get(name, {}).get("items", {}).get("enum", [])
+        if any(not _ci(str(item), allowed) for item in value):
+            errors.append(f"invalid {name} entry")
+        if len({str(item).casefold() for item in value}) != len(value):
+            errors.append(f"{name} contains duplicates")
     if data.get("workflow_facts"):
         try:
             parsed_facts = json.loads(str(data["workflow_facts"]))
