@@ -10,7 +10,7 @@ risk_flags: []
 impact_scope: <file | module | multi_module | cross_project>
 impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
 impact_confidence: <high | medium | low>
-workflow_request: auto
+workflow_request: []
 workflow_profile:
 workflow_facts:
 workflow_decision:
@@ -71,7 +71,15 @@ frozen_at:
 - evidence: <real entrypoint and relevant verification>
 
 <!--
-Use templates/task.md when the task is Elevated, coordinator/worker, or carries
-data/contract/schema/financial/migration/irreversible risk that needs the extended gate.
+Keep only the role sections the planner actually selected: workflow_decision.selected is
+the single source of truth, and the gate checks nothing else. A task may legitimately run
+verifier alone, or adversarial + verifier without reviewer.
+
+workflow_request is a floor, not a profile: list the capabilities that must run regardless
+of the plan (for example [verifier]). workflow_facts is declared by the agent and can only
+add work -- suppressing a capability always needs observed evidence from the worktree.
+
+Use templates/task.md when the plan selects evidence capabilities (their step lines live
+there), or for coordinator/worker tasks.
 Add Retrospective result only for a suspected regression, repeated fix, or user request.
 -->

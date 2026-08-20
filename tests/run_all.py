@@ -40,19 +40,25 @@ def main() -> int:
         assert knowledge.returncode!=0
         retro=subprocess.run([sys.executable,str(root/"agent_workflow.py"),"retro","--action","List","--state-root",str(state)],stdout=subprocess.PIPE,check=True)
         assert json.loads(retro.stdout)==[]
-        direct_task = sandbox/"direct-task.md"
-        from agent_workflow.workflow_planner import plan_workflows
-        direct_data = {"code_change": True, "task_type": "chore", "change_kind": "chore", "risk_flags": [], "impact_scope": "file", "impact_effect": "none", "impact_confidence": "high", "workflow_request": "auto", "workflow_facts": json.dumps({"data_transform": False, "has_consumer": False, "public_api_change": False, "destructive_operation": False})}
-        direct_plan = plan_workflows(direct_data, json.loads(direct_data["workflow_facts"]))
-        direct_frontmatter = "\n".join([
-            "---", "id: 20260819-123457-direct", "project_id: fedcba9876543210", "worktree_id: 0123456789abcdef", "status: in_progress", "code_change: true", "task_type: chore", "change_kind: chore", "risk_flags: []", "impact_scope: file", "impact_effect: none", "impact_confidence: high", "workflow_request: auto", "workflow_profile: light", "workflow_facts: " + direct_data["workflow_facts"], "workflow_decision: " + json.dumps({"profile": direct_plan["profile"], "final_action": direct_plan["final_action"], "selected": [], "suppressed": direct_plan["suppressed"], "unknown": []}, separators=(",", ":")), "created_at: 2026-08-19T12:34:56+08:00", "updated_at: 2026-08-19T12:34:56+08:00", "---", "", "# Direct", "", "## Goal", "direct", "", "## Scope", "source", "", "## Completion criteria", "- [x] done", "", "## Validation results", "- pre-review: PASS", "- validation profile: focused", "- commands: direct baseline", "- checks: PASS", "- limitations: none", ""])
-        direct_task.write_text(direct_frontmatter, encoding="utf-8")
-        direct_gate = subprocess.run([sys.executable, str(root/"agent_workflow.py"), "task-gate", "--task-path", str(direct_task), "--mode", "Stop", "--cwd", str(sandbox)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert direct_gate.returncode == 0 and not json.loads(direct_gate.stdout).get("issues"), direct_gate.stderr.decode("utf-8", "replace") + direct_gate.stdout.decode("utf-8", "replace")
+        declared_task = sandbox/"declared-safe-task.md"
+        from agent_workflow.workflow_planner import plan_task
+        declared_facts = json.dumps({"logic_change": False, "data_transform": False, "has_consumer": False, "public_api_change": False, "destructive_operation": False})
+        declared_data = {"code_change": True, "task_type": "chore", "change_kind": "chore", "risk_flags": [], "impact_scope": "file", "impact_effect": "none", "impact_confidence": "high", "workflow_facts": declared_facts}
+        declared_plan = plan_task(declared_data, cwd=str(sandbox))
+        # Facts the agent declared about itself must never suppress a role.
+        assert "reviewer" in declared_plan["roles"] and "verifier" in declared_plan["roles"], declared_plan["roles"]
+        decision = json.dumps({"final_action": declared_plan["final_action"], "selected": [{"name": item["name"], "kind": item["kind"], "steps": [step["id"] for step in item["steps"]]} for item in declared_plan["selected"]], "suppressed": [item["name"] for item in declared_plan["suppressed"]], "unknown": [item["name"] for item in declared_plan["unknown"]]}, separators=(",", ":"))
+        declared_frontmatter = "\n".join([
+            "---", "id: 20260819-123457-declared", "project_id: fedcba9876543210", "worktree_id: 0123456789abcdef", "status: in_progress", "code_change: true", "task_type: chore", "change_kind: chore", "risk_flags: []", "impact_scope: file", "impact_effect: none", "impact_confidence: high", "workflow_profile: " + declared_plan["profile"], "workflow_facts: " + declared_facts, "workflow_decision: " + decision, "created_at: 2026-08-19T12:34:56+08:00", "updated_at: 2026-08-19T12:34:56+08:00", "---", "", "# Declared", "", "## Goal", "declared", "", "## Scope", "source", "", "## Completion criteria", "- [x] done", "", "## Validation results", "- pre-review: PASS", ""])
+        declared_task.write_text(declared_frontmatter, encoding="utf-8")
+        declared_gate = subprocess.run([sys.executable, str(root/"agent_workflow.py"), "task-gate", "--task-path", str(declared_task), "--mode", "Stop", "--cwd", str(sandbox)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        declared_issues = json.loads(declared_gate.stdout)["issues"]
+        assert any("Reviewer result is missing" in issue for issue in declared_issues), declared_issues
+        assert any("Verifier result is missing" in issue for issue in declared_issues), declared_issues
         tampered_task = sandbox/"tampered-task.md"
-        tampered_task.write_text(direct_frontmatter.replace('"selected":[]', '"selected":[{"name":"reviewer","reason":"forged","requires":[]}]'), encoding="utf-8")
+        tampered_task.write_text(declared_frontmatter.replace('"unknown":[', '"unknown":["reviewer","forged",'), encoding="utf-8")
         tampered_gate = subprocess.run([sys.executable, str(root/"agent_workflow.py"), "task-gate", "--task-path", str(tampered_task), "--mode", "Stop", "--cwd", str(sandbox)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert any("workflow_decision graph does not match" in issue for issue in json.loads(tampered_gate.stdout)["issues"])
+        assert any("workflow_decision" in issue for issue in json.loads(tampered_gate.stdout)["issues"])
     print("task profile/gate/knowledge/retro contracts passed")
     checks=[("compile",[sys.executable,"-m","compileall","-q",str(root/"agent_workflow"),str(root/"scripts")]),
             ("contract",[sys.executable,str(root/"agent_workflow.py"),"project-doc","--action","Check","--doc",str(root/"README.md")]),

@@ -10,9 +10,9 @@ risk_flags: []
 impact_scope: <file | module | multi_module | cross_project>
 impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
 impact_confidence: <high | medium | low>
-workflow_request: auto
+workflow_request: []
 workflow_profile:
-workflow_facts: <JSON object with evidence facts, or empty for conservative planning>
+workflow_facts: <JSON object of declared facts；只會升級流程，不會用來抑制>
 workflow_decision: <JSON decision record produced by workflow-plan>
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
@@ -21,6 +21,13 @@ independence: native
 ---
 
 <!-- frontmatter 欄位補充說明：
+workflow_request：使用者指定的 capability 下限清單（例如 [verifier, data_impact]），Planner 不得把它們抑制掉。
+           留空代表完全由 Planner 依任務類型、複雜度與影響程度組合。
+workflow_facts：agent 自行宣告的事實。宣告只能「升級」流程；要抑制任何 capability
+           必須由 workflow-plan 從 worktree 實際採到的 observed evidence 證明。
+workflow_decision：workflow-plan 產生的決策紀錄，內含 selected（含 step id）、suppressed、unknown
+           與 final_action。gate 會用當下 worktree 重算並逐項比對，不一致就擋下。
+           selected 的每個 evidence capability 都要在對應段落逐 step 留下 `- <step id>: <結論>`。
 frozen_at：freeze-required flag 命中時必填 ISO-8601。未填時 impact-guard 會擋下所有 code 編輯——
            先取得使用者對目標、非目標與完成條件的確認，再填入。
 stop_reason：status 改為 paused 或 blocked 時必填（在等什麼、下一步是什麼）。
@@ -107,7 +114,7 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 ## Reviewer result（Reviewer 結果；所有 code task 必填）
 - result: <PASS | FAIL>
 - diff_sha256: <Reviewer 實際審查的那份 diff 指紋；與現況不符時 gate 會要求重審>
-- Architecture consistency: <PASS>
+- Architecture consistency: <PASS；只有 workflow_decision 的 reviewer 紀錄把它列入 waived_dimensions 時，才可填 N/A - 理由>
 - Code quality and conventions: <PASS>
 - Data consistency: <PASS | N/A - 理由>
 - Security: <PASS | N/A - 理由>
@@ -138,12 +145,43 @@ independence：coordinator／worker 或明確啟用 legacy completion gate 的 c
 - occurrences: <只有 regression 時填：retro.py -Action Record 回傳的同類累積次數>
 -->
 
+<!-- Planner 選中的 evidence capability 段落。只寫被選中的 step，未選中的 step 不必填也不會被檢查；
+     每個 step 一行 `- <step id>: <結論與證據>`。step 清單以 schemas/workflow-policy.json 為準。
+
+## Schema compatibility（schema_compatibility）
+- SC1: <每個 DDL statement 與操作類別>
+- SC2: <逐條分類 additive / mutating / destructive>
+- SC3: <滾動部署期間新舊版程式併存的讀寫相容性>
+- SC4: <索引／約束的鎖與唯一性衝突>
+- SC5: <回滾可行性與逆轉後的舊資料狀態>
+
+## Migration safety（migration_safety）
+- MS1: <受影響資料量級與預期執行時間>
+- MS2: <鎖行為與線上影響>
+- MS3: <冪等性與可重入>
+- MS4: <分段／批次策略>
+- MS5: <回滾腳本與回滾後資料狀態>
+- MS6: <一次性 Docker／SQL 環境實測結果>
+
+## Contract and data impact（data_impact / contract_review）
+- DI1: <受影響資料範圍>   - DI2: <寫入路徑>   - DI3: <讀取路徑與 NULL 語意>
+- DI4: <backfill 正確性>  - DI5: <不變式與對帳>  - DI6: <資料回復方案>
+- CR1: <介面清單 diff>    - CR2: <additive / breaking 分類>  - CR3: <consumer 盤點>
+- CR4: <版本化與過渡策略>  - CR5: <跨專案協調與通知對象>
+
+## Execution path and regression evidence（execution_path_review / regression_validation）
+- EP1: <進入點盤點>  - EP2: <呼叫鏈至模組邊界>  - EP3: <並發與交易邊界>
+- EP4: <錯誤路徑與邊界輸入>  - EP5: <跨模組／跨專案擴散清單>
+- RV1: <既有行為基準>  - RV2: <受影響既有測試清單>  - RV3: <測試執行結果>
+- RV4: <before／after 對照證據>  - RV5: <未覆蓋缺口與風險>
+-->
+
 <!-- 其他條件式段落：
 behavior_change／ui：## Acceptance cases（驗收案例）
-contract／schema／data_write／financial／migration：## Contract and data impact（契約與資料影響）
 cross_feature／migration／irreversible：## Implementation sequence（實作順序、依賴與回滾點）
 ui：## Browser verification（browser 畫面驗證）
 change_kind: refactor：## Behavior invariants and before-after evidence（行為不變條件與前後證據）
+Planner 有抑制掉任何 capability 時：## Impact surface（影響面）必填，說明抑制依據
 -->
 
 <!-- coordinator task 再加入（frontmatter 補 subtask_role: coordinator、integration_status: pending）：

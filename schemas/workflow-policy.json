@@ -1,81 +1,164 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/workflow-policy.json",
-  "version": 1,
+  "version": 2,
   "baseline": ["task_decision", "diff_check"],
+  "scope_rank": {"file": 1, "module": 2, "multi_module": 3, "cross_project": 4},
+  "effect_rank": {"none": 0, "schema": 1, "local_behavior": 2, "shared_behavior": 3, "contract": 4, "data": 5, "destructive": 6},
   "capabilities": [
     {
       "name": "schema_compatibility",
-      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["schema", "migration"]},
+      "kind": "evidence",
+      "section": "Schema compatibility",
+      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["schema", "migration"], "impact_effect": ["schema"]},
       "suppress_when": [
         [{"fact": "schema_operation", "equals": ["none"]}],
-        [{"fact": "safe_additive_schema", "equals": [true]}]
+        [{"fact": "schema_operation", "equals": ["additive_nullable"]}, {"fact": "has_consumer", "equals": [false]}, {"fact": "schema_constraint_change", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": [],
+      "steps": [
+        {"id": "SC1", "title": "列出每個 DDL statement 與操作類別", "when": [[{"always": true}]]},
+        {"id": "SC2", "title": "逐條分類 additive / mutating / destructive", "when": [[{"always": true}]]},
+        {"id": "SC3", "title": "滾動部署相容性：新舊版程式併存時的讀寫", "when": [[{"not": {"fact": "has_consumer", "equals": [false]}}], [{"impact_scope_at_least": "module"}]]},
+        {"id": "SC4", "title": "索引／約束的鎖與唯一性衝突", "when": [[{"fact": "schema_constraint_change", "equals": [true]}]]},
+        {"id": "SC5", "title": "回滾可行性與逆轉後的舊資料狀態", "when": [[{"risk_flags": ["irreversible"]}], [{"not": {"fact": "schema_operation", "equals": ["none", "additive_nullable"]}}]]}
+      ]
     },
     {
       "name": "migration_safety",
-      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["migration"]},
+      "kind": "evidence",
+      "section": "Migration safety",
+      "candidate": {"task_types": ["migration"], "risk_flags": ["migration"]},
       "suppress_when": [
-        [{"fact": "safe_additive_schema", "equals": [true]}]
+        [{"fact": "schema_operation", "equals": ["none"]}],
+        [{"fact": "schema_operation", "equals": ["additive_nullable"]}, {"fact": "data_transform", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": ["schema_compatibility"],
+      "steps": [
+        {"id": "MS1", "title": "受影響資料量級與預期執行時間", "when": [[{"always": true}]]},
+        {"id": "MS2", "title": "鎖行為與線上影響（是否阻塞讀寫）", "when": [[{"impact_scope_at_least": "module"}], [{"risk_flags": ["migration"]}]]},
+        {"id": "MS3", "title": "冪等性與可重入（中斷後重跑）", "when": [[{"always": true}]]},
+        {"id": "MS4", "title": "分段／批次策略", "when": [[{"fact": "data_transform", "equals": [true]}]]},
+        {"id": "MS5", "title": "回滾腳本與回滾後資料狀態", "when": [[{"risk_flags": ["irreversible"]}], [{"fact": "destructive_operation", "equals": [true]}]]},
+        {"id": "MS6", "title": "一次性 Docker／SQL 環境實測", "when": [[{"risk_flags": ["migration"]}]]}
+      ]
     },
     {
       "name": "data_impact",
-      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["data_write", "migration", "schema"], "impact_effect": ["data"]},
+      "kind": "evidence",
+      "section": "Contract and data impact",
+      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["data_write", "migration", "schema", "financial"], "impact_effect": ["data", "destructive"]},
       "suppress_when": [
-        [{"fact": "safe_no_data_impact", "equals": [true]}]
+        [{"fact": "data_transform", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": ["schema_compatibility"],
+      "steps": [
+        {"id": "DI1", "title": "受影響資料範圍（表、列、量級）", "when": [[{"always": true}]]},
+        {"id": "DI2", "title": "寫入路徑盤點：誰會寫這些欄位／表", "when": [[{"impact_effect": ["data", "destructive"]}], [{"risk_flags": ["data_write"]}]]},
+        {"id": "DI3", "title": "讀取路徑盤點與 NULL／預設值語意", "when": [[{"not": {"fact": "has_consumer", "equals": [false]}}]]},
+        {"id": "DI4", "title": "backfill／transform 正確性與既有髒資料", "when": [[{"fact": "data_transform", "equals": [true]}]]},
+        {"id": "DI5", "title": "不變式與對帳（總額、筆數、狀態機守恆）", "when": [[{"risk_flags": ["financial", "irreversible"]}]]},
+        {"id": "DI6", "title": "資料回復方案（備份點、可否重算）", "when": [[{"fact": "destructive_operation", "equals": [true]}], [{"risk_flags": ["irreversible"]}]]}
+      ]
     },
     {
       "name": "contract_review",
-      "candidate": {"risk_flags": ["contract"], "impact_effect": ["contract"]},
+      "kind": "evidence",
+      "section": "Contract and data impact",
+      "candidate": {"risk_flags": ["contract"], "impact_effect": ["contract"], "impact_scope": ["cross_project"]},
       "suppress_when": [
-        [{"fact": "safe_no_contract_impact", "equals": [true]}]
+        [{"fact": "public_api_change", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": [],
+      "steps": [
+        {"id": "CR1", "title": "介面清單 diff：API／DTO／event／序列化欄位", "when": [[{"always": true}]]},
+        {"id": "CR2", "title": "逐項分類 additive / breaking", "when": [[{"always": true}]]},
+        {"id": "CR3", "title": "consumer 盤點（內部呼叫端、外部串接方）", "when": [[{"impact_scope_at_least": "multi_module"}], [{"impact_effect": ["contract"]}]]},
+        {"id": "CR4", "title": "版本化與過渡策略（雙寫、雙讀、deprecation）", "when": [[{"impact_effect": ["contract"]}], [{"risk_flags": ["contract"]}]]},
+        {"id": "CR5", "title": "跨專案協調需求與通知對象", "when": [[{"impact_scope": ["cross_project"]}]]}
+      ]
     },
     {
       "name": "execution_path_review",
-      "candidate": {"impact_effect": ["local_behavior", "shared_behavior", "contract", "data"], "impact_scope": ["multi_module", "cross_project"]},
+      "kind": "evidence",
+      "section": "Execution path and regression evidence",
+      "candidate": {"impact_effect": ["shared_behavior", "contract", "data", "destructive"], "impact_scope": ["multi_module", "cross_project"], "change_kinds": ["refactor"]},
       "suppress_when": [
-        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+        [{"fact": "logic_change", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": [],
+      "steps": [
+        {"id": "EP1", "title": "改動函式／模組的進入點盤點", "when": [[{"always": true}]]},
+        {"id": "EP2", "title": "呼叫鏈追蹤至模組邊界", "when": [[{"impact_scope_at_least": "module"}]]},
+        {"id": "EP3", "title": "並發與交易邊界是否被改變", "when": [[{"impact_effect_at_least": "shared_behavior"}]]},
+        {"id": "EP4", "title": "錯誤路徑與邊界輸入（失敗、逾時、空值、極值）", "when": [[{"change_kind": ["feature", "refactor"]}], [{"risk_flags": ["behavior_change"]}]]},
+        {"id": "EP5", "title": "跨模組／跨專案擴散清單", "when": [[{"impact_scope_at_least": "multi_module"}]]}
+      ]
     },
     {
       "name": "regression_validation",
-      "candidate": {"risk_flags": ["behavior_change"], "change_kinds": ["fix", "feature", "refactor"]},
+      "kind": "evidence",
+      "section": "Execution path and regression evidence",
+      "candidate": {"risk_flags": ["behavior_change"], "change_kinds": ["refactor"], "impact_effect": ["shared_behavior", "contract", "data", "destructive"], "impact_scope": ["multi_module", "cross_project"]},
       "suppress_when": [
-        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+        [{"fact": "logic_change", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": ["execution_path_review"],
+      "steps": [
+        {"id": "RV1", "title": "既有行為基準（before 的實際輸出／狀態）", "when": [[{"always": true}]]},
+        {"id": "RV2", "title": "受影響既有測試清單", "when": [[{"always": true}]]},
+        {"id": "RV3", "title": "執行受影響測試並記錄結果", "when": [[{"always": true}]]},
+        {"id": "RV4", "title": "before／after 對照證據", "when": [[{"change_kind": ["refactor"]}], [{"risk_flags": ["behavior_change"]}]]},
+        {"id": "RV5", "title": "未覆蓋缺口與其風險說明", "when": [[{"impact_scope_at_least": "multi_module"}], [{"change_kind": ["refactor"]}]]}
+      ]
     },
     {
       "name": "reviewer",
+      "kind": "role",
+      "section": "Reviewer result",
       "candidate": {"code_change": true},
       "suppress_when": [
-        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+        [{"fact": "logic_change", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}]
       ],
-      "requires": ["baseline_validation"]
+      "order_after": ["schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
+      "steps": [],
+      "dimension_waivers": [
+        {
+          "dimensions": ["Architecture consistency"],
+          "reason": "no call site outside the changed files and no shared-state write in the diff",
+          "max_scope": "module",
+          "when": [[
+            {"fact": "symbol_reach", "equals": ["none"]},
+            {"fact": "public_api_change", "equals": [false]},
+            {"fact": "has_consumer", "equals": [false]},
+            {"fact": "shared_state_write", "equals": [false]},
+            {"fact": "data_transform", "equals": [false]},
+            {"fact": "destructive_operation", "equals": [false]}
+          ]]
+        }
+      ]
     },
     {
       "name": "adversarial",
-      "candidate": {"risk_flags": ["financial", "data_write", "migration", "irreversible", "schema", "contract"]},
+      "kind": "role",
+      "section": "Adversarial result",
+      "candidate": {"risk_flags": ["financial", "data_write", "migration", "irreversible", "schema", "contract"], "impact_effect": ["data", "contract", "destructive"]},
       "suppress_when": [
-        [{"fact": "safe_no_high_risk_impact", "equals": [true]}]
+        [{"fact": "logic_change", "equals": [false]}, {"fact": "data_transform", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}, {"fact": "public_api_change", "equals": [false]}]
       ],
-      "requires": ["reviewer"]
+      "order_after": ["reviewer"],
+      "steps": []
     },
     {
       "name": "verifier",
-      "candidate": {"code_change": true},
+      "kind": "role",
+      "section": "Verifier result",
+      "candidate": {"code_change": true, "risk_flags": ["ui", "behavior_change", "migration", "data_write"], "impact_effect": ["local_behavior", "shared_behavior", "contract", "data", "destructive"]},
       "suppress_when": [
-        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+        [{"fact": "logic_change", "equals": [false]}, {"fact": "public_api_change", "equals": [false]}, {"fact": "data_transform", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}]
       ],
-      "requires": ["reviewer"]
+      "order_after": ["adversarial"],
+      "steps": []
     }
   ]
 }

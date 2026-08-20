@@ -22,7 +22,9 @@
 
 ## Adversarial 複查與 Mutation check 觸發
 
-`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是 Adversarial 的候選條件。新 task 由 `workflow_planner` 依 evidence 判定；只有實際高風險 impact 未被明確 suppress 時才 selected。舊 task 沒有 Planner decision 時沿用原本的保守觸發。`financial`／`data_write` 命中時另需 mutation check；觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為相容性來源。
+`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是 Adversarial 的候選條件。新 task 由 `workflow_planner` 依 observed evidence 判定；只有實際高風險 impact 未被明確 suppress 時才 selected，且 Adversarial 可以在沒有 Reviewer 的組合中單獨執行。舊 task 沒有 Planner decision 時沿用原本的保守觸發。
+
+表格右欄的 freeze-required 與額外段落同樣是**宣告觸發、證據解除**：flag 一旦填上就生效，只有當它代表的 capability（`schema`→`schema_compatibility`、`migration`→`migration_safety`、`data_write`／`financial`→`data_impact`、`contract`→`contract_review`，皆另含 `adversarial`）全部被 observed evidence 抑制時，對應的 freeze 與段落要求才會一併解除。`authorization`、`cross_feature`、`unclear_requirements` 無法由 evidence 解除，填上就一定生效。`financial`／`data_write` 命中時另需 mutation check；觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為相容性來源。
 
 ## Freeze-required 詳細規則
 

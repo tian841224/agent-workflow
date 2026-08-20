@@ -93,6 +93,66 @@ def _retro_check(content: str, task_path: Path, issues: list[str]) -> None:
             issues.append('a regression needs framework_change: either "recorded:<retro-id>" from retro.py -Action Record, or "not_needed - <reason>"')
 
 
+def decision_issues(data: dict[str, Any], plan: dict[str, Any], issues: list[str]) -> None:
+    """The recorded decision must reproduce the canonical planner result exactly."""
+    expected_profile = str(data.get("workflow_profile", ""))
+    if expected_profile and not re.fullmatch(r"<.*>", expected_profile) and expected_profile != str(plan["profile"]):
+        issues.append(f"workflow_profile is {expected_profile}, but planner calculated {plan['profile']}")
+    raw = str(data.get("workflow_decision", ""))
+    if not raw or re.fullmatch(r"<.*>", raw):
+        issues.append("planner-enabled task requires a non-placeholder workflow_decision JSON object")
+        return
+    decision = json.loads(raw)
+    if decision.get("final_action") != plan.get("final_action"):
+        issues.append("workflow_decision final_action does not match the planner result")
+    for key in ("selected", "suppressed", "unknown"):
+        if not isinstance(decision.get(key), list):
+            issues.append(f"workflow_decision is missing list field: {key}")
+            return
+    names = [{str(item.get("name")) for item in decision.get(key, []) if isinstance(item, dict)} |
+             {str(item) for item in decision.get(key, []) if isinstance(item, str)} for key in ("selected", "suppressed", "unknown")]
+    if names[0] & names[1]:
+        issues.append("workflow_decision lists the same capability as both selected and suppressed")
+    if names[1] & names[2]:
+        issues.append("workflow_decision lists the same capability as both suppressed and unknown")
+    if decision_projection(decision) != decision_projection(plan):
+        issues.append("workflow_decision graph does not match the canonical planner result")
+
+
+# A declared risk flag is discharged only when observed evidence suppressed every
+# capability that flag stands for. Declared risk always escalates; only evidence lowers it.
+FLAG_CAPABILITIES = {
+    "schema": ("schema_compatibility", "adversarial"),
+    "migration": ("migration_safety", "adversarial"),
+    "data_write": ("data_impact", "adversarial"),
+    "financial": ("data_impact", "adversarial"),
+    "contract": ("contract_review", "adversarial"),
+    "irreversible": ("adversarial",),
+}
+
+
+def effective_flags(flags: list[str], plan: dict[str, Any]) -> list[str]:
+    suppressed = {str(item.get("name")) for item in plan.get("suppressed", [])}
+    selected = {str(item.get("name")) for item in plan.get("selected", [])}
+    kept = []
+    for flag in flags:
+        capabilities = FLAG_CAPABILITIES.get(flag, ())
+        if capabilities and all(name in suppressed and name not in selected for name in capabilities):
+            continue
+        kept.append(flag)
+    return kept
+
+
+def required_evidence(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """Selected evidence capabilities collapsed to section -> steps (sections may be shared)."""
+    required: dict[str, list[dict[str, str]]] = {}
+    for capability in plan.get("selected", []):
+        if capability.get("kind") != "evidence":
+            continue
+        required.setdefault(str(capability.get("section")), []).extend(capability.get("steps", []))
+    return required
+
+
 def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop") -> dict[str, Any]:
     issues: list[str] = []
     waiting = False
@@ -146,80 +206,94 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
         if planner_task:
             try:
                 plan = plan_task(data, cwd=cwd)
-                profile = str(plan["profile"])
-                expected_profile = str(data.get("workflow_profile", ""))
-                if expected_profile and expected_profile != profile:
-                    issues.append(f"workflow_profile is {expected_profile}, but planner calculated {profile}")
-                decision_raw = str(data.get("workflow_decision", ""))
-                if not decision_raw or re.fullmatch(r"<.*>", decision_raw):
-                    issues.append("planner-enabled task requires a non-placeholder workflow_decision JSON object")
-                else:
-                    decision = json.loads(decision_raw)
-                    if decision.get("profile") != profile:
-                        issues.append("workflow_decision profile does not match the planner result")
-                    if decision.get("final_action") != plan.get("final_action"):
-                        issues.append("workflow_decision final_action does not match the planner result")
-                    decision_lists_valid = True
-                    for key in ("selected", "suppressed", "unknown"):
-                        if not isinstance(decision.get(key), list):
-                            issues.append(f"workflow_decision is missing list field: {key}")
-                            decision_lists_valid = False
-                    if decision_lists_valid:
-                        expected = decision_projection(plan)
-                        actual = decision_projection(decision)
-                        if actual != expected:
-                            issues.append("workflow_decision graph does not match the canonical planner result")
-            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                decision_issues(data, plan, issues)
+            except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
                 issues.append(f"workflow planner failed: {exc}")
-                profile = "elevated"
                 planner_failed = True
+        if planner_task and not planner_failed:
+            profile = str(plan["profile"])
+            role_set = set(plan.get("roles", []))
         else:
-            profile = get_task_profile(code_change, flags, change_kind, role)
-        planner_roles = set(plan.get("roles", []))
-        needs_roles = code_change and not waiting and (bool(planner_roles) or planner_failed if planner_task else True)
-        extended = needs_roles and profile == "elevated"
+            profile = "elevated" if planner_task else get_task_profile(code_change, flags, change_kind, role)
+            role_set = {"reviewer", "verifier"} if code_change else set()
+            if role_set and (planner_task or any(flag in schema["x_agent_workflow"]["adversarial_required"] for flag in flags)):
+                role_set.add("adversarial")
+        needs_roles = code_change and not waiting and bool(role_set)
+        # 'extended' only drives the legacy profile path; planner tasks derive their
+        # requirements from the selected capabilities instead.
+        extended = (not planner_task) and needs_roles and profile == "elevated"
+        if planner_task and not planner_failed:
+            flags = effective_flags(flags, plan)
         freeze_flags = schema["x_agent_workflow"]["freeze_required"]
         if any(flag in freeze_flags for flag in flags):
             if not data.get("frozen_at"): issues.append("freeze-required task has no frozen_at")
-            for name in ("Non-goals and compatibility", "Current state and impact", "Decision and tradeoffs", "Boundary and error paths", "User confirmation"): 
+            for name in ("Non-goals and compatibility", "Current state and impact", "Decision and tradeoffs", "Boundary and error paths", "User confirmation"):
                 if not re.search(rf"(?m)^## {re.escape(name)}", content): issues.append(f"missing section: {name}")
         if any(flag in flags for flag in ("behavior_change", "ui")) or any(flag in freeze_flags for flag in flags): missing_section(content, "Acceptance cases", issues)
-        if any(flag in schema["x_agent_workflow"]["contract_impact_required"] for flag in flags): missing_section(content, "Contract and data impact", issues)
         if any(flag in flags for flag in ("cross_feature", "migration", "irreversible")): missing_section(content, "Implementation sequence", issues)
         if "ui" in flags: missing_section(content, "Browser verification", issues)
         if change_kind == "refactor": missing_section(content, "Behavior invariants and before-after evidence", issues)
-        if extended:
-            if cwd:
-                fp = fingerprint(cwd, str(data.get("base_commit", "HEAD")))
-                current = str(fp.get("sha256", ""))
-                if not current: issues.append(f"cannot compute the working tree fingerprint: {fp.get('error', '')}")
-            else: current = ""
+        current = ""
+        if cwd and extended:
+            fp = fingerprint(cwd, str(data.get("base_commit", "HEAD")))
+            current = str(fp.get("sha256", ""))
+            if not current: issues.append(f"cannot compute the working tree fingerprint: {fp.get('error', '')}")
+        # A planner task is "deep" when it selected evidence work or an adversarial pass;
+        # that is the composable equivalent of the legacy elevated profile.
+        evidence_sections = required_evidence(plan) if planner_task and not planner_failed else {}
+        deep = bool(evidence_sections) or (planner_task and not planner_failed and "adversarial" in role_set)
+        if planner_task and not planner_failed:
+            for name, steps in evidence_sections.items():
+                missing_section(content, name, issues)
+                body = section(content, name)
+                for step in steps:
+                    step_id = str(step.get("id"))
+                    value = line_value(body, step_id)
+                    if not value or re.fullmatch(r"<.*>", value):
+                        issues.append(f"'## {name}' has no evidence line '- {step_id}: <結論>' ({step.get('title', '')})")
+            if plan.get("suppressed") or plan.get("unknown"):
+                missing_section(content, "Impact surface", issues)
+            if deep:
+                project_docs_issue(content, cwd, issues)
+        elif extended:
+            if any(flag in schema["x_agent_workflow"]["contract_impact_required"] for flag in flags): missing_section(content, "Contract and data impact", issues)
             project_docs_issue(content, cwd, issues)
             missing_section(content, "Impact surface", issues)
             missing_section(content, "Execution path and regression evidence", issues)
-            if current and pre_passed: fingerprint_issue(validation_body, "pre-review", current, issues)
+        elif not planner_task and any(flag in schema["x_agent_workflow"]["contract_impact_required"] for flag in flags):
+            missing_section(content, "Contract and data impact", issues)
+        verify_fingerprint = bool(current) and extended
+        if verify_fingerprint and pre_passed: fingerprint_issue(validation_body, "pre-review", current, issues)
         if needs_roles and not waived:
-            review = section(content, "Reviewer result")
-            if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", review): issues.append("Reviewer result is missing or not passed")
-            dimensions = schema["x_agent_workflow"]["reviewer_dimensions"]
-            for dim in dimensions:
-                allowed = r"(?:PASS|N/A)" if dim.get("na_allowed") else r"PASS"
-                if not re.search(rf"(?mi)^\s*-\s*{re.escape(dim['name'])}:\s*{allowed}(?:\s+.*)?\s*$", review): issues.append(f"Reviewer result missing or not passed dimension: {dim['name']}")
-            if extended and cwd and current: fingerprint_issue(review, "Reviewer result", current, issues)
-            needs_adversarial = ("adversarial" in planner_roles) if planner_task and not planner_failed else any(flag in schema["x_agent_workflow"]["adversarial_required"] for flag in flags)
-            if needs_adversarial:
+            if "reviewer" in role_set:
+                review = section(content, "Reviewer result")
+                if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", review): issues.append("Reviewer result is missing or not passed")
+                # Blast-radius dimensions may be answered N/A when the planner proved there is
+                # no blast radius; a waived N/A still has to carry its reason.
+                waived_dimensions = {str(name) for item in plan.get("selected", [])
+                                     if item.get("name") == "reviewer" for name in item.get("waived_dimensions", [])}
+                for dim in schema["x_agent_workflow"]["reviewer_dimensions"]:
+                    # [ \t] not \s: \s matches the newline and would let the reason be satisfied
+                    # by the '-' bullet of the next dimension.
+                    if dim["name"] in waived_dimensions: allowed = r"(?:PASS|N/A[ \t]*-[ \t]*\S.*)"
+                    elif dim.get("na_allowed"): allowed = r"(?:PASS|N/A)"
+                    else: allowed = r"PASS"
+                    if not re.search(rf"(?mi)^\s*-\s*{re.escape(dim['name'])}:\s*{allowed}(?:\s+.*)?\s*$", review): issues.append(f"Reviewer result missing or not passed dimension: {dim['name']}")
+                if verify_fingerprint: fingerprint_issue(review, "Reviewer result", current, issues)
+            if "adversarial" in role_set:
                 adversarial = section(content, "Adversarial result")
                 if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", adversarial): issues.append("Adversarial result is missing or not passed")
                 for name in ("Provenance", "Pattern fan-out", "Engine semantics", "Cross-round accumulation"):
                     if not re.search(rf"(?mi)^\s*-\s*{re.escape(name)}:\s*PASS(?:\s+.*)?\s*$", adversarial): issues.append(f"Adversarial result missing or not passed check: {name}")
-                if extended and cwd and current: fingerprint_issue(adversarial, "Adversarial result", current, issues)
-        if needs_roles and not waived:
-            verify = section(content, "Verifier result")
-            if not re.search(r"(?mi)^\s*-\s*PASS\s*$", verify): issues.append("Verifier result is missing or not passed")
-            if extended and cwd and current: fingerprint_issue(verify, "Verifier result", current, issues)
+                if verify_fingerprint: fingerprint_issue(adversarial, "Adversarial result", current, issues)
+            if "verifier" in role_set:
+                verify = section(content, "Verifier result")
+                if not re.search(r"(?mi)^\s*-\s*PASS\s*$", verify): issues.append("Verifier result is missing or not passed")
+                if verify_fingerprint: fingerprint_issue(verify, "Verifier result", current, issues)
         if mode == "Close" and code_change and role != "worker":
             if not change_kind: issues.append("code change has no change_kind (fix | feature | refactor | chore)")
-            if extended and change_kind in {"feature", "refactor"} and not line_value(section(content, "Project docs"), "updated"):
+            docs_required = extended or deep
+            if docs_required and change_kind in {"feature", "refactor"} and not line_value(section(content, "Project docs"), "updated"):
                 issues.append(f"'## Project docs' has no '- updated:' line (change_kind {change_kind} requires a disposition here)")
             _retro_check(content, path, issues)
             if extended and role in {"coordinator", "worker"} and not waived and data.get("independence") != "native":
