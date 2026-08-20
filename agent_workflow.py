@@ -33,11 +33,12 @@ from agent_workflow.waive_roles import main as waive_roles_main
 from agent_workflow.worktree_fingerprint import main as fingerprint_main
 from agent_workflow.orchestrate import main as orchestrate_main
 from agent_workflow.migrate import main as migrate_main
+from agent_workflow.workflow_planner import main as workflow_plan_main
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("git-guard", "role-guard", "project-resolver", "task-gate", "validate-task", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "learn", "memory-context", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
+    parser.add_argument("command", choices=("git-guard", "role-guard", "project-resolver", "task-gate", "validate-task", "workflow-plan", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "learn", "memory-context", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
     args, rest = parser.parse_known_args()
     if args.command == "git-guard":
         return git_guard_main(rest)
@@ -47,6 +48,7 @@ def main() -> int:
         "project-resolver": project_resolver_main,
         "task-gate": task_gate_main,
         "validate-task": validate_task_main,
+        "workflow-plan": workflow_plan_main,
         "worktree-fingerprint": fingerprint_main,
         "close-task": close_task_main,
         "check-task": check_task_main,

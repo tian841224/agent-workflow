@@ -28,6 +28,7 @@
     "agent_workflow/split_plan.py",
     "agent_workflow/task_gate.py",
     "agent_workflow/task_profile.py",
+    "agent_workflow/workflow_planner.py",
     "agent_workflow/validate_task.py",
     "agent_workflow/waive_roles.py",
     "agent_workflow/worktree_fingerprint.py",
@@ -59,6 +60,7 @@
     "scripts/migrate-v3.py",
     "scripts/retro.py",
     "scripts/task-profile.py",
+    "scripts/workflow-plan.py",
     "scripts/path-grammar.py",
     "scripts/codex-hook-trust.py",
     "templates/task.md",
@@ -66,6 +68,7 @@
     "schemas/project.schema.json",
     "schemas/knowledge.schema.json",
     "schemas/task.schema.json",
+    "schemas/workflow-policy.json",
     "schemas/retro.schema.json",
     "schemas/import-manifest.schema.json"
   ],

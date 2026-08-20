@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/workflow-policy.json",
+  "version": 1,
+  "baseline": ["task_decision", "diff_check"],
+  "capabilities": [
+    {
+      "name": "schema_compatibility",
+      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["schema", "migration"]},
+      "suppress_when": [
+        [{"fact": "schema_operation", "equals": ["none"]}],
+        [{"fact": "safe_additive_schema", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "migration_safety",
+      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["migration"]},
+      "suppress_when": [
+        [{"fact": "safe_additive_schema", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "data_impact",
+      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["data_write", "migration", "schema"], "impact_effect": ["data"]},
+      "suppress_when": [
+        [{"fact": "safe_no_data_impact", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "contract_review",
+      "candidate": {"risk_flags": ["contract"], "impact_effect": ["contract"]},
+      "suppress_when": [
+        [{"fact": "safe_no_contract_impact", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "execution_path_review",
+      "candidate": {"impact_effect": ["local_behavior", "shared_behavior", "contract", "data"], "impact_scope": ["multi_module", "cross_project"]},
+      "suppress_when": [
+        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "regression_validation",
+      "candidate": {"risk_flags": ["behavior_change"], "change_kinds": ["fix", "feature", "refactor"]},
+      "suppress_when": [
+        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "reviewer",
+      "candidate": {"code_change": true},
+      "suppress_when": [
+        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+      ],
+      "requires": ["baseline_validation"]
+    },
+    {
+      "name": "adversarial",
+      "candidate": {"risk_flags": ["financial", "data_write", "migration", "irreversible", "schema", "contract"]},
+      "suppress_when": [
+        [{"fact": "safe_no_high_risk_impact", "equals": [true]}]
+      ],
+      "requires": ["reviewer"]
+    },
+    {
+      "name": "verifier",
+      "candidate": {"code_change": true},
+      "suppress_when": [
+        [{"fact": "safe_no_runtime_impact", "equals": [true]}]
+      ],
+      "requires": ["reviewer"]
+    }
+  ]
+}

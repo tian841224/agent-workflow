@@ -4,8 +4,16 @@ project_id: <project-id>
 worktree_id: <worktree-id>
 status: in_progress
 code_change: <true | false>
+task_type: <fix | feature | refactor | chore | schema | migration | config | docs | investigation>
 change_kind: <fix | feature | refactor | chore；code_change: true 時必填>
 risk_flags: []
+impact_scope: <file | module | multi_module | cross_project>
+impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
+impact_confidence: <high | medium | low>
+workflow_request: auto
+workflow_profile:
+workflow_facts: <JSON object with evidence facts, or empty for conservative planning>
+workflow_decision: <JSON decision record produced by workflow-plan>
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
 frozen_at:

@@ -11,6 +11,7 @@ from typing import Any
 from .frontmatter import frontmatter, read_text
 from .task_profile import get_task_profile
 from .validate_task import validate_task
+from .workflow_planner import decision_projection, plan_task, planner_enabled
 from .worktree_fingerprint import fingerprint
 
 
@@ -139,8 +140,43 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
         flags = [str(flag) for flag in validation.get("risk_flags", [])]
         change_kind = str(data.get("change_kind", ""))
         code_change = data.get("code_change") is True
-        profile = get_task_profile(code_change, flags, change_kind, role)
-        needs_roles = code_change and not waiting
+        planner_task = code_change and planner_enabled(data)
+        plan: dict[str, Any] = {}
+        planner_failed = False
+        if planner_task:
+            try:
+                plan = plan_task(data, cwd=cwd)
+                profile = str(plan["profile"])
+                expected_profile = str(data.get("workflow_profile", ""))
+                if expected_profile and expected_profile != profile:
+                    issues.append(f"workflow_profile is {expected_profile}, but planner calculated {profile}")
+                decision_raw = str(data.get("workflow_decision", ""))
+                if not decision_raw or re.fullmatch(r"<.*>", decision_raw):
+                    issues.append("planner-enabled task requires a non-placeholder workflow_decision JSON object")
+                else:
+                    decision = json.loads(decision_raw)
+                    if decision.get("profile") != profile:
+                        issues.append("workflow_decision profile does not match the planner result")
+                    if decision.get("final_action") != plan.get("final_action"):
+                        issues.append("workflow_decision final_action does not match the planner result")
+                    decision_lists_valid = True
+                    for key in ("selected", "suppressed", "unknown"):
+                        if not isinstance(decision.get(key), list):
+                            issues.append(f"workflow_decision is missing list field: {key}")
+                            decision_lists_valid = False
+                    if decision_lists_valid:
+                        expected = decision_projection(plan)
+                        actual = decision_projection(decision)
+                        if actual != expected:
+                            issues.append("workflow_decision graph does not match the canonical planner result")
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                issues.append(f"workflow planner failed: {exc}")
+                profile = "elevated"
+                planner_failed = True
+        else:
+            profile = get_task_profile(code_change, flags, change_kind, role)
+        planner_roles = set(plan.get("roles", []))
+        needs_roles = code_change and not waiting and (bool(planner_roles) or planner_failed if planner_task else True)
         extended = needs_roles and profile == "elevated"
         freeze_flags = schema["x_agent_workflow"]["freeze_required"]
         if any(flag in freeze_flags for flag in flags):
@@ -170,7 +206,8 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
                 allowed = r"(?:PASS|N/A)" if dim.get("na_allowed") else r"PASS"
                 if not re.search(rf"(?mi)^\s*-\s*{re.escape(dim['name'])}:\s*{allowed}(?:\s+.*)?\s*$", review): issues.append(f"Reviewer result missing or not passed dimension: {dim['name']}")
             if extended and cwd and current: fingerprint_issue(review, "Reviewer result", current, issues)
-            if any(flag in schema["x_agent_workflow"]["adversarial_required"] for flag in flags):
+            needs_adversarial = ("adversarial" in planner_roles) if planner_task and not planner_failed else any(flag in schema["x_agent_workflow"]["adversarial_required"] for flag in flags)
+            if needs_adversarial:
                 adversarial = section(content, "Adversarial result")
                 if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", adversarial): issues.append("Adversarial result is missing or not passed")
                 for name in ("Provenance", "Pattern fan-out", "Engine semantics", "Cross-round accumulation"):

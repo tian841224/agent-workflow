@@ -4,8 +4,16 @@ project_id: <project-id>
 worktree_id: <worktree-id>
 status: in_progress
 code_change: true
+task_type: <fix | feature | refactor | chore | schema | migration | config | docs | investigation>
 change_kind: <fix | feature | refactor | chore>
 risk_flags: []
+impact_scope: <file | module | multi_module | cross_project>
+impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
+impact_confidence: <high | medium | low>
+workflow_request: auto
+workflow_profile:
+workflow_facts:
+workflow_decision:
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
 frozen_at:

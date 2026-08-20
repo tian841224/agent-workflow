@@ -22,7 +22,7 @@
 
 ## Adversarial 複查與 Mutation check 觸發
 
-`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標任一命中時，所有 `code_change: true` task 都加開原生 `agent-workflow-adversarial` 複查；`financial`／`data_write` 命中時另需 mutation check。觸發集合以 `schemas/task.schema.json` 的 `x_agent_workflow` 為準。
+`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是 Adversarial 的候選條件。新 task 由 `workflow_planner` 依 evidence 判定；只有實際高風險 impact 未被明確 suppress 時才 selected。舊 task 沒有 Planner decision 時沿用原本的保守觸發。`financial`／`data_write` 命中時另需 mutation check；觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為相容性來源。
 
 ## Freeze-required 詳細規則
 

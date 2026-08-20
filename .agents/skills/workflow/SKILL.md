@@ -10,10 +10,11 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 本 skill 只有在實際修改「目標專案」的 application source code logic 或 test code logic 時啟用。其他任務直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。
 
-### 流程層級
+### Workflow Planner 與流程層級
 
-- Standard code task：`task → targeted validation → Reviewer → Verifier`。不強制 Project docs、fingerprint 或完整 execution-path 審查。
-- Elevated code task：跨模組／契約／資料／權限變更、命中需要額外證據的 risk flag，或明確需要平行編排時，才加入 Project docs、Impact surface、freeze、完整 execution path、mutation check、browser 或 orchestration。
+- Workflow 不是由 task type 固定選一條 pipeline，而是由 `schemas/workflow-policy.json` 的 capability planner 組合。Task type 只產生候選 capability；`impact_scope`、`impact_effect`、`impact_confidence` 與 evidence 逐一決定 selected／suppressed／unknown。
+- 沒有角色 capability selected 時可由主對話 direct handling，但仍需 Planner decision 與 baseline evidence；有 deterministic capability 但沒有角色時可走 light。
+- Standard code task：Planner selected Reviewer → Verifier。Elevated code task：Planner selected extended evidence 與必要的 Reviewer → Adversarial → Verifier。
 - Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 
 | 任務 | Task | 額外流程 | 角色 |
@@ -23,7 +24,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 | Elevated code | extended task | 依 risk flag 增加 gate | Reviewer → Adversarial（必要時）→ Verifier |
 | coordinator／worker | extended task | orchestration、fingerprint、close gate | 依上列規則 |
 
-`task_profile.py` 的 profile 與額外 risk gate 分離：`behavior_change`／`ui` 可維持 Standard，但仍保留 acceptance cases／browser 等適用 gate；`contract`、`schema`、`data_write`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 才會將一般 code task 升為 Elevated。六個 Adversarial 旗標仍由 schema 的 `adversarial_required` 單獨控制。
+`workflow_planner.py` 是新 task 的流程分流入口；`task_profile.py` 保留 legacy API 與舊 task 的保守 fallback。`unknown` 不得 suppress，宣告比 evidence 小時只能升級。六個 Adversarial 旗標仍保留在 schema，供 Planner 與 legacy fallback 使用。
 
 ## 1. 建立 Task
 
@@ -31,7 +32,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 只有 Elevated task 預期會修改架構、契約或跨模組行為時，才執行 `~/.agent-workflow/runtime/scripts/project-doc.py -Action Lookup -Paths '<任務涉及的路徑>'`，讀過的路徑填進 task 的 `## Project docs`（見第 4 節、[project-docs.md](project-docs.md)）。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。
-5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 或 test code 邏輯時為 `true`；除此之外（含設定／文件、script 修改與操作，或只執行測試、調查、code review）一律為 `false`。`code_change: true` 時同時填 `change_kind: fix | feature | refactor | chore`；是否回顧由 regression、重複修正或使用者要求決定。
+5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 或 test code 邏輯時為 `true`；除此之外（含設定／文件、script 修改與操作，或只執行測試、調查、code review）一律為 `false`。Code task 另填 `task_type`、impact fields 與 `workflow_request`；Planner 產生 `workflow_profile` 與 `workflow_decision`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
 6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `frozen_at` 先留空，取得使用者對目標、非目標與完成條件的確認後才填入；只有啟用進階 `impact-guard` 的 Elevated／編排流程才會機械攔截未凍結的 code 編輯。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
@@ -50,7 +51,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 依實際風險判斷是否加入 `risk_flags`，不為湊流程加 flag。允許值、各值定義與對應要求見 [risk-flags.md](risk-flags.md)。
 
-Reviewer／Verifier 是否啟動只看 `code_change`；命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 任一時，才在 Reviewer 與 Verifier 之間加開 Adversarial。這些高風險檢查適用於所有 code task，不因 Standard／Elevated 名稱而被跳過。non-code task 永遠不進入本流程（non-code tasks do not enter this workflow）。
+新 task 的 Reviewer／Verifier／Adversarial 是否啟動只看 Planner selected capabilities；舊 task 沒有 Planner decision 時才依 `code_change` 與既有高風險旗標 fallback。所有 suppress 必須有 reason/evidence，unknown 必須保留。non-code task 永遠不進入本流程。
 
 ## 4. 實作
 
@@ -77,7 +78,7 @@ Standard code task 在 diff 完成後執行相關測試與必要的 `~/.agent-wo
 
 ## 6. Reviewer、Adversarial 複查與 Verifier
 
-`code_change: true` 時，依序啟動原生 `agent-workflow-reviewer` 與 `agent-workflow-verifier`。命中六個高風險 flag 任一時，Reviewer PASS 後才加開原生 `agent-workflow-adversarial`（見 6a）。三者皆唯讀，方法論定義在各自角色檔案，本節只記錄觸發與回填規則。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
+新 task 依 Planner selected capabilities 啟動原生 `agent-workflow-reviewer`、`agent-workflow-adversarial` 與 `agent-workflow-verifier`；沒有 Planner decision 的舊 task 才依 `code_change` 與既有高風險 flag fallback。三者皆唯讀，方法論定義在各自角色檔案，本節只記錄觸發與回填規則。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
 
 Standard task 不需在每個角色前重算 fingerprint；主 agent 在送 Reviewer／Verifier 前應確認 diff 已穩定。只有 coordinator／worker 或明確啟用 legacy completion gate 的 Elevated task 才使用 `~/.agent-workflow/runtime/scripts/worktree-fingerprint.py`。
 
@@ -87,7 +88,7 @@ Standard task 不需在每個角色前重算 fingerprint；主 agent 在送 Revi
 
 ### 6a. Adversarial 複查
 
-Reviewer PASS、且 `risk_flags` 命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 任一時觸發（權威清單是 schema 的 `x_agent_workflow.adversarial_required`），對象是 Reviewer 已判定 PASS 的同一份 diff。固定四項檢查：溯源（Provenance）、模式擴散（Pattern fan-out）、底層語意查證（Engine semantics）、迭代累積複查（Cross-round accumulation）；各自的方法論見角色檔案，本節不重述。
+Planner selected `adversarial` 且 Reviewer PASS 後才觸發 Adversarial；沒有 Planner decision 的舊 task，仍以 `risk_flags` 命中 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 作為 fallback。對象是 Reviewer 已判定 PASS 的同一份 diff，固定四項檢查保持不變。
 
 - 結論逐項寫進 `## Adversarial result`（`- Provenance: PASS` 等），gate 會逐項檢查且不接受 `N/A`。
 - 有 blocker：主 agent 修正、重新驗證、回 Reviewer 重新確認 PASS，再送 Adversarial 複核。沒有 blocker 時角色只回報單行 `PASS`；有 blocker 時只列 blocker。

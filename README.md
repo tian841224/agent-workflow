@@ -16,7 +16,8 @@ Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF
   - `clean-comments/`：指導如何撰寫精簡、高資訊密度且位置精確的程式碼註解，落實職責分離與就近原則。
   - `localization-tw/`：正體中文（臺灣）在地化與翻譯技能，確保輸出符合臺灣華語母語者慣用方式，避免中國用語與簡體直譯。
 - `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source（`adversarial` 只在高風險 `risk_flags` 命中時，於 Reviewer PASS 後、Verifier 之前加開；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開）。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。角色唯讀由 Codex 原生 `sandbox_mode`、Claude agent-scoped hook 與三平台 runtime `role-guard` 共同強制；只有 `worker` 是允許寫入的開發角色。
-- `agent_workflow/`：Python 核心套件，提供完整的 runtime 實作、守門規則、驗證、記憶管理與專案文件邏輯。
+- `agent_workflow/`：Python 核心套件，提供完整的 runtime 實作、守門規則、驗證、記憶管理、workflow planning 與專案文件邏輯。
+- `schemas/workflow-policy.json` 與 `agent_workflow/workflow_planner.py`：以 task type 產生候選 capability，再用 impact facts 與可驗證 evidence 組合 selected／suppressed／unknown workflow；所有 suppress 都要能回溯 reason 與 evidence。
 - `agent_workflow.py` / `agent_workflow.cmd`：統一 CLI 入口（例如 `agent_workflow <command> [options]`）。
 - `scripts/`：相容 wrapper 入口（如 `scripts/knowledge.py`、`scripts/project-doc.py` 等）。
 - 預設 adapter 透過 `agent_workflow git-guard` 保護 destructive Git 操作。三平台 hook payload 差異只由 adapter 處理，README 不重複維護 hook 內部解析細節。
@@ -34,7 +35,7 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
 ```
 
-同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改「目標專案」source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。Standard code task 使用 `templates/task-minimal.md`；Elevated／coordinator／worker 才使用 extended task。只有 `true` 強制依序執行 Reviewer、Verifier（命中六個高代價旗標時，中間再加一輪 Adversarial 複查）；凍結、驗收案例、browser 與風險檢查仍依 `risk_flags` 漸進增加。
+同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改「目標專案」source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。Code task 由 `workflow-plan` 依 task type、impact facts 與 evidence 組合 capability；沒有角色 capability 時可由主對話 direct handling，但仍需 baseline evidence。
 
 `code_change: true` 時另填 `change_kind: fix | feature | refactor | chore`。它不在 schema 的 `required` 裡（既有 task 與 `orchestrate.py` 產生的 worker frontmatter 都沒有這個欄位），由 `task-gate.py --mode Close` 在結案時要求。
 
@@ -44,11 +45,11 @@ Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent
 
 `behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
 
-各值的定義、對應要求與 freeze-required 詳細規則，統一記錄在 [`.agents/skills/workflow/risk-flags.md`](.agents/skills/workflow/risk-flags.md)，修改流程時只需改這一份檔案；`risk_flags` 只控制凍結、驗收案例、browser 與風險檢查等額外要求是否漸進加入，不影響 Reviewer／Verifier 是否啟動；唯一例外是 Adversarial 複查，只由 `risk_flags` 觸發。
+各值的定義、對應要求與 freeze-required 詳細規則，統一記錄在 [`.agents/skills/workflow/risk-flags.md`](.agents/skills/workflow/risk-flags.md)。`risk_flags` 是 Planner 的候選條件與 legacy fallback 證據，不再單獨決定整條 workflow；unknown 不得被當成無影響。
 
 ### 實作、Pre-review、角色與收尾
 
-完整操作規則（Standard／Elevated workflow、Reviewer、Verifier 與條件式風險檢查）以 [`.agents/skills/workflow/SKILL.md`](.agents/skills/workflow/SKILL.md) 為唯一權威，本檔不重述——README 的定位是架構導覽，不是第二份操作手冊。角色 canonical source 見上方「架構」一節；legacy runtime gate 僅供 coordinator／worker 或明確啟用的 Elevated task 使用。
+完整操作規則（capability Planner、Reviewer、Verifier 與條件式風險檢查）以 [`.agents/skills/workflow/SKILL.md`](.agents/skills/workflow/SKILL.md) 為唯一權威，本檔不重述——README 的定位是架構導覽，不是第二份操作手冊。
 
 ## 平行編排
 

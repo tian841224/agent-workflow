@@ -74,6 +74,25 @@ def validate_task(task_path: str, schema_path: str | None = None) -> dict[str, A
     kind = str(data.get("change_kind", ""))
     if kind and not _ci(kind, properties["change_kind"]["enum"]):
         errors.append(f"invalid change_kind: {kind}")
+    for name in ("task_type", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "workflow_profile"):
+        value = str(data.get(name, ""))
+        allowed = properties.get(name, {}).get("enum", [])
+        if value and not _ci(value, allowed):
+            errors.append(f"invalid {name}: {value}")
+    if data.get("workflow_facts"):
+        try:
+            parsed_facts = json.loads(str(data["workflow_facts"]))
+            if not isinstance(parsed_facts, dict):
+                errors.append("workflow_facts must be a JSON object")
+        except json.JSONDecodeError:
+            errors.append("workflow_facts must contain valid JSON")
+    if data.get("workflow_decision"):
+        try:
+            parsed_decision = json.loads(str(data["workflow_decision"]))
+            if not isinstance(parsed_decision, dict):
+                errors.append("workflow_decision must be a JSON object")
+        except json.JSONDecodeError:
+            errors.append("workflow_decision must contain valid JSON")
     code_change: bool | None = data.get("code_change") if isinstance(data.get("code_change"), bool) else None
     if "code_change" in data and code_change is None:
         errors.append("code_change must be true or false")

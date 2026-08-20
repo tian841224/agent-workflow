@@ -1,29 +1,15 @@
-"""Central task profile classification shared by all Python gates."""
+"""Compatibility API for composable workflow planning."""
 
 from __future__ import annotations
 
+from typing import Any, Mapping
 
-ELEVATED_FLAGS = frozenset({
-    "authorization",
-    "contract",
-    "cross_feature",
-    "data_write",
-    "financial",
-    "irreversible",
-    "migration",
-    "schema",
-    "unclear_requirements",
-})
+from .workflow_planner import legacy_profile, plan_task, planner_enabled
 
 
 def get_task_profile(code_change: bool, risk_flags: list[str] | None = None,
-                     change_kind: str = "", subtask_role: str = "") -> str:
-    if not code_change:
-        return "non-code"
-    if subtask_role in {"coordinator", "worker"}:
-        return "elevated"
-    if ELEVATED_FLAGS.intersection(risk_flags or []):
-        return "elevated"
-    if change_kind in {"feature", "refactor"}:
-        return "elevated"
-    return "standard"
+                     change_kind: str = "", subtask_role: str = "",
+                     task: Mapping[str, Any] | None = None) -> str:
+    if task and planner_enabled(task):
+        return str(plan_task(task).get("profile", "standard"))
+    return legacy_profile(code_change, risk_flags, change_kind, subtask_role)
