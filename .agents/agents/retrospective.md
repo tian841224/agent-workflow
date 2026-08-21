@@ -33,7 +33,7 @@ description: 獨立唯讀的回歸歸因者。只在疑似 regression、同一�
    | `reviewer_dimension` | Reviewer 八面向中某一項該抓沒抓 |
    | `risk_flag` | `risk_flags` 判斷錯，導致該觸發的 Adversarial／freeze／mutation check 沒觸發 |
    | `completion_criteria` | 完成條件沒涵蓋這個情境，Verifier 照條件驗也驗不到 |
-   | `test_gap` | 測試沒涵蓋（TDD 沒寫到這個 case，或該區完全沒有測試基礎設施） |
+   | `test_gap` | 測試沒涵蓋（未遵循 [TDD skill](../skills/tdd/SKILL.md)、TDD 沒寫到這個 case，或該區完全沒有測試基礎設施） |
    | `pre_review_gap` | 確定性檢查或 hook 沒涵蓋，本來可以被機械攔下 |
    | `outside_framework` | 在框架合理範圍外，沒有任何 gate 應該為此負責 |
 

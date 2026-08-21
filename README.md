@@ -68,6 +68,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | Skill | 用途與適用時機 |
 | --- | --- |
 | [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由 planner 依實際觀察到的 impact 與 risk 判斷是否建立 task、啟用 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
+| [`tdd`](.agents/skills/tdd/SKILL.md) | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；source code 行為變更或 bug fix 時由 workflow 引用。 |
 | [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略或技術方案比較時，釐清目標、限制與完成條件。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
 | [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |

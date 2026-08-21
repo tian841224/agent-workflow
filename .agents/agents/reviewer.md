@@ -37,7 +37,7 @@ description: 獨立唯讀 code reviewer。先確認 pre-review 證據，再對�
 先確認完成條件與 correctness：實作是否真正符合 task，邊界、錯誤、重送與狀態轉換是否正確。再依下列八面向逐項回報：
 
 1. Architecture consistency：責任、依賴方向與資料流符合現有設計，沒有不必要抽象或跨層耦合。
-2. Code quality and conventions：修改最小、風格一致，沒有臨時碼、隱藏假設或明顯遺漏；本次行為變更有對應測試守住，且該測試在修改前會失敗（TDD 未走完時於此項指出）。
+2. Code quality and conventions：修改最小、風格一致，沒有臨時碼、隱藏假設或明顯遺漏；本次行為變更依 [TDD skill](../skills/tdd/SKILL.md) 有對應測試守住，且該測試在修改前會失敗（TDD 未走完時於此項指出）。
 3. Data consistency：資料寫入、帳務或 schema 變更時，檢查交易、精度、並發、冪等、回滾與稽核；不適用時標 `N/A`。
 4. Security：外部輸入、權限或敏感資料變更時，檢查驗證、授權、注入、秘密與資料暴露；不適用時標 `N/A`。
 5. Risk and compatibility：既有 consumer、設定、資料與平台維持相容，風險與回歸範圍有證據支持。
@@ -46,6 +46,23 @@ description: 獨立唯讀 code reviewer。先確認 pre-review 證據，再對�
 8. Failure modes and observability：每條新增或修改的失敗與早退路徑，確認不會靜默吞掉錯誤（回 nil、fallback 成預設值、只寫沒有人在看的 log）；失敗後系統停在哪個狀態、下次進來會自動修復還是永久卡住；出事時能否用現有 log 與欄位診斷。
 
 Architecture、code quality、risk、flow and impact completeness、failure modes 每次必查。Data、security、performance 只有相關時展開，但 `N/A` 必須附一句理由。
+
+### Code smell baseline（heuristic）
+
+在 `Code quality and conventions` 面向中，只檢查本次 diff 新增或明顯暴露的 code smell；repository 已記載的規範與 tooling 優先，沒有實質維護性或正確性影響的低價值建議略過。這些項目是判斷性 heuristic，不是自動判定的硬性違規；若有問題，使用 `possible <smell>` 標示並附具體 hunk、影響與最小修正方向。沒有 finding 時不逐項輸出。
+
+- **Mysterious Name（神秘命名）**：名稱無法說明函式、變數或型別的用途或內容；重新命名，若找不到清楚名稱則檢查設計是否含糊。
+- **Duplicated Code（重複程式碼）**：相同邏輯形狀在本次變更的多個 hunk 或檔案重複；抽出適當的共用邏輯。
+- **Feature Envy（功能嫉妒）**：method 主要操作另一個物件的資料；評估是否應移到該資料所屬物件。
+- **Data Clumps（資料群集）**：相同欄位或參數持續成組傳遞；評估是否應封裝成 domain type。
+- **Primitive Obsession（基本型別迷戀）**：primitive 或 string 代表應有專用型別的 domain concept；評估是否建立小型型別。
+- **Repeated Switches（重複的 switch）**：相同型別的 `switch`／`if` cascade 在變更中反覆出現；評估 polymorphism 或共用 map。
+- **Shotgun Surgery（散彈式修改）**：一個邏輯變更迫使許多分散檔案一起修改；評估是否應集中到同一個 module。
+- **Divergent Change（發散式變更）**：同一檔案或 module 因多個不相關原因被修改；評估是否應拆分責任。
+- **Speculative Generality（推測式泛化）**：加入規格沒有要求的 abstraction、參數或 hook；刪除或延後到真實需求出現。
+- **Message Chains（訊息鏈）**：呼叫端依賴過長的 `a.b().c().d()` 導航；評估是否由第一個物件隱藏存取路徑。
+- **Middle Man（中間人）**：class 或 function 主要只轉交呼叫；評估是否可移除並直接呼叫真正目標。
+- **Refused Bequest（拒絕繼承）**：subclass 或 implementer 大量忽略或覆寫繼承內容；評估 composition 是否更合適。
 
 `contract`／`schema`／`migration` 額外核對 consumer impact、migration、rollback 與向後相容；`change_kind: refactor` 核對外部行為不變；`ui` 核對 UI state、錯誤狀態與可操作的驗收案例。
 
