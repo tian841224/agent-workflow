@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: 僅在實際修改 source code logic 或 test code logic 時使用；此時建立並維護 task.md，由 workflow planner 依影響程度組合出該跑的 capability 與角色。其他非程式碼邏輯任務 bypass workflow、不建立 task、不執行角色，由單一主對話處理。
+description: 實際修改 application source code logic 時，由 workflow planner 依觀察到的 impact 與 risk 判斷是否建立 task、啟用 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改與其他非程式碼邏輯任務 bypass workflow，但仍應執行相關測試或必要驗證。
 ---
 
 # agent-workflow v5
@@ -8,7 +8,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 ## 適用範圍
 
-本 skill 只有在實際修改「目標專案」的 application source code logic 或 test code logic 時啟用。其他任務直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。
+實際修改「目標專案」的 application source code logic 時，由 planner 根據觀察到的 impact 與 risk 判斷是否建立 task、啟用 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍應執行相關測試，但直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。
 
 ### Workflow Planner 與流程層級
 
@@ -52,7 +52,7 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 只有 Elevated task 預期會修改架構、契約或跨模組行為時，才執行 `~/.agent-workflow/runtime/scripts/project-doc.py -Action Lookup -Paths '<任務涉及的路徑>'`，讀過的路徑填進 task 的 `## Project docs`（見第 4 節、[project-docs.md](project-docs.md)）。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。
-5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 或 test code 邏輯時為 `true`。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`；不需要 `workflow_decision`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
+5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`；不需要 `workflow_decision`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
 6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `frozen_at` 先留空，取得使用者對目標、非目標與完成條件的確認後才填入；只有啟用進階 `impact-guard` 的 Elevated／編排流程才會機械攔截未凍結的 code 編輯。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
@@ -81,14 +81,14 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 - Standard task 只需建立與修改點直接相關的 execution path；Elevated task 才要求從實際入口追到所有重要終點，並涵蓋錯誤、重送、並發與異步分支。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
 - Bug 先重現或取得足以確認根因的證據；修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
-- 有新增或修正可測試行為、或屬於 bug fix／邏輯調整時遵循 TDD：先寫一個在修復前會真正失敗的測試，證明它有正確捕捉到這次的錯誤；再實作最小修改使其通過，變綠即代表這個測試往後能擋住同一個錯誤再次發生。純測試重整或無法自動化時記錄替代驗證與原因。所有 code task 仍須執行相關驗證。
+- 有新增或修正可測試行為、或屬於 bug fix／邏輯調整時遵循 TDD：先寫一個在修復前會真正失敗的測試，證明它有正確捕捉到這次的錯誤；再實作最小修改使其通過，變綠即代表這個測試往後能擋住同一個錯誤再次發生。純測試重整或無法自動化時記錄替代驗證與原因。所有進入 workflow 的 source-code task 仍須執行相關驗證。
 - 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 - `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時，在跑 pre-review 之前處理受影響文件（原料是 `Impact surface` 與 `Execution path`，見 [project-docs.md](project-docs.md) 的搬運對照）：涵蓋這次改動的文件**不存在時建立**；已存在且內容仍準確時不必重寫，只需確認；內容不準確時才更新。不是每次都要重寫既有文件，也不是無關的文件都要生一份。其餘情況只在 Lookup 回報 `stale: true` 時確認內容仍正確。填 task 的 `## Project docs` 的 `updated:`：列出建立或更新的路徑，或 `none - <理由>`（例如「已存在且準確」）；上述條件命中時 `close-task.py` 會檢查這一行，未填、含 `<placeholder>` 或路徑不存在一律擋下結案。
 
 ## 5. Pre-review
 
-Standard code task 在 diff 完成後執行相關測試與必要的 `~/.agent-workflow/runtime/scripts/pre-review.py -RepoRoot <root>`；Elevated task 再依 risk flag 執行完整 deterministic checks。需要時可傳入 `-Profile focused|affected|regression|full -Path <repo-relative-path>`，runtime 會以 `AGENT_WORKFLOW_VALIDATION_PROFILE` 與 `AGENT_WORKFLOW_CHANGED_PATHS` 傳給 repo extra；未支援這些環境變數的 repo 維持既有命令。非程式碼任務不因本 skill 執行 pre-review。
+Standard source-code task 在 diff 完成後執行相關測試與必要的 `~/.agent-workflow/runtime/scripts/pre-review.py -RepoRoot <root>`；Elevated task 再依 risk flag 執行完整 deterministic checks。需要時可傳入 `-Profile focused|affected|regression|full -Path <repo-relative-path>`，runtime 會以 `AGENT_WORKFLOW_VALIDATION_PROFILE` 與 `AGENT_WORKFLOW_CHANGED_PATHS` 傳給 repo extra；未支援這些環境變數的 repo 維持既有命令。純 test code 與其他 non-code 任務不因本 skill 建立 task 或執行 pre-review。
 
 - FAIL：停止，不得送 Reviewer 或設為 done；修正後重跑。
 - SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。

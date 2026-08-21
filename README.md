@@ -61,6 +61,21 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 
 這項功能只負責讀取與整理記憶，不會任意改寫其他平台的原生記憶，讓不同 AI 工具在同一個專案中能共享必要脈絡，同時保留各平台原有的記憶機制。
 
+### Skills
+
+`.agents/skills/` 是跨平台共用的 skill canonical source。安裝程式會依指定的平台建立對應的 adapter；AI agent 會根據任務性質載入適用的 skill。
+
+| Skill | 用途與適用時機 |
+| --- | --- |
+| [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由 planner 依實際觀察到的 impact 與 risk 判斷是否建立 task、啟用 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
+| [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略或技術方案比較時，釐清目標、限制與完成條件。 |
+| [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
+| [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |
+| [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
+| [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 撰寫或檢視程式碼註解時，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。 |
+| [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 產生或翻譯正體中文（臺灣）內容時，統一術語、語氣與標點，避免中國用語與簡體直譯。 |
+| [`learn`](.agents/skills/learn/SKILL.md) | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |
+
 ### 設計原則與邊界
 
 - 小任務保持小流程；複雜任務才增加必要的角色與驗證。
