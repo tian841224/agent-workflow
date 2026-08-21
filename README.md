@@ -1,6 +1,15 @@
 # agent-workflow v5
 
-跨 Claude Code、Codex、Antigravity 的輕量程式任務流程。只有實際修改「目標專案」用程式語言撰寫的 application source code 邏輯或 test code 邏輯時才使用 workflow、建立 `task.md` 並執行主對話選定的 capability 與角色；純註解修改、設定與文件修改、script 修改與操作等非程式邏輯修改任務直接由單一主對話處理，不載入 workflow 或角色。
+跨 Claude Code、Codex、Antigravity 的Agent框架。
+理念在最大幅度輕量化、保持AI思考靈活性的情況下適度設計，避免過多的規範限縮AI思考能力和輸出品質
+因此本框架只使用7個skills，與加入當前agents缺少的能力(例:平行開發、自動學習、跨平台記憶讀取)
+
+開發經歷:
+過去曾安裝許多大型框架，例如SuperClaude等
+自行研發多個workflow依照任務分流、使用標籤跑特定流程最後都會遇到同一個問題，
+處理複雜任務可以，處理小型或簡單任務時反而會過度處理，造成token浪費以及花費大量不必要的處理時間
+為了解決這個痛點因此產生了這個專案
+目前實測一週下來簡單任務可以快速處理(~3min)、複雜任務一樣保留原有的嚴謹流程確保輸出品質
 
 Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF-8 bytes、stdout 只輸出一行 JSON、child process 以 bounded timeout 執行。安裝後以 `~/.agent-workflow/runtime/agent_workflow.cmd <command>` 呼叫工具；安裝器會記錄實際 `sys.executable`，不依賴 Windows console code page。
 
