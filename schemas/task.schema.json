@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/task.schema.json",
+  "type": "object",
+  "required": ["id", "project_id", "worktree_id", "status", "code_change", "risk_flags", "created_at", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
+    "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+    "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+    "status": { "enum": ["in_progress", "paused", "blocked", "done", "superseded"] },
+    "code_change": { "type": "boolean" },
+    "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation"] },
+    "change_kind": { "enum": ["fix", "feature", "refactor", "chore"] },
+    "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
+    "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
+    "impact_confidence": { "enum": ["high", "medium", "low"] },
+    "complexity_hint": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["multi_path", "shared_state", "external_boundary"] }
+    },
+    "workflow_request": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"] }
+    },
+    "workflow_profile": { "enum": ["direct", "light", "standard", "elevated"] },
+    "workflow_mode": { "enum": ["main", "legacy"] },
+    "workflow_facts": { "type": "string", "minLength": 2 },
+    "workflow_decision": { "type": "string", "minLength": 2 },
+    "risk_flags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "frozen_at": { "type": ["string", "null"], "format": "date-time" },
+    "stop_reason": { "type": "string", "minLength": 1 },
+    "independence": { "enum": ["native", "degraded"] },
+    "roles_waived": { "type": "string", "minLength": 1 },
+    "subtask_role": { "enum": ["coordinator", "worker"] },
+    "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
+    "file_ownership": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(?!\\./)[^\\\\,\\[\\]]+$" }
+    },
+    "base_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "delivery_status": { "enum": ["pending", "applied", "merged", "rejected", "skipped"] },
+    "integration_status": { "enum": ["pending", "conflicted", "applied", "abandoned"] }
+  },
+  "additionalProperties": false,
+  "x_agent_workflow": {
+    "workflow_capabilities": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"],
+    "workflow_sections": ["Impact discovery", "Schema compatibility", "Migration safety", "Contract and data impact", "Execution path and regression evidence"],
+    "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
+    "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
+    "adversarial_required": ["financial", "data_write", "migration", "irreversible", "schema", "contract"],
+    "mutation_check_required": ["financial", "data_write"],
+    "reviewer_dimensions": [
+      { "name": "Architecture consistency", "na_allowed": false },
+      { "name": "Code quality and conventions", "na_allowed": false },
+      { "name": "Data consistency", "na_allowed": true },
+      { "name": "Security", "na_allowed": true },
+      { "name": "Risk and compatibility", "na_allowed": false },
+      { "name": "Performance", "na_allowed": true },
+      { "name": "Flow and impact completeness", "na_allowed": false },
+      { "name": "Failure modes and observability", "na_allowed": false }
+    ]
+  }
+}
