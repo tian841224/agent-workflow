@@ -1,159 +1,175 @@
-# agent-workflow v5
+# agent-workflow
 
-跨 Claude Code、Codex、Antigravity 的Agent框架。
-理念在最大幅度輕量化、保持AI思考靈活性的情況下適度設計，避免過多的規範限縮AI思考能力和輸出品質
-因此本框架只使用7個skills，與加入當前agents缺少的能力(例:平行開發、自動學習、跨平台記憶讀取)
+跨 Claude Code、Codex 與 Antigravity 的 AI 開發工作流框架。
 
-開發經歷:
-過去曾安裝許多大型框架，例如SuperClaude等
-自行研發多個workflow依照任務分流、使用標籤跑特定流程最後都會遇到同一個問題，
-處理複雜任務可以，處理小型或簡單任務時反而會過度處理，造成token浪費以及花費大量不必要的處理時間
-為了解決這個痛點因此產生了這個專案
-目前實測一週下來簡單任務可以快速處理(~3min)、複雜任務一樣保留原有的嚴謹流程確保輸出品質
+## 一、專案介紹
 
-Runtime 採使用者安裝的 Python 3.11+：hook 的 stdin/stdout 一律是 UTF-8 bytes、stdout 只輸出一行 JSON、child process 以 bounded timeout 執行。安裝後以 `~/.agent-workflow/runtime/agent_workflow.cmd <command>` 呼叫工具；安裝器會記錄實際 `sys.executable`，不依賴 Windows console code page。
+這個專案的核心目標，是在維持 AI 思考最大彈性的前提下，適度設計必要的流程與規範，並在「簡單任務快速完成」與「複雜任務維持嚴謹品質控管」之間取得平衡。
 
-## 架構
+### 為什麼會有這個專案
 
-- `AGENTS.md`：常駐硬規則。
-- `.agents\skills\`：共用 skill source；installer 會將所有 repo skill 同步到使用者的 `.agents\skills`。
-  - `workflow/`：主流程、`risk-flags.md`、平行編排規則 `orchestration.md`，與專案文件規則 `project-docs.md`（分工、佈局、staleness 語意，見下方「專案文件」一節）。
-  - `planning/`：架構設計、功能規劃、重構策略、技術方案比較等規劃工作；在討論、問答或任務中遇到需求籠統（`unclear_requirements`）時主動用於第一步釐清目標與限制。
-  - `grill-me/`：壓力測試計畫與假設；使用者明確要求，或在討論、規劃與任務中遇到 `unclear_requirements` 仍有風險時用於第二步（逐一提問釐清決策樹）。
-  - `push-back/`：在使用者選定或即將採用某個做法時，主動評估是否符合現有架構、是否為最小改動、會不會增加不必要複雜度，必要時提出具體替代方案。
-  - `doc-coauthoring/`：與使用者共同撰寫技術文件、決策文件、proposal 或 spec；一般任務走 quick path，重大文件才走脈絡蒐集 → 逐節撰寫 → 讀者測試三階段。跟 `project-docs.md` 定義的目標 repo `docs/` 文件無關，這個 skill 產出的是給人讀的獨立文件（PRD、design doc、RFC 等）。
-  - `clean-comments/`：指導如何撰寫精簡、高資訊密度且位置精確的程式碼註解，落實職責分離與就近原則。
-  - `localization-tw/`：正體中文（臺灣）在地化與翻譯技能，確保輸出符合臺灣華語母語者慣用方式，避免中國用語與簡體直譯。
-- `.agents\agents\reviewer.md`、`.agents\agents\adversarial.md`、`.agents\agents\verifier.md`、`.agents\agents\retrospective.md`：唯讀角色 canonical source。主對話依任務選擇 Reviewer／Adversarial／Verifier 的必要子集合及順序；`retrospective` 只在疑似 regression、同一問題反覆修正或使用者要求時加開。`.agents\agents\worker.md`：可寫角色，coordinator／worker 編排的 worker 端 canonical source（v1 僅 Claude 有平台 adapter）。角色唯讀由 Codex 原生 `sandbox_mode`、Claude agent-scoped hook 與三平台 runtime `role-guard` 共同強制；只有 `worker` 是允許寫入的開發角色。
-- `agent_workflow/`：Python 核心套件，提供完整的 runtime 實作、守門規則、驗證、記憶管理、workflow planning 與專案文件邏輯。
-- `schemas/workflow-policy.json` 與 `agent_workflow/workflow_planner.py`：capability catalog 與 legacy 相容層。新 task 由主對話以 `workflow_mode: main` 和 `workflow_request` 明確選擇流程；`workflow_profile` 僅顯示，不作 gate 依據。
-- `agent_workflow.py` / `agent_workflow.cmd`：統一 CLI 入口（例如 `agent_workflow <command> [options]`）。
-- `scripts/`：相容 wrapper 入口（如 `scripts/knowledge.py`、`scripts/project-doc.py` 等）。
-- 預設 adapter 透過 `agent_workflow git-guard` 保護 destructive Git 操作。三平台 hook payload 差異只由 adapter 處理，README 不重複維護 hook 內部解析細節。
-- `schemas/`、`templates/task-minimal.md`、`templates/task.md`：Task 與遷移資料契約。Standard 使用 minimal template；Elevated／coordinator／worker 使用 extended template，後者含 coordinator／worker 的 optional 欄位（`subtask_role`、`parent_task_id`、`file_ownership`、`delivery_status`、`integration_status`）與 legacy gate 欄位。`schemas/retro.schema.json` 是回顧詞彙（`classification`、八類 `miss_category`、`escalate_threshold`）與 finding 紀錄結構的單一來源，`task-gate.py` 與 `retro.py` 都讀它。
-- `install.py` / `install.cmd`：managed-file installer。
-- `migrate-v3.py`：一次性 v3 資料正規化遷移。
+專案最初源自對大型 AI workflow framework 的實際使用經驗。過去曾嘗試 SuperClaude 等大型框架，也曾依照任務標籤建立多套 workflow。這些方案處理複雜任務時很完整，但面對小型或單純任務，容易產生過多角色、檢查與文件，增加 token 與時間成本。
 
-Runtime 安裝在 `~/.agent-workflow/runtime/`，使用者資料放在 `~/.agent-workflow/knowledge/`、`projects/`、`imports/`。平台目錄只保留必要入口、skill、原生角色與 hook 設定，不建立 v3 路徑 alias。
+因此，本專案逐步朝以下方向演進：
 
-## Task
+- 流程不再固定套用，而是依照任務的風險與實際影響範圍適度調整。
+- 將共用規則集中管理，避免 Claude Code、Codex 與 Antigravity 各自維護不同版本。
+- 將流程規劃、角色檢查、記憶管理與驗證能力整合成可重複使用的 runtime。
+- 保留複雜任務所需的品質控管，同時讓簡單任務維持輕量。
 
-只有實際修改「目標專案」source code logic 或 test code logic 才建立：
+### 發展歷程
 
-```text
-~/.agent-workflow/projects/<project-id>/tasks/<task-id>/task.md
-```
+| 階段 | 主要方向 | 解決的問題 |
+| --- | --- | --- |
+| v1 | 初版 Claude workflow 打包 | 建立可重複使用的開發規範與安裝方式 |
+| v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
+| v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
+| v4 | 依情境載入流程、canonical `.agents`、TDD、impact-guard、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
+| v5 | Python runtime、組合式 Planner、條件式品質角色、跨 agents 記憶與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
 
-同一 worktree 最多一個 `in_progress` task。Task 必須填 `code_change: true | false`：只有修改「目標專案」source code logic 或 test code logic 為 `true`；script、設定、文件、註解、測試調查、除錯分析與 code review bypass workflow，不建立 task。新 Code task 由主對話設定 `workflow_mode: main` 與完整的 `workflow_request`，決定必要 capability、角色與順序；runtime 只驗證其執行結果。沒有角色 capability 時可由主對話 direct handling，但仍需 baseline evidence。舊 task 才使用 `workflow-plan` 的 legacy 相容路徑。
+## 二、功能介紹
 
-`code_change: true` 時另填 `change_kind: fix | feature | refactor | chore`。它不在 schema 的 `required` 裡（既有 task 與 `orchestrate.py` 產生的 worker frontmatter 都沒有這個欄位），由 `task-gate.py --mode Close` 在結案時要求。
+### 條件式 workflow
 
-### Risk Flags
+專案會先判斷任務的性質與影響範圍，再決定是否需要建立 task、執行額外檢查或啟用品質角色。
 
-`risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag：
+簡單任務維持直接處理；涉及程式碼邏輯、跨模組影響、資料、契約或高風險行為的任務，才會增加相應的規劃與驗證流程。
 
-`behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
+### 角色化品質檢查
 
-各值的定義、對應要求與 freeze-required 詳細規則，統一記錄在 [`.agents/skills/workflow/risk-flags.md`](.agents/skills/workflow/risk-flags.md)。`risk_flags` 是 Planner 的候選條件與 legacy fallback 證據，不再單獨決定整條 workflow；unknown 不得被當成無影響。
+專案提供獨立的 Reviewer、Adversarial 與 Verifier 角色，依任務需求選擇性啟用：
 
-### 實作、Pre-review、角色與收尾
+- Reviewer：檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境。
+- Adversarial：從反向角度檢查實作假設，以及資料、契約、遷移與不可逆操作風險。
+- Verifier：執行適合的測試或驗證，確認實作是否符合完成條件。
 
-完整操作規則（capability Planner、Reviewer、Verifier 與條件式風險檢查）以 [`.agents/skills/workflow/SKILL.md`](.agents/skills/workflow/SKILL.md) 為唯一權威，本檔不重述——README 的定位是架構導覽，不是第二份操作手冊。
+這些角色不是固定套用在每個任務上，而是根據任務的風險、影響範圍與完成條件適度啟用。
 
-## 平行編排
+### 平行開發
 
-每次 code task 開發前，主對話自動判定是否拆分。符合資格時，直接建立 worker 並平行處理；有 host-native agent collaboration 時優先使用，沒有時才需要已驗收的 dispatch adapter 來建立 detached worktree。worker 只實作並結束；成功 patch 由主對話整合，失敗範圍改為循序完成。只有全部完成條件完成後，主對話才執行 Review 與驗證。Codex、Claude、Antigravity 的 dispatch adapter 必須回傳正確 worktree 與 parent task id；未完成實機驗收前不得宣稱支援。
+當一個任務可以拆成兩個以上互不重疊、可獨立驗收的子功能時，專案可以透過 coordinator／worker 建立隔離的 worktree，讓不同子功能平行處理，再由主流程整合與驗證。
 
-```bat
-agent_workflow split-plan --coordinator-task-path <task.md> --plan-path .\split-plan.json
-agent_workflow orchestrate --action Assess|Init|Start|WorkerReady|WorkerFailed|Collect|Integrate|Apply|Cleanup|Status --plan-path .\split-plan.json
-```
+### 記憶與自動學習
 
-拆分條件、生命週期各動作、狀態機、ownership 與衝突合併、impact-guard 的具名例外、`.agent-workflow-worktree-init.py` 契約、已知限制，完整定義在 [`.agents/skills/workflow/orchestration.md`](.agents/skills/workflow/orchestration.md)——同理，本檔不重述細節。
+Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的 session 或 prompt 載入相關脈絡。
 
-## 記憶
+自動學習只保存可重複使用的決策、修正與經驗，不保存整段對話；各平台原生記憶維持只讀。
 
-程式任務可用少量關鍵字讀取 global 與目前 project 的相關記憶；只有發生可重用踩坑、使用者糾正、重要決策或既有認知失效時才寫入，不強制每個 task 沉澱。
+### 跨平台記憶讀取
 
-```bat
-agent_workflow memory-context --platform Codex
-agent_workflow learn --action Capture --scope Project --kind correction --topic "example" --content "<durable conclusion>"
-agent_workflow knowledge --action Search --query "installer hooks" --limit 5
-agent_workflow knowledge --action Upsert --scope Project --topic "installer-hooks" --content "<verified knowledge>"
-agent_workflow knowledge --action Reindex --scope All
-```
+專案支援 Claude Code、Codex 與 Antigravity 之間的記憶脈絡讀取。各平台啟動新的 session 或收到新的 prompt 時，runtime 會依目前專案與任務內容，從共用 knowledge 與各平台可讀取的原生記憶中篩選相關資訊，提供給 AI 參考。
 
-Search 是關鍵字子字串比對：query 用小寫英文單字、以空白分隔（topic 是英文 kebab-case，中文命中率極低），結果只回 entry 第一行前 180 字，命中後要讀 `path` 全文。寫入時第一行要寫成可獨立理解的摘要句。專案結構與模組流程不走 knowledge，改走下方「專案文件」一節的 `project-doc`。
+這項功能只負責讀取與整理記憶，不會任意改寫其他平台的原生記憶，讓不同 AI 工具在同一個專案中能共享必要脈絡，同時保留各平台原有的記憶機制。
 
-### 跨平台原生記憶
+### 設計原則與邊界
 
-各平台仍會寫自己的記憶（Codex `~/.codex/memories`／`~/.codex/memory`、Claude `~/.claude/memory` 與專案 memory、Antigravity `~/.gemini/antigravity/brain`）。每次 session 啟動及新的 user prompt，三平台 managed hook 會自動執行 `memory-context`，讀取 shared knowledge 並依目前 project／prompt 篩選對應記憶；不需要人工執行 Search。原生記憶仍只讀，不會複製或改寫；session summaries、instruction-only files、credential-like content 與 Antigravity `.pb` 檔案會排除。
+- 小任務保持小流程；複雜任務才增加必要的角色與驗證。
+- `unknown` 代表尚未證明，不代表沒有影響。
+- 角色預設為唯讀；只有 Worker 是允許寫入的開發角色。
+- 不自行 commit、push、rebase、merge 或執行破壞性 Git 操作。
+- 保留使用者既有修改，只處理需求直接涵蓋的範圍。
+- Verifier 若需要 Docker／SQL，只使用一次性且可清理的驗證資源。
+- README 是專案導覽，不取代 workflow skill、risk flags 與 orchestration 文件中的完整操作規則。
 
-### 自動學習
+## 三、專案架構、安裝與資料夾結構
 
-active `learn` skill 會在使用者要求「記住／學習」、糾正 agent、拍板決策，或錯誤已確認修正方式時，自動呼叫 `learn --action Capture`。內容預設寫入目前 project 的 shared knowledge，跨專案偏好或通用教訓才寫入 Global；相同內容會去重，秘密與 credential-like 內容會拒絕。新的 session／prompt 會自動載入相關 entry。學習只保存可重用結論，不保存整段對話。
-
-原生記憶**只讀不寫**：不複製進 curated store、不改動原檔，所以各平台的功能維持原狀。自動產生的 session 摘要（`rollout_summaries`）預設排除以免淹沒命中，需要時加 `--include-session-summaries`；只要 curated 結果時加 `--exclude-native`。原生記憶未經整理，一律當線索、使用前回查。
-
-Project knowledge 可直接更新；Global knowledge 需要跨專案證據與使用者同意，並傳入 `--approved-by-user`。`needs_verification` entry 只能作為查證線索。Script 會拒絕疑似 credential 內容，同 scope 相同內容不重複建立，同 topic 更新 native entry 並保留關聯。
-
-## 專案文件
-
-`knowledge` 記踩坑與決策（topic 關鍵字檢索），不負責描述系統結構；`project-doc` 補這一段，記「這塊 code 是什麼、流程怎麼走」，用**路徑反查**取代關鍵字檢索。文件存在目標 repo 自身的 `docs/`（跟著 repo 與 branch 走版控），不是框架 state：
+### 整體架構
 
 ```text
-docs/
-├─ architecture.md        系統總覽（一份）
-├─ dataflow.md             跨模組主要資料流（一份）
-├─ modules/<slug>.md       模組文件（多份，need-driven）
-└─ api/<slug>.md           API 規格（多份，need-driven；新增或修改對外端點時才建立）
+┌──────────────────────────────────────────────────────────────┐
+│ Claude Code              Codex              Antigravity       │
+│       │                    │                    │              │
+│       └──────────── platform adapters / hooks ─┘              │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                    ~/.agent-workflow/runtime
+                               │
+                 agent_workflow.py / agent_workflow.cmd
+                               │
+       ┌───────────────────────┼────────────────────────┐
+       │                       │                        │
+  Task / Planner        Roles / Guards          Knowledge / Memory
+       │                       │                        │
+       └─────────────── schemas / templates ───────────┘
+                               │
+             .agents canonical source in this repository
 ```
 
-Frontmatter 只兩個必填欄位：`doc_type: architecture | dataflow | module | api` 與 `covers: ["game/gameList/Seth_10017/"]`（repo-relative 路徑陣列，文法與 `file_ownership` 相同）。module 文件固定六區塊：`Responsibility`、`Entrypoints`、`Flow`、`Shared state`、`Invariants and gotchas`、`Unverified`；只記反向搜尋做不出來的東西（為什麼、隱藏入口），不記行號、簽名或呼叫端清單——那些 grep 一次就有且永遠最新。api 文件固定七區塊（`Endpoint`、`Auth`、`Request`、`Response`、`Errors`、`Invariants and gotchas`、`Unverified`），跟 module 文件相反，**刻意**記錄完整 request／response schema，因為 API 是對外契約，省略細節會讓呼叫端看不到變動。**不設行數上限**：篇幅過長時依 `covers` 拆成多份，而不是刪減內容。
+### Repository 結構
 
-```bat
-agent_workflow project-doc --action Lookup --paths "game/gameList/Seth_10017/"   # 命中文件 + uncovered，附帶 architecture/dataflow
-agent_workflow project-doc --action Stale                                         # 只列 stale／stale_pending 的文件
+```text
+~/
+├─ .agents/                   共用 canonical source
+├─ .claude/                   Claude Code 的 agent、skills 與 hooks
+├─ .codex/                    Codex 的 agent、skills、rules 與 hooks
+├─ .gemini/                   Antigravity 的 agent、skills 與 hooks
+└─ .agent-workflow/           agent-workflow runtime 與使用者資料
+   ├─ runtime/                已安裝的 Python runtime 與 CLI
+   ├─ knowledge/              跨專案與專案共用的 knowledge
+   ├─ projects/               專案識別資料與 task 狀態
+   │  └─ <project-id>/
+   │     └─ tasks/
+   │        └─ <task-id>/
+   │           └─ task.md
+   └─ imports/                舊版本或外部資料的匯入區
 ```
 
-`stale`／`stale_pending` 純由 git 歷史推導（涵蓋路徑是否在文件之後又被 commit／有未提交改動），不是可手動填的欄位，不可能被改假；未進版控的新文件一律視為最新。
+不同 AI 工具的原生設定則由 installer 依平台建立，並透過 adapter 連結到 `.agents` 的 canonical source。未指定的平台不會建立或修改對應的 agent 資料夾。安裝需求為 Windows 與 Python 3.11 以上。
 
-**Project docs 採條件式使用**：陌生模組、架構／契約／跨功能變更或高風險 flag 才執行 Lookup 並記錄 `read:`；局部 bug fix、chore 與不依賴架構脈絡的修改以現況 code、呼叫端與測試為準。`updated:` 只在 feature、refactor 或相關 risk flag 命中時要求，避免為了過 gate 產生沒有資訊量的文件。細節見 [`.agents/skills/workflow/project-docs.md`](.agents/skills/workflow/project-docs.md)。
+### 主要元件分工
 
-## 遷移
+| 元件 | 責任 |
+| --- | --- |
+| `.agents/skills/` | 共用 skills、workflow policy、風險與平行編排規則 |
+| `.agents/agents/` | Reviewer、Adversarial、Verifier、Retrospective 與 Worker 等角色 |
+| `agent_workflow/` | planner、installer、guard、task、knowledge 與驗證邏輯 |
+| `adapters/` | 各 AI 平台的設定與 hooks |
+| `schemas/` | task、workflow、knowledge、project 與 retro 的資料契約 |
+| `templates/` | Standard、Elevated 與其他 task 範本 |
+| `runtime/` | Python runtime contract 與執行限制 |
+| `tests/` | runtime、installer、hook、task、knowledge 與 migration 驗證 |
 
-```bat
-python migrate-v3.py --action Inventory
-python migrate-v3.py --action DryRun
-python migrate-v3.py --action Stage
-python migrate-v3.py --action Validate
-python migrate-v3.py --action Activate
-```
+## 四、安裝方法
 
-有 unresolved source 時，`Activate` 會要求傳入 validation report 的 manifest hash。原始檔保留 immutable snapshot 與 SHA-256；v4 activation 後不讀 v3 格式。
+### 安裝需求
 
-## 安裝
+- Windows
+- Python 3.11 以上
+- 可使用 `py.exe` 或 `python.exe`
+
+### 安裝
+
+在 repository 根目錄執行：
 
 ```bat
 install.cmd --target-agent All
-install.cmd --action Status
-install.cmd --action Repair --target-agent All
+```
+
+`--target-agent` 可依需求指定安裝平台：
+
+- `Claude`
+- `Codex`
+- `Antigravity`
+- `All`
+
+安裝程式會將共用的 skills、角色、workflow 規則與 hooks 設定到對應平台，並在使用者家目錄建立 `.agent-workflow` runtime 與資料夾。
+
+### 檢查安裝狀態
+
+```bat
 install.cmd --action Verify
+```
+
+如果需要重新同步或修復已安裝的檔案：
+
+```bat
+install.cmd --action Repair --target-agent All
+```
+
+### 移除安裝
+
+```bat
 install.cmd --action Uninstall --target-agent All
 ```
 
-`--action Verify` 唯讀，回報 user-installed Python 與 Python entrypoint 是否完整；不通過時 `exit 1`。`install.cmd` 只負責尋找使用者安裝的 Python，安裝、hook 合併與檔案寫入都在 Python 執行。
-
-Global entrypoint 以 `C:\Users\<user>\.agents\AGENTS.md` 為 canonical source；Claude `CLAUDE.md`、Codex `AGENTS.md` 與 Antigravity `GEMINI.md` 由 installer 建立 hard link 指向同一檔案。共用 `reviewer`／`verifier` 集中在 `.agents\agents`，所有 repo skill 集中在 `.agents\skills`；Claude、Codex 與 Antigravity 的原生 skill discovery path 由 junction 指向同一份 canonical skill 目錄，不再各自維護副本。平台 Markdown／TOML 檔案是由 canonical source 產生的 adapter。三平台 unmanaged content 發生衝突時會先建立 timestamp backup 並停止，不會猜測合併。
-
-發現尚未遷移的 v3 knowledge/history 時，installer 會阻止 activation。Uninstall 只移除 hash 未變的 managed runtime，不刪 knowledge、projects、tasks 或 imports。
-
-## 開發檢查
-
-測試腳本放在 `tests/`，以 Python 3.11+ 執行，涵蓋靜態契約、task 驗證、平行編排 lifecycle、hook、knowledge、pre-review、installer、migration 與專案文件：
-
-```bat
-python tests/run_all.py
-```
-
-`.pre-review-extra.py`（repo 根目錄）在 pre-review 階段執行 `tests/` 下全部測試；本 repo 沒有 `go.mod`／`package.json`，`pre-review.py` 的語言檢查一律 SKIP，這支才是本 repo 實際的 pre-review 驗證入口。
+移除安裝時，只會移除仍由本專案管理且未被使用者修改的 managed files，不會刪除既有的 knowledge、projects、tasks 或 imports 資料。
