@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 
@@ -12,61 +11,46 @@ SOURCE_ROOT = str(Path(__file__).resolve().parent)
 if SOURCE_ROOT not in sys.path:
     sys.path.insert(0, SOURCE_ROOT)
 
-from agent_workflow.close_task import main as close_task_main
-from agent_workflow.check_task import main as check_task_main
-from agent_workflow.git_guard import main as git_guard_main
-from agent_workflow.role_guard import main as role_guard_main
-from agent_workflow.knowledge import main as knowledge_main
-from agent_workflow.learn import main as learn_main
-from agent_workflow.memory_context import main as memory_context_main
-from agent_workflow.installer import main as installer_main
-from agent_workflow.path_grammar import main as path_grammar_main
-from agent_workflow.pre_review import main as pre_review_main
-from agent_workflow.project_resolver import main as project_resolver_main
-from agent_workflow.project_doc import main as project_doc_main
-from agent_workflow.retro import main as retro_main
-from agent_workflow.runtime_check import main as runtime_check_main
-from agent_workflow.split_plan import main as split_plan_main
-from agent_workflow.task_gate import main as task_gate_main
-from agent_workflow.validate_task import main as validate_task_main
-from agent_workflow.waive_roles import main as waive_roles_main
-from agent_workflow.worktree_fingerprint import main as fingerprint_main
-from agent_workflow.orchestrate import main as orchestrate_main
-from agent_workflow.migrate import main as migrate_main
-from agent_workflow.workflow_planner import main as workflow_plan_main
+# command -> agent_workflow submodule name. Each submodule exposes main(argv).
+# Import is deferred to dispatch time so a hook invocation (git-guard,
+# role-guard, memory-context) only pays for the module it actually runs.
+COMMANDS = {
+    "git-guard": "git_guard",
+    "role-guard": "role_guard",
+    "skill-guard": "skill_guard",
+    "project-resolver": "project_resolver",
+    "task-gate": "task_gate",
+    "validate-task": "validate_task",
+    "worktree-fingerprint": "worktree_fingerprint",
+    "close-task": "close_task",
+    "check-task": "check_task",
+    "install": "installer",
+    "knowledge": "knowledge",
+    "learn": "learn",
+    "memory-context": "memory_context",
+    "pre-review": "pre_review",
+    "project-doc": "project_doc",
+    "retro": "retro",
+    "runtime-check": "runtime_check",
+    "split-plan": "split_plan",
+    "waive-roles": "waive_roles",
+    "orchestrate": "orchestrate",
+}
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("git-guard", "role-guard", "project-resolver", "task-gate", "validate-task", "workflow-plan", "worktree-fingerprint", "close-task", "check-task", "install", "knowledge", "learn", "memory-context", "path-grammar", "pre-review", "project-doc", "retro", "runtime-check", "split-plan", "waive-roles", "orchestrate", "migrate"))
-    args, rest = parser.parse_known_args()
-    if args.command == "git-guard":
-        return git_guard_main(rest)
-    if args.command == "role-guard":
-        return role_guard_main(rest)
-    commands = {
-        "project-resolver": project_resolver_main,
-        "task-gate": task_gate_main,
-        "validate-task": validate_task_main,
-        "workflow-plan": workflow_plan_main,
-        "worktree-fingerprint": fingerprint_main,
-        "close-task": close_task_main,
-        "check-task": check_task_main,
-        "install": installer_main,
-        "knowledge": knowledge_main,
-        "learn": learn_main,
-        "memory-context": memory_context_main,
-        "path-grammar": path_grammar_main,
-        "pre-review": pre_review_main,
-        "project-doc": project_doc_main,
-        "retro": retro_main,
-        "runtime-check": runtime_check_main,
-        "split-plan": split_plan_main,
-        "waive-roles": waive_roles_main,
-        "orchestrate": orchestrate_main,
-        "migrate": migrate_main,
-    }
-    return commands[args.command](rest)
+    argv = sys.argv[1:]
+    if not argv or argv[0] not in COMMANDS:
+        sys.stderr.write(
+            "usage: agent_workflow.py <command> [args]\ncommands: "
+            + ", ".join(sorted(COMMANDS))
+            + "\n"
+        )
+        return 2
+    from importlib import import_module
+
+    module = import_module("agent_workflow." + COMMANDS[argv[0]])
+    return module.main(argv[1:])
 
 
 if __name__ == "__main__":

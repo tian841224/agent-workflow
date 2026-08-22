@@ -21,7 +21,7 @@ def _ci(value: str, allowed: list[str]) -> bool:
     return any(value.casefold() == item.casefold() for item in allowed)
 
 
-def _ownership_reason(value: str) -> str:
+def ownership_reason(value: str) -> str:
     if not value:
         return "empty entry"
     if value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[\\/]", value):
@@ -133,7 +133,7 @@ def validate_task(task_path: str, schema_path: str | None = None) -> dict[str, A
             errors.append("file_ownership must use inline array syntax" if not isinstance(ownership, list) else "file_ownership must not be empty")
             ownership = []
         for entry in ownership:
-            reason = _ownership_reason(str(entry))
+            reason = ownership_reason(str(entry))
             if reason:
                 errors.append(f"invalid file_ownership entry '{entry}': {reason}")
         if len(set(ownership)) != len(ownership):

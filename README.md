@@ -25,13 +25,13 @@
 | v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
 | v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
 | v4 | 依情境載入流程、canonical `.agents`、TDD、impact-guard、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
-| v5 | Python runtime、組合式 Planner、條件式品質角色、跨 agents 記憶與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
+| v5 | Python runtime、主對話直接選定 capability／角色、條件式品質角色、跨 agents 記憶與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
 
 ## 二、功能介紹
 
 ### 條件式 workflow
 
-專案會先判斷任務的性質與影響範圍，再決定是否需要建立 task、執行額外檢查或啟用品質角色。
+流程沒有固定 pipeline，由主對話依已知需求與程式脈絡先判斷任務的性質與影響範圍，再決定是否需要建立 task，並把這次要跑的角色與檢查完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。
 
 簡單任務維持直接處理；涉及程式碼邏輯、跨模組影響、資料、契約或高風險行為的任務，才會增加相應的規劃與驗證流程。
 
@@ -67,13 +67,16 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 
 | Skill | 用途與適用時機 |
 | --- | --- |
-| [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由 planner 依實際觀察到的 impact 與 risk 判斷是否建立 task、啟用 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
+| [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由主對話依實際觀察到的 impact 與 risk 決定是否建立 task、寫入 `workflow_request` 啟用哪些 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
 | [`tdd`](.agents/skills/tdd/SKILL.md) | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；source code 行為變更或 bug fix 時由 workflow 引用。 |
 | [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略或技術方案比較時，釐清目標、限制與完成條件。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
 | [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |
 | [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
 | [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 撰寫或檢視程式碼註解時，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。 |
+| [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／seam／adapter 等共用詞彙。 |
+| [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正，避免跳過重現步驟直接猜測。 |
+| [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 產生或翻譯正體中文（臺灣）內容時，統一術語、語氣與標點，避免中國用語與簡體直譯。 |
 | [`learn`](.agents/skills/learn/SKILL.md) | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |
 
@@ -100,7 +103,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
                                │
                     ~/.agent-workflow/runtime
                                │
-                 agent_workflow.py / agent_workflow.cmd
+        agent_workflow.py（經 agent_workflow.cmd／agent-workflow 呼叫）
                                │
        ┌───────────────────────┼────────────────────────┐
        │                       │                        │
@@ -138,7 +141,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | --- | --- |
 | `.agents/skills/` | 共用 skills、workflow policy、風險與平行編排規則 |
 | `.agents/agents/` | Reviewer、Adversarial、Verifier、Retrospective 與 Worker 等角色 |
-| `agent_workflow/` | planner、installer、guard、task、knowledge 與驗證邏輯 |
+| `agent_workflow/` | workflow 選取評估、installer、guard、task、knowledge 與驗證邏輯 |
 | `adapters/` | 各 AI 平台的設定與 hooks |
 | `schemas/` | task、workflow、knowledge、project 與 retro 的資料契約 |
 | `templates/` | Standard、Elevated 與其他 task 範本 |

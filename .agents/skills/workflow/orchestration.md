@@ -1,39 +1,50 @@
-# 自動平行編排
+# Automatic parallel orchestration
 
-主對話完成需求與拆分判定後即可使用此能力。runtime 不自行判斷任務語意；它只驗證明確的 `parallelization` 規格、建立隔離 worktree、派發子 task、收集 patch 並整合。若 host 提供原生 agent collaboration，主對話可直接使用；`AGENT_WORKFLOW_<PLATFORM>_DISPATCH_COMMAND` 僅是 runtime detached-worktree 派發的跨平台介面。
+At the start of a code task, the main conversation first completes the split decision per the workflow skill. When conditions are met, it dispatches workers through one of the two paths below; when not met, sequential development is retained. The runtime does not judge task semantics on its own — it only validates an explicit `parallelization` spec, creates or registers isolated worktrees, and collects and integrates patches.
 
-## 拆分規格
+Two dispatch paths exist, chosen per platform:
 
-至少兩個 worker，每個 worker 需要 `id`、`title`、`goal`、`completion_criteria` 與不重疊的 `file_ownership`。無順序相依、無共用持久化狀態，且 ownership 不得含 schema、contract、route、registry、barrel、lockfile 或 i18n 等共用整合點。
+- **In-process native dispatch** (Claude Code today): the main conversation launches workers itself with the host's own sub-agent tool, bound to per-worker git worktrees, then hands the finished worktrees to the runtime with `orchestrate --action RegisterNative` for Collect/Integrate/Apply/Cleanup. See [Native dispatch (Claude Code)](#native-dispatch-claude-code) below.
+- **Cross-process dispatch** (Codex, Antigravity): the runtime creates the worktrees itself and launches each worker in a separate process via `orchestrate --action Start` (`Assess -> Init`), using `AGENT_WORKFLOW_<PLATFORM>_DISPATCH_COMMAND`; that command must be able to accept JSON stdin, immediately launch a background worker, and return the acknowledgement defined in this document. The runtime calls all worker dispatchers in parallel within the same `Init`.
 
-不符合條件時，主對話直接循序處理並記錄原因；不得建立 worktree。
+Prefer native dispatch whenever the host provides in-process sub-agent isolation — it needs no external dispatcher command and no cross-process handshake. Fall back to cross-process dispatch when the host has no such mechanism, or when native dispatch's base-ref limitation (below) doesn't fit.
+
+## Split spec
+
+At least two workers, each requiring `id`, `title`, `goal`, `completion_criteria`, and non-overlapping `file_ownership`. No sequential dependencies, no shared persistent state, and ownership must not include shared integration points such as schema, contract, route, registry, barrel, lockfile, or i18n.
+
+When conditions aren't met, the main conversation handles it sequentially directly and records the reason.
 
 ## Dirty worktree snapshot
 
-`Init` 使用 temporary `GIT_INDEX_FILE` 將目前 tracked、staged、unstaged 與 untracked 內容做成無 ref 的暫時 base commit。不得執行真實 `git add`，不得改變使用者 index 或 branch。
+`Init` uses a temporary `GIT_INDEX_FILE` to turn the current tracked, staged, unstaged, and untracked content into a ref-less temporary base commit. No real `git add` may be executed, and the user's index or branch must not be changed.
 
-每個 detached worker worktree 都從該 snapshot 建立。套用前會重算主工作目錄 snapshot；內容已變動時拒絕 Apply，不覆寫使用者後續修改。
+Each detached worker worktree is created from that snapshot. Before applying, the main working directory snapshot is recomputed; if content has changed, Apply is refused so as not to overwrite the user's subsequent changes.
 
-## 生命週期
+## Lifecycle
 
 ```text
 Assess -> Init/Dispatch -> worker implementation -> Collect
        -> Integrate successful patches -> Apply -> Cleanup
-       -> 主對話補齊失敗範圍 -> 全體 Review/驗證
+       -> main conversation completes failed scope -> full Review/verification
 ```
 
-`Init` 自動透過 Codex、Claude 或 Antigravity 的 dispatcher 啟動 worker。dispatcher 回覆必須回顯指定 worktree 與 parent task id，否則整批建立失敗並清理。
+`Init` automatically launches workers via the Codex, Claude, or Antigravity dispatcher. The dispatcher's reply must echo back the designated worktree and parent task id, otherwise the whole batch of creation fails and is cleaned up.
 
-worker 只實作自己的 ownership，完成回報後直接結束；不跑測試、pre-review、Review、Verifier 或 task gate。worker 失敗、逾時、越權或無法整合時，成功的獨立 patch 可保留，失敗範圍由主對話循序完成。
+The dispatcher request includes at minimum `parent_task_id`, `worker_id`, `worktree`, `goal`, `file_ownership`, and `base_commit`. The native worker must use `worktree` as its actual working directory, load that worktree's task.md, and call `WorkerReady` upon completion. The dispatcher must not place the worker back in the main working directory, and must not wait for the worker to finish before returning the acknowledgement.
 
-所有原始完成條件完成之前，主對話不得開始 Review 或驗證。
+A worker implements only its own ownership and ends directly after reporting completion; it does not run tests, pre-review, Review, Verifier, or task gates. If a worker fails, times out, oversteps its boundary, or cannot be integrated, successful independent patches may be retained, and the main conversation completes the failed scope sequentially. The coordinator does not modify the main working directory's source directly — it can only go through the orchestrator's `Apply` action; the worker boundary is a collaborative guard, not a security sandbox.
 
-## 平台 adapter
+The main conversation only begins Review or verification after all original completion criteria have been met.
 
-三平台皆以 `AGENT_WORKFLOW_<PLATFORM>_DISPATCH_COMMAND` 接收 JSON stdin。回覆 JSON 必須為：
+## Platform adapters
+
+All three platforms receive JSON stdin via `AGENT_WORKFLOW_<PLATFORM>_DISPATCH_COMMAND`. The reply JSON must be:
 
 ```json
-{"accepted": true, "dispatch_id": "native-id", "worker_root": "<指定 worktree>", "parent_task_id": "<母 task>"}
+{"accepted": true, "dispatch_id": "native-id", "worker_root": "<designated worktree>", "parent_task_id": "<parent task>"}
 ```
 
-adapter 必須使用平台原生方式建立 worktree-bound agent；共享主工作目錄不符合此契約。每個平台需完成真實雙 worker 驗收後，才能標示為自動平行支援。
+Platform command name mapping is as follows: `AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND`, `AGENT_WORKFLOW_CLAUDE_DISPATCH_COMMAND`, `AGENT_WORKFLOW_ANTIGRAVITY_DISPATCH_COMMAND`. When unset or acknowledgement validation fails, `Start` does not pretend to succeed — it cleans up any worker worktrees already created and reports an error.
+
+The adapter must use the platform's native mechanism to create a worktree-bound agent; sharing the main working directory does not satisfy this contract. Each platform must complete real dual-worker acceptance testing before it can be marked as supporting automatic parallelism.

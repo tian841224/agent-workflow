@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
-from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 
 
 def read_json_stdin() -> Any:
@@ -37,8 +35,7 @@ def write_stderr(message: str) -> None:
         sys.stderr.flush()
 
 
-@dataclass(frozen=True)
-class CommandResult:
+class CommandResult(NamedTuple):
     returncode: int
     stdout: str
     stderr: str
@@ -60,6 +57,8 @@ def run_command(
     timeout: float = 15,
     env: Mapping[str, str] | None = None,
 ) -> CommandResult:
+    import subprocess
+
     completed = subprocess.run(
         [os.fspath(arg) for arg in args],
         cwd=os.fspath(cwd) if cwd is not None else None,

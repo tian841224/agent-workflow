@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,9 +17,41 @@ from typing import Any
 from .frontmatter import frontmatter
 from .project_resolver import resolve_project
 from .split_plan import eligible
-from .dispatcher import launch
 
 PLATFORMS = {"Codex", "Claude", "Antigravity"}
+
+
+def _dispatch_command(platform: str) -> str:
+    return os.environ.get(f"AGENT_WORKFLOW_{platform.upper()}_DISPATCH_COMMAND", "").strip()
+
+
+def launch(platform: str, request: dict[str, Any]) -> dict[str, Any]:
+    """Launch through the platform adapter without exposing shell interpolation."""
+    if platform not in PLATFORMS:
+        return {"accepted": False, "error": f"unsupported platform: {platform}"}
+    command = _dispatch_command(platform)
+    if not command:
+        return {"accepted": False, "error": f"{platform} dispatcher is not configured"}
+    try:
+        result = subprocess.run(command, input=json.dumps(request, ensure_ascii=False).encode("utf-8"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                shell=True, check=False, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"accepted": False, "error": f"{platform} dispatcher failed: {exc}"}
+    if result.returncode:
+        return {"accepted": False, "error": result.stderr.decode("utf-8", "replace").strip() or "dispatcher rejected launch"}
+    try:
+        reply = json.loads(result.stdout.decode("utf-8", "replace"))
+    except json.JSONDecodeError:
+        return {"accepted": False, "error": "dispatcher did not return JSON"}
+    expected_root = str(Path(str(request["worktree"])).resolve())
+    if not isinstance(reply, dict) or reply.get("accepted") is not True:
+        return {"accepted": False, "error": str(reply.get("error", "dispatcher rejected launch")) if isinstance(reply, dict) else "dispatcher rejected launch"}
+    if str(Path(str(reply.get("worker_root", ""))).resolve()) != expected_root:
+        return {"accepted": False, "error": "dispatcher acknowledgement has a different worker_root"}
+    if str(reply.get("parent_task_id", "")) != str(request["parent_task_id"]):
+        return {"accepted": False, "error": "dispatcher acknowledgement has a different parent_task_id"}
+    return {"accepted": True, "dispatch_id": str(reply.get("dispatch_id", "")), "worker_root": expected_root}
 
 
 def stamp() -> str: return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -77,6 +110,14 @@ def snapshot_matches(repo: Path, saved: dict[str, Any]) -> bool:
     except RuntimeError:
         return False
     return current["head"] == saved.get("head") and current["tree"] == saved.get("tree")
+
+
+def base_matches(repo: Path, base_commit: str) -> bool:
+    """Native-dispatch equivalent of snapshot_matches: there is no captured dirty-state snapshot
+    to compare against, so this only accepts a clean tree still sitting on the declared base."""
+    if text(git(repo, "rev-parse", "HEAD")) != base_commit: return False
+    status = git(repo, "status", "--porcelain")
+    return status.returncode == 0 and not status.stdout.strip()
 
 
 def owns(path: str, ownership: list[str]) -> bool:
@@ -188,15 +229,55 @@ def init(args: argparse.Namespace) -> None:
             worker = {"id": item["id"], "worktree": str(root.resolve()), "ownership": item["file_ownership"],
                       "title": item["title"], "goal": item["goal"], "completion_criteria": item["completion_criteria"],
                       "status": "pending", "delivery": None}
-            reply = launch(args.platform, {"parent_task_id": coordinator, "worker_id": item["id"], "worktree": worker["worktree"],
-                                           "goal": item["goal"], "file_ownership": item["file_ownership"], "base_commit": base})
-            if not reply.get("accepted"): raise RuntimeError(f"cannot dispatch {item['id']}: {reply.get('error', '')}")
-            worker.update({"status": "running", "dispatch_id": reply.get("dispatch_id", "")})
             workers.append(worker)
+        def dispatch(worker: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+            reply = launch(args.platform, {"parent_task_id": coordinator, "worker_id": worker["id"], "worktree": worker["worktree"],
+                                           "goal": worker["goal"], "file_ownership": worker["ownership"], "base_commit": base})
+            return worker, reply
+        with ThreadPoolExecutor(max_workers=len(workers), thread_name_prefix="agent-workflow-dispatch") as pool:
+            dispatched = list(pool.map(dispatch, workers))
+        failures = [(worker, reply) for worker, reply in dispatched if not reply.get("accepted")]
+        if failures:
+            worker, reply = failures[0]
+            raise RuntimeError(f"cannot dispatch {worker['id']}: {reply.get('error', '')}")
+        for worker, reply in dispatched:
+            worker.update({"status": "running", "dispatch_id": reply.get("dispatch_id", "")})
     except Exception:
         for worker in workers: git(result["root"], "worktree", "remove", "--force", worker["worktree"])
         raise
     record = {"version": 3, "snapshot": snap, "base_commit": base, "branch": branch(Path(result["root"])), "platform": args.platform, "workers": workers, "integration": {"status": "pending"}, "created_at": stamp(), "updated_at": stamp()}
+    write(directory / "orchestration.json", record); print(json.dumps(record, ensure_ascii=False, indent=2))
+
+
+def start(args: argparse.Namespace) -> None:
+    """Run the coordinator's explicit Assess -> Init entrypoint."""
+    assess(args)
+    init(args)
+
+
+def register_native(args: argparse.Namespace) -> None:
+    """Record an orchestration for workers the caller already dispatched with a host-native
+    agent tool (e.g. Claude Code's Agent tool with isolation: "worktree"). Skips worktree
+    creation and subprocess dispatch -- those already happened outside this process -- but
+    reuses the same Collect/Integrate/Apply/Cleanup lifecycle as the subprocess-dispatch path."""
+    result, task, coordinator, directory = context(args)
+    if (directory / "orchestration.json").exists(): raise RuntimeError("orchestration already exists")
+    declared = json.loads(Path(args.workers_path).read_text(encoding="utf-8"))
+    plan = {"shared_persistent_state": False, "has_order_dependency": False, "workers": declared}
+    outcome = eligible("", plan)
+    if not outcome["errors"]:
+        for item in declared:
+            if item.get("status", "completed") == "failed": continue  # a worker the native dispatch never produced a worktree for
+            if not str(item.get("worktree", "")).strip(): outcome["errors"].append(f"worker {item.get('id', '')} has no worktree")
+            if not str(item.get("base_commit", "")).strip(): outcome["errors"].append(f"worker {item.get('id', '')} has no base_commit")
+    if outcome["errors"]: raise RuntimeError("invalid native worker declaration: " + "; ".join(outcome["errors"]))
+    workers = [{"id": item["id"], "worktree": str(Path(item["worktree"]).resolve()) if item.get("worktree") else "",
+                "ownership": item["file_ownership"], "title": item["title"], "goal": item["goal"],
+                "completion_criteria": item["completion_criteria"], "base_commit": item.get("base_commit", ""),
+                "status": item.get("status", "completed"), "error": item.get("error"), "delivery": None} for item in declared]
+    record = {"version": 3, "snapshot": None, "base_commit": args.base_commit, "branch": branch(Path(result["root"])),
+              "platform": args.platform, "dispatch_mode": "native", "workers": workers,
+              "integration": {"status": "pending"}, "created_at": stamp(), "updated_at": stamp()}
     write(directory / "orchestration.json", record); print(json.dumps(record, ensure_ascii=False, indent=2))
 
 
@@ -216,13 +297,15 @@ def worker_failed(args: argparse.Namespace) -> None:
 
 
 def collect(args: argparse.Namespace) -> None:
-    _, _, directory, record, path = record_for(args); workers = [item for item in record["workers"] if not args.worker_id or item["id"] == args.worker_id]
+    result, _, directory, record, path = record_for(args); workers = [item for item in record["workers"] if not args.worker_id or item["id"] == args.worker_id]
     if not workers: raise RuntimeError("worker was not found")
     for worker in workers:
         if worker["status"] != "completed": continue
-        delivery = capture_patch(worker["worktree"], record["base_commit"], worker["ownership"], directory / "deliveries" / f"{worker['id']}.patch")
+        delivery = capture_patch(worker["worktree"], worker.get("base_commit") or record["base_commit"], worker["ownership"], directory / "deliveries" / f"{worker['id']}.patch")
         delivery["worker_id"] = worker["id"]; worker["delivery"] = delivery; worker["status"] = "collected"
-        removed = git(Path(worker["worktree"]), "worktree", "remove", "--force", worker["worktree"])
+        # -C must be the main repo, not the worktree being removed: on Windows, git refuses to
+        # delete a directory that is also its own -C target ("Permission denied").
+        removed = git(result["root"], "worktree", "remove", "--force", worker["worktree"])
         if removed.returncode: raise RuntimeError(f"cannot clean collected worker {worker['id']}: {error(removed)}")
         worker["worktree_cleaned"] = True
     record["updated_at"] = stamp(); write(path, record)
@@ -242,7 +325,8 @@ def apply(args: argparse.Namespace) -> None:
     result, task, _, record, path = record_for(args); integration = record.get("integration", {})
     if integration.get("status") != "ready": raise RuntimeError("integration is not ready")
     root, patch = Path(result["root"]), Path(integration["patch"])
-    if not snapshot_matches(root, record["snapshot"]): raise RuntimeError("main working tree changed after parallel development began")
+    unchanged = snapshot_matches(root, record["snapshot"]) if record.get("snapshot") else base_matches(root, record["base_commit"])
+    if not unchanged: raise RuntimeError("main working tree changed after parallel development began")
     payload = patch.read_bytes()
     if hashlib.sha256(payload).hexdigest() != integration["sha256"]: raise RuntimeError("combined patch hash mismatch")
     checked = git(root, "apply", "--check", str(patch))
@@ -261,6 +345,7 @@ def cleanup(args: argparse.Namespace) -> None:
         if args.worker_id and worker["id"] != args.worker_id: continue
         if worker["status"] not in {"applied", "failed", "blocked", "superseded"}: continue
         if worker.get("worktree_cleaned"): continue
+        if not worker.get("worktree"): worker["status"] = "cleaned"; continue  # native dispatch never produced a worktree for this worker
         if worker.get("delivery"):
             payload, _ = capture(Path(worker["worktree"]), record["base_commit"])
             if hashlib.sha256(payload).hexdigest() != worker["delivery"]["sha256"]: raise RuntimeError(f"worker {worker['id']} changed after collection; refusing cleanup")
@@ -275,11 +360,12 @@ def status(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(); parser.add_argument("--action", required=True, choices=("Assess", "Init", "Start", "WorkerReady", "WorkerFailed", "Collect", "Integrate", "Apply", "Cleanup", "Status")); parser.add_argument("--path", default="."); parser.add_argument("--state-root", default=str(Path.home() / ".agent-workflow")); parser.add_argument("--plan-path", default=""); parser.add_argument("--platform", default="Codex"); parser.add_argument("--worker-id", default=""); parser.add_argument("--worker-root", default=""); parser.add_argument("--reason", default=""); parser.add_argument("--local-check", action="append", default=[]); args = parser.parse_args(argv)
+    parser = argparse.ArgumentParser(); parser.add_argument("--action", required=True, choices=("Assess", "Init", "Start", "RegisterNative", "WorkerReady", "WorkerFailed", "Collect", "Integrate", "Apply", "Cleanup", "Status")); parser.add_argument("--path", default="."); parser.add_argument("--state-root", default=str(Path.home() / ".agent-workflow")); parser.add_argument("--plan-path", default=""); parser.add_argument("--platform", default="Codex"); parser.add_argument("--worker-id", default=""); parser.add_argument("--worker-root", default=""); parser.add_argument("--reason", default=""); parser.add_argument("--local-check", action="append", default=[]); parser.add_argument("--workers-path", default=""); parser.add_argument("--base-commit", default=""); args = parser.parse_args(argv)
     if args.action in {"Assess", "Init", "Start"} and not args.plan_path: parser.error("--plan-path is required")
+    if args.action == "RegisterNative" and (not args.workers_path or not args.base_commit): parser.error("--workers-path and --base-commit are required")
     if args.action == "WorkerReady" and (not args.worker_id or not args.worker_root): parser.error("--worker-id and --worker-root are required")
     if args.action == "WorkerFailed" and not args.worker_id: parser.error("--worker-id is required")
-    {"Assess": assess, "Init": init, "Start": init, "WorkerReady": worker_ready, "WorkerFailed": worker_failed, "Collect": collect, "Integrate": integrate, "Apply": apply, "Cleanup": cleanup, "Status": status}[args.action](args)
+    {"Assess": assess, "Init": init, "Start": start, "RegisterNative": register_native, "WorkerReady": worker_ready, "WorkerFailed": worker_failed, "Collect": collect, "Integrate": integrate, "Apply": apply, "Cleanup": cleanup, "Status": status}[args.action](args)
     return 0
 
 

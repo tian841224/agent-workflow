@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: 使用者明確要求被 grill、或在討論/規劃/任務中遇到需求籠統/決策未明（unclear_requirements）需在動工或解除凍結前壓力測試計畫與假設時使用；逐一提問直到決策樹清楚、下一步站得住腳。
+description: Use when the user explicitly asks to be grilled, or when discussions/planning/tasks hit vague requirements or unclear decisions (unclear_requirements) and the plan and assumptions need to be pressure-tested before starting work or unfreezing; ask one question at a time until the decision tree is clear and the next step is defensible.
 ---
 
 # Grill Me
@@ -24,6 +24,5 @@ Pressure-test the plan until the decision tree is clear and the next move is def
 
 - Be direct and specific.
 - Prefer questions about constraints, ownership, failure modes, rollout, verification, and reversibility.
-- Do not turn the session into a long checklist.
-- Do not invent requirements just to keep questioning.
-- Stop when the remaining uncertainty is low enough to act.
+- Keep it a focused conversation, not a long checklist.
+- Only ask about real unresolved uncertainty; stop once the remaining uncertainty is low enough to act.

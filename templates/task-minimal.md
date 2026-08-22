@@ -13,9 +13,7 @@ impact_effect: <none | local_behavior | shared_behavior | schema | data | contra
 impact_confidence: <high | medium | low>
 complexity_hint: []
 workflow_request: []
-workflow_profile:
 workflow_facts:
-workflow_decision:
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
 frozen_at:
@@ -58,14 +56,10 @@ frozen_at:
 
 - result: <PASS | FAIL>
 - findings: <none or concise findings>
-- Architecture consistency: <PASS>
-- Code quality and conventions: <PASS>
-- Data consistency: <PASS | N/A>
-- Security: <PASS | N/A>
-- Risk and compatibility: <PASS>
-- Performance: <PASS | N/A>
-- Flow and impact completeness: <PASS>
-- Failure modes and observability: <PASS>
+<!-- Only list dimensions actually checked (one line each, e.g. `- Security: PASS`).
+Pick from: Architecture consistency, Code quality and conventions, Data consistency,
+Security, Risk and compatibility, Performance, Flow and impact completeness,
+Failure modes and observability. Skip anything not checked -- no need to report N/A. -->
 
 ## Verifier result
 
@@ -73,18 +67,15 @@ frozen_at:
 - evidence: <real entrypoint and relevant verification>
 
 <!--
-Keep only the role sections the planner actually selected: workflow_decision.selected is
-the single source of truth, and the gate checks nothing else. A task may legitimately run
-verifier alone, or adversarial + verifier without reviewer.
+Keep only the role sections actually in workflow_request: that list is the complete and
+only source of truth for which roles must run, and the gate checks nothing else. A task
+may legitimately request verifier alone, or adversarial + verifier without reviewer.
 
-workflow_request is a floor, not a profile: list the capabilities that must run regardless
-of the plan (for example [verifier]). workflow_facts is declared by the agent and can only
-add work -- suppressing a capability always needs observed evidence from the worktree.
+workflow_facts is declared by the agent; it only decides which steps appear inside an
+already-selected evidence capability (see schemas/workflow-policy.json), never which
+capabilities are selected -- that is workflow_request alone.
 
-complexity_hint may contain multi_path, shared_state, or external_boundary. It can only add
-work; medium/low impact_confidence and incomplete analysis select impact_discovery.
-
-Use templates/task.md when the plan selects evidence capabilities (their step lines live
-there), or for coordinator/worker tasks.
+Use templates/task.md when workflow_request includes an evidence capability (their step
+lines live there), or for coordinator/worker tasks.
 Add Retrospective result only for a suspected regression, repeated fix, or user request.
 -->

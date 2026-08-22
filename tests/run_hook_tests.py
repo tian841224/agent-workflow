@@ -29,6 +29,24 @@ def test_git_guard() -> None:
     assert not run_hook("git status --short")
 
 
+def run_skill_guard(tool_name: str, file_path: str, platform: str = "Claude") -> str:
+    payload = json.dumps({"tool_name": tool_name, "tool_input": {"file_path": file_path}}, ensure_ascii=False)
+    result = invoke([sys.executable, "-B", "-X", "utf8", str(ENTRYPOINT), "skill-guard", "--platform", platform], stdin=payload, phase="skill-guard", cwd=str(ROOT))
+    assert result.code == 0 and not result.stderr, result
+    return result.stdout
+
+
+def test_skill_guard() -> None:
+    claude_hit = run_skill_guard("Edit", ".agents/skills/foo/SKILL.md", "Claude")
+    assert '"ask"' in claude_hit and "writing-for-agents" in claude_hit
+
+    codex_hit = run_skill_guard("Write", ".agents/agents/reviewer.md", "Codex")
+    assert '"deny"' in codex_hit and "writing-for-agents" in codex_hit
+
+    assert not run_skill_guard("Edit", "README.md", "Claude")
+    assert not run_skill_guard("Read", ".agents/skills/foo/SKILL.md", "Claude")
+
+
 def test_timeout_diagnostic() -> None:
     try:
         invoke([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.05, phase="timeout-contract", task="sample-task", cwd=str(ROOT))
@@ -40,7 +58,7 @@ def test_timeout_diagnostic() -> None:
 
 
 def main() -> int:
-    test_git_guard(); test_timeout_diagnostic()
+    test_git_guard(); test_skill_guard(); test_timeout_diagnostic()
     print("Python hook tests passed")
     return 0
 

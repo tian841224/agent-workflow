@@ -1,17 +1,17 @@
 # Project Docs
 
-目標 repo 的 `docs/`，回答「這塊 code 是什麼、流程怎麼走」；讀寫時機見 [SKILL.md](SKILL.md) 第 1、4 節。
+目標 repo 的 `docs/`，回答「這塊 code 是什麼、流程怎麼走、為什麼這樣決定」；讀寫時機見 [SKILL.md](SKILL.md) 第 1、4 節。
 
 ## 與 knowledge、retro 的分工
 
 | | project docs | `knowledge.py` | `retro.py` |
 |---|---|---|---|
-| 回答 | 這塊 code 是什麼、流程怎麼走 | 這件事以前踩過嗎 | 框架是不是重複漏接 |
+| 回答 | 這塊 code 是什麼、流程怎麼走、為什麼這樣決定 | 這件事以前踩過嗎（跨 task 的框架級教訓） | 框架是不是重複漏接 |
 | 檢索鍵 | path 前綴反查 | topic 關鍵字子字串 | miss_category 計數 |
-| 生命週期 | 原地覆寫，只有一個現行版本 | append + supersedes 鏈 | 計數到門檻才 escalate |
-| 存放 | 目標 repo `docs/` | 框架 state | 框架 state |
+| 生命週期 | 原地覆寫，只有一個現行版本；`decision` 文件隨 `covers` 的 git 歷史自動判斷 stale | append + supersedes 鏈 | 計數到門檻才 escalate |
+| 存放 | 目標 repo `docs/`，隨 code 版控、PR 看得到 | 框架 state | 框架 state |
 
-範例：「`checkSeries` 的 free game 觸發條件與結算順序」→ project docs（結構）；「`settle` 有兩個入口，第二個在 cron 裡」→ project docs 的 `## Entrypoints`（結構事實，grep 找不到）；「金額一律用 decimal」→ knowledge（決策）；「Reviewer 沒抓到第二個呼叫端，第二次了」→ retro。單次筆誤或單點邏輯錯誤兩邊都不寫。
+範例：「`checkSeries` 的 free game 觸發條件與結算順序」→ project docs（結構）；「`settle` 有兩個入口，第二個在 cron 裡」→ project docs 的 `## Entrypoints`（結構事實，grep 找不到）；「為什麼金額一律用 decimal，不用 float」→ `decision` 文件（在 repo 內、隨 code 版控、covers 對到的程式一改就會被標 stale）；「這個框架本身重複漏接同一種問題」→ knowledge／retro（跨 task、跨 repo 的框架級教訓）；「Reviewer 沒抓到第二個呼叫端，第二次了」→ retro。單次筆誤或單點邏輯錯誤三邊都不寫。
 
 ## 佈局
 
@@ -20,7 +20,9 @@ docs/
 ├─ architecture.md        系統總覽（一份）
 ├─ dataflow.md             跨模組主要資料流（一份）
 ├─ modules/<slug>.md       模組文件（多份，need-driven）
-└─ api/<slug>.md           API 規格（多份，need-driven；新增或修改對外端點時才建立）
+├─ api/<slug>.md           API 規格（多份，need-driven；新增或修改對外端點時才建立）
+├─ decisions/<slug>.md     決策記錄（多份，need-driven；見下方「Decision 建立時機」）
+└─ glossary.md             詞彙表（一份，need-driven；見下方「Glossary 建立時機」）
 ```
 
 repo 已有 docs 慣例時沿用既有位置與命名，只補下列兩個 frontmatter 欄位。
@@ -29,12 +31,12 @@ repo 已有 docs 慣例時沿用既有位置與命名，只補下列兩個 front
 
 ```yaml
 ---
-doc_type: architecture | dataflow | module | api
+doc_type: architecture | dataflow | module | api | decision | glossary
 covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 ---
 ```
 
-`covers` 路徑文法與 `file_ownership` 相同（repo-relative、`/` 分隔、不得含 `..`／`[`／`]`／反斜線）：以 `/` 結尾為目錄前綴，否則為精確檔案。`architecture.md`／`dataflow.md` 的 `covers` 不參與比對（Lookup 一律附帶），僅供人閱讀。
+`covers` 路徑文法與 `file_ownership` 相同（repo-relative、`/` 分隔、不得含 `..`／`[`／`]`／反斜線）：以 `/` 結尾為目錄前綴，否則為精確檔案。`architecture.md`／`dataflow.md`／`glossary.md` 的 `covers` 不參與比對（Lookup 一律附帶），僅供人閱讀或留空；`decision` 文件的 `covers` 必填且照常參與比對與 staleness 判斷。
 
 ## Module 文件六區塊
 
@@ -63,6 +65,23 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 | `## Invariants and gotchas` | 冪等性、速率限制、副作用等不寫在 schema 裡但呼叫端要知道的事 |
 | `## Unverified` | 追不完的節點與原因；無則 `none` |
 
+## Decision 文件四區塊
+
+三個條件**同時成立**才建立：(1) 難以逆轉；(2) 沒有脈絡會讓未來讀者困惑「為什麼這樣做」；(3) 是真實 trade-off 的結果（有其他可行選項而選了這個）。三者缺一不建——單純的實作細節、沒有替代方案的必然選擇、或隨時能改的小決定，都不建立 decision 文件。建立時機由 `SKILL.md` §4 觸發（`change_kind: feature｜refactor`，或 `risk_flags` 命中 `contract`／`schema`／`migration` 時）。讀取時機與 module／api 文件相同：`project-doc --action Lookup` 命中即讀，不另外呼叫。
+
+| 區塊 | 記什麼 |
+|---|---|
+| `## Context` | 當時的限制、需求或問題是什麼 |
+| `## Decision` | 選了什麼 |
+| `## Alternatives` | 考慮過的其他選項，及沒選它們的理由 |
+| `## Consequences` | 這個決定帶來的取捨、之後要注意什麼 |
+
+`covers` 指向被這個決策影響的程式路徑；程式一改，`stale` 就會被標起來——這是 decision 文件優於外部 ADR 檔案的地方，決策的有效性和程式碼綁在一起判斷，不需要另外維護。
+
+## Glossary 建立與讀取時機
+
+第一次出現「同一概念在程式與對話裡用了不同詞」或「同一個詞指涉兩件事」時建立 `docs/glossary.md`，一次記一則，不批次補齊。`covers` 留空，Lookup 一律附帶；Reviewer 的 `Mysterious Name` 判斷以它為基準。只有一個 `## Terms` 區塊，逐則列出術語與定義。
+
 ## 從 task 收割（不是新探索）
 
 | task 既有欄位 | → 區塊 | 轉換 |
@@ -72,18 +91,21 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 | `Impact surface` 未確認節點 | `## Unverified` | 原樣搬 |
 | `Execution path and regression evidence` | `## Flow` | 刪掉行號與驗證證據，只留符號骨架 |
 | `Contract and data impact` | `## Request`／`## Response`／`## Errors` | 原樣搬（API 文件需要的正是這裡已經寫好的完整契約細節） |
+| `Decision and tradeoffs` | `decision` 文件的 `## Decision`／`## Alternatives`／`## Consequences` | 原樣搬，不重新探索 |
 | Reviewer 回報的路徑差異 | `## Entrypoints`／`## Flow` | 補進去（獨立重建才發現的節點，價值最高） |
 | 本次踩到的假設／限制 | `## Invariants and gotchas` | 一句話 |
 
-## `project-doc.py`
+## `project-doc`
 
 ```text
-$pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\scripts\project-doc.py'
-& $pd -Action Lookup -Paths 'game/gameList/Seth_10017/'   # 命中文件 + uncovered，附帶 architecture/dataflow
-& $pd -Action List                                         # 全部文件與 stale 狀態
-& $pd -Action Stale                                         # 只列 stale／stale_pending 的文件
-& $pd -Action Check -Doc docs/modules/seth-10017.md          # frontmatter／covers／必要區塊
-& $pd -Action Check -Doc docs/api/exchange-prepare.md         # 同上，api 文件檢查七區塊
+$pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\agent_workflow.cmd'
+& $pd project-doc --action Lookup --paths 'game/gameList/Seth_10017/'   # 命中文件 + uncovered，附帶 architecture/dataflow/glossary
+& $pd project-doc --action List                                         # 全部文件與 stale 狀態
+& $pd project-doc --action Stale                                         # 只列 stale／stale_pending 的文件
+& $pd project-doc --action Check --doc docs/modules/seth-10017.md         # frontmatter／covers／必要區塊
+& $pd project-doc --action Check --doc docs/api/exchange-prepare.md       # 同上，api 文件檢查七區塊
+& $pd project-doc --action Check --doc docs/decisions/decimal-money.md    # 同上，decision 文件檢查四區塊
+& $pd project-doc --action Check --doc docs/glossary.md                  # 同上，glossary 只檢查 Terms 一區塊，covers 可為空
 ```
 
 `stale`：涵蓋路徑在文件之後又被 commit 改動。`stale_pending`：涵蓋路徑有未提交改動而文件沒有。兩者皆源自 git 歷史比較，不是欄位，不可能被手動改假；未進版控的新文件一律 `stale: false`。`stale` 或 `stale_pending` 為 `true` 時只當線索，一律以現況程式為準。

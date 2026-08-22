@@ -28,7 +28,13 @@ def doc_list(root,doc_root):
             p=git(root,args); value=p.stdout.decode().strip()
             try:return int(value)
             except ValueError:return None
-        doc_time=stamp(["log","-1","--format=%ct","--",rel]); code_time=stamp(["log","-1","--format=%ct","--",*covers]); dirty=bool(git(root,["status","--porcelain","--",*covers]).stdout.strip())
+        # An empty covers list (architecture/dataflow/glossary) must never fall through to
+        # a bare `-- ` pathspec: git treats that as "no restriction" and reports the whole
+        # repo's latest activity, which would make every such doc spuriously stale the
+        # moment anything else in the repo changes.
+        doc_time=stamp(["log","-1","--format=%ct","--",rel])
+        code_time=stamp(["log","-1","--format=%ct","--",*covers]) if covers else None
+        dirty=bool(git(root,["status","--porcelain","--",*covers]).stdout.strip()) if covers else False
         out.append({"path":str(path),"doc_type":data.get("doc_type"),"covers":covers,"stale":doc_time is not None and code_time is not None and code_time>doc_time,"stale_pending":dirty and not bool(git(root,["status","--porcelain","--",rel]).stdout.strip()),"body":data.get("body","")})
     return out
 def run(action,doc="",repo_root=".",paths=None,doc_root="docs"):
@@ -36,13 +42,13 @@ def run(action,doc="",repo_root=".",paths=None,doc_root="docs"):
     if key=="check":
         target=Path(doc); issues=[]
         if not target.is_file():return [{"path":str(target),"issues":["document does not exist"]}]
-        data=metadata(target.read_text(encoding="utf-8-sig")); allowed={"architecture","dataflow","module","api"}
+        data=metadata(target.read_text(encoding="utf-8-sig")); allowed={"architecture","dataflow","module","api","decision","glossary"}
         if not data:issues.append("missing or invalid frontmatter")
         else:
             if data.get("doc_type") not in allowed:issues.append(f"unknown doc_type: {data.get('doc_type')}")
             covers=data.get("covers",[]); covers=[covers] if isinstance(covers,str) else covers
-            if not covers:issues.append("covers must not be empty")
-            required={"module":["Responsibility","Entrypoints","Flow","Shared state","Invariants and gotchas","Unverified"],"api":["Endpoint","Auth","Request","Response","Errors","Invariants and gotchas","Unverified"]}.get(data.get("doc_type"),[])
+            if data.get("doc_type") != "glossary" and not covers:issues.append("covers must not be empty")
+            required={"module":["Responsibility","Entrypoints","Flow","Shared state","Invariants and gotchas","Unverified"],"api":["Endpoint","Auth","Request","Response","Errors","Invariants and gotchas","Unverified"],"decision":["Context","Decision","Alternatives","Consequences"],"glossary":["Terms"]}.get(data.get("doc_type"),[])
             for name in required:
                 m=re.search(rf"(?ms)^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)",data.get("body",""));
                 if not m or not m.group(1).strip() or re.match(r"^<.*>$",m.group(1).strip()):issues.append(f"missing section: {name}")

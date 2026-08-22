@@ -169,23 +169,37 @@ def _link_skill_dir(source, target):
         target.symlink_to(source, target_is_directory=True)
 
 
+PLATFORM_COPIED_SKILLS = ("workflow", "learn", "tdd")
+
+
 def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
-    # Skills outside the (workflow, learn) copy set are shared read-only from canonical/skills;
-    # link every one so a newly added skill is picked up without a manual per-skill step.
-    if "Claude" not in selected or dry_run: return
+    # Skills outside the copied set are shared read-only from canonical/skills via a
+    # junction/symlink; link every one so a newly added skill is picked up without a
+    # manual per-skill step, and remove a link whose source skill no longer exists so
+    # a removed skill does not linger forever in the platform's skills directory.
+    if "Claude" not in selected: return
     skills_root = canonical / "skills"
-    if not skills_root.is_dir(): return
-    for source in sorted(p for p in skills_root.iterdir() if p.is_dir() and p.name not in ("workflow", "learn")):
-        target = claude / "skills" / source.name
+    current = {p.name for p in skills_root.iterdir() if p.is_dir() and p.name not in PLATFORM_COPIED_SKILLS} if skills_root.is_dir() else set()
+    claude_skills = claude / "skills"
+    if not dry_run and claude_skills.is_dir():
+        for target in sorted(claude_skills.iterdir()):
+            is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
+            if not (target.is_symlink() or is_reparse):
+                continue  # a real directory might be user content; never touch it
+            if target.name not in current:
+                target.unlink()
+    if dry_run or not skills_root.is_dir(): return
+    for name in sorted(current):
+        target = claude_skills / name
         is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
         if target.is_symlink() or is_reparse or target.exists(): continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        _link_skill_dir(source, target)
+        _link_skill_dir(skills_root / name, target)
 
 
 def _install_platform_files(selected, canonical, claude, codex, antigravity, dry_run):
     managed=[]
-    for skill in ("workflow", "learn"):
+    for skill in PLATFORM_COPIED_SKILLS:
         source=canonical/"skills"/skill
         for target in ([claude/"skills"/skill] if "Claude" in selected else [])+([codex/"skills"/skill] if "Codex" in selected else [])+([antigravity/"config"/"skills"/skill] if "Antigravity" in selected else []):
             if not source.is_dir(): continue
@@ -218,6 +232,41 @@ def _remove_managed_hooks(path, runtime_root, dry_run):
     if not dry_run:_json(path,data)
 
 
+def _prune_stale(previous: dict[str, str], files: list[dict[str, str]], managed_roots: list[Path], dry_run: bool) -> list[str]:
+    """Remove managed files the current manifest no longer lists.
+
+    Uses the exact same safety rule Uninstall already relies on: a stale path is
+    only removed when its current on-disk hash still matches what the previous
+    install recorded, so a file the user edited by hand is left alone (it would
+    already have been flagged 'preserved-local-change' if it were still in the
+    manifest; this only prunes files that dropped out of the manifest entirely).
+    User data -- state/knowledge, state/projects, task directories, imports,
+    activation.json -- is never in `previous` in the first place, since it is
+    never written into managed-runtime.json.
+    """
+    current_paths = {item["path"] for item in files}
+    removed: list[str] = []
+    for path_str in sorted(set(previous) - current_paths):
+        path = Path(path_str)
+        expected = previous[path_str]
+        if not path.is_file() or not expected or _hash(path) != expected:
+            continue
+        removed.append(path_str)
+        if dry_run:
+            continue
+        path.unlink()
+        parent = path.parent
+        # Prune now-empty ancestor directories, but never touch a managed root itself
+        # (e.g. `runtime/`, `canonical/`, a platform target directory) or anything above it.
+        while any(root in parent.parents for root in managed_roots):
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+    return removed
+
+
 def install(args: argparse.Namespace) -> int:
     target = args.target_agent
     selected = {"Both": {"Claude", "Codex"}, "All": {"Claude", "Codex", "Antigravity"}}.get(target, {target})
@@ -243,8 +292,6 @@ def install(args: argparse.Namespace) -> int:
         print("Managed runtime removed. Knowledge, projects, tasks, and imports were preserved."); return 0
     if args.action not in {"Install", "Repair"}: raise RuntimeError(f"unsupported action: {args.action}")
     if sys.version_info < (3, 11): raise RuntimeError("Python 3.11 or newer is required; install it and run install.py again")
-    if not (state/"activation.json").exists() and any(p.exists() for p in _legacy_paths(args)):
-        raise RuntimeError("v3 knowledge or history was found. Run migrate-v3.py through Validate and Activate before installing v4.")
     files: list[dict[str, str]] = []
     manifest = json.loads((ROOT / "adapters" / "managed-manifest.json").read_text(encoding="utf-8-sig"))
     force=args.action=="Repair"
@@ -252,8 +299,12 @@ def install(args: argparse.Namespace) -> int:
         source = (ROOT / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (ROOT / relative)
         _copy(source, runtime / relative, files, args.dry_run, previous, force)
     # Canonical shared source lives once; platform copies are written from it during each install.
-    for relative in ("agents/reviewer.md", "agents/adversarial.md", "agents/verifier.md", "agents/retrospective.md", "agents/worker.md"):
+    for relative in ("agents/reviewer.md", "agents/adversarial.md", "agents/verifier.md", "agents/retrospective.md", "agents/worker.md", "agents/reviewer-code-smells.md"):
         _copy(ROOT / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
+    # reviewer.md's relative link to reviewer-code-smells.md only resolves for Claude,
+    # whose deployed agent file keeps the same directory shape as canonical/agents/.
+    if "Claude" in selected:
+        _copy(ROOT / ".agents" / "agents" / "reviewer-code-smells.md", claude / "agents" / "reviewer-code-smells.md", files, args.dry_run, previous, force)
     for source in (ROOT / ".agents" / "skills").rglob("*"):
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)
     python_executable = Path(sys.executable).resolve()
@@ -273,6 +324,13 @@ def install(args: argparse.Namespace) -> int:
             if missing: print(f"[install] Codex has {len(missing)} untrusted agent-workflow hook(s); approve them before relying on the hook:")
             for key in missing: print(f"  - {key}")
     if "Antigravity" in selected: _merge_hooks(ROOT / "adapters/antigravity/hooks.json", antigravity / "config/hooks.json", runtime, python_executable, True, args.dry_run)
+    managed_roots = [runtime, canonical] + [root for name, root in
+                     (("Claude", claude), ("Codex", codex), ("Antigravity", antigravity)) if name in selected]
+    stale = _prune_stale(previous, files, managed_roots, args.dry_run)
+    if stale:
+        verb = "Would remove" if args.dry_run else "Removed"
+        print(f"[install] {verb} {len(stale)} file(s) no longer in the manifest:")
+        for path in stale: print(f"  - {path}")
     if not args.dry_run:
         _json(state_file, {"schema_version": 4, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT), "files": files})
     _backup_legacy(args,args.dry_run)

@@ -1,8 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/workflow-policy.json",
-  "version": 3,
-  "baseline": ["task_decision", "diff_check"],
+  "version": 4,
   "scope_rank": {"file": 1, "module": 2, "multi_module": 3, "cross_project": 4},
   "effect_rank": {"none": 0, "schema": 1, "local_behavior": 2, "shared_behavior": 3, "contract": 4, "data": 5, "destructive": 6},
   "capabilities": [
@@ -10,8 +9,6 @@
       "name": "impact_discovery",
       "kind": "evidence",
       "section": "Impact discovery",
-      "candidate_when": [[{"code_change": true}, {"fact": "complexity_signals", "equals": ["uncertain_impact"]}]],
-      "suppress_when": [],
       "order_after": [],
       "steps": [
         {"id": "ID1", "title": "列出變更入口、分析覆蓋度與限制", "when": [[{"always": true}]]},
@@ -23,11 +20,6 @@
       "name": "schema_compatibility",
       "kind": "evidence",
       "section": "Schema compatibility",
-      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["schema", "migration"], "impact_effect": ["schema"]},
-      "suppress_when": [
-        [{"fact": "schema_operation", "equals": ["none"]}],
-        [{"fact": "schema_operation", "equals": ["additive_nullable"]}, {"fact": "has_consumer", "equals": [false]}, {"fact": "schema_constraint_change", "equals": [false]}]
-      ],
       "order_after": [],
       "steps": [
         {"id": "SC1", "title": "列出每個 DDL statement 與操作類別", "when": [[{"always": true}]]},
@@ -41,11 +33,6 @@
       "name": "migration_safety",
       "kind": "evidence",
       "section": "Migration safety",
-      "candidate": {"task_types": ["migration"], "risk_flags": ["migration"]},
-      "suppress_when": [
-        [{"fact": "schema_operation", "equals": ["none"]}],
-        [{"fact": "schema_operation", "equals": ["additive_nullable"]}, {"fact": "data_transform", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}]
-      ],
       "order_after": ["schema_compatibility"],
       "steps": [
         {"id": "MS1", "title": "受影響資料量級與預期執行時間", "when": [[{"always": true}]]},
@@ -60,10 +47,6 @@
       "name": "data_impact",
       "kind": "evidence",
       "section": "Contract and data impact",
-      "candidate": {"task_types": ["schema", "migration"], "risk_flags": ["data_write", "migration", "schema", "financial"], "impact_effect": ["data", "destructive"]},
-      "suppress_when": [
-        [{"fact": "data_transform", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}]
-      ],
       "order_after": ["schema_compatibility"],
       "steps": [
         {"id": "DI1", "title": "受影響資料範圍（表、列、量級）", "when": [[{"always": true}]]},
@@ -78,10 +61,6 @@
       "name": "contract_review",
       "kind": "evidence",
       "section": "Contract and data impact",
-      "candidate": {"risk_flags": ["contract"], "impact_effect": ["contract"], "impact_scope": ["cross_project"]},
-      "suppress_when": [
-        [{"fact": "public_api_change", "equals": [false]}]
-      ],
       "order_after": [],
       "steps": [
         {"id": "CR1", "title": "介面清單 diff：API／DTO／event／序列化欄位", "when": [[{"always": true}]]},
@@ -95,11 +74,6 @@
       "name": "execution_path_review",
       "kind": "evidence",
       "section": "Execution path and regression evidence",
-      "candidate": {"impact_effect": ["shared_behavior", "contract", "data", "destructive"], "impact_scope": ["multi_module", "cross_project"], "change_kinds": ["refactor"]},
-      "candidate_when": [[{"fact": "complexity_signals", "equals": ["multi_path", "shared_state", "external_boundary"]}]],
-      "suppress_when": [
-        [{"fact": "logic_change", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}]
-      ],
       "order_after": ["impact_discovery"],
       "steps": [
         {"id": "EP1", "title": "改動函式／模組的進入點盤點", "when": [[{"always": true}]]},
@@ -113,11 +87,6 @@
       "name": "regression_validation",
       "kind": "evidence",
       "section": "Execution path and regression evidence",
-      "candidate": {"risk_flags": ["behavior_change"], "change_kinds": ["refactor"], "impact_effect": ["shared_behavior", "contract", "data", "destructive"], "impact_scope": ["multi_module", "cross_project"]},
-      "candidate_when": [[{"fact": "complexity_signals", "equals": ["multi_path", "shared_state", "external_boundary"]}]],
-      "suppress_when": [
-        [{"fact": "logic_change", "equals": [false]}]
-      ],
       "order_after": ["execution_path_review"],
       "steps": [
         {"id": "RV1", "title": "既有行為基準（before 的實際輸出／狀態）", "when": [[{"always": true}]]},
@@ -131,36 +100,13 @@
       "name": "reviewer",
       "kind": "role",
       "section": "Reviewer result",
-      "candidate": {"code_change": true},
-      "suppress_when": [
-        [{"fact": "logic_change", "equals": [false]}, {"fact": "has_consumer", "equals": [false]}]
-      ],
       "order_after": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
-      "steps": [],
-      "dimension_waivers": [
-        {
-          "dimensions": ["Architecture consistency"],
-          "reason": "no call site outside the changed files and no shared-state write in the diff",
-          "max_scope": "module",
-          "when": [[
-            {"fact": "symbol_reach", "equals": ["none"]},
-            {"fact": "public_api_change", "equals": [false]},
-            {"fact": "has_consumer", "equals": [false]},
-            {"fact": "shared_state_write", "equals": [false]},
-            {"fact": "data_transform", "equals": [false]},
-            {"fact": "destructive_operation", "equals": [false]}
-          ]]
-        }
-      ]
+      "steps": []
     },
     {
       "name": "adversarial",
       "kind": "role",
       "section": "Adversarial result",
-      "candidate": {"risk_flags": ["financial", "data_write", "migration", "irreversible", "schema", "contract"], "impact_effect": ["data", "contract", "destructive"]},
-      "suppress_when": [
-        [{"fact": "logic_change", "equals": [false]}, {"fact": "data_transform", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}, {"fact": "public_api_change", "equals": [false]}]
-      ],
       "order_after": ["reviewer"],
       "steps": []
     },
@@ -168,10 +114,6 @@
       "name": "verifier",
       "kind": "role",
       "section": "Verifier result",
-      "candidate": {"code_change": true, "risk_flags": ["ui", "behavior_change", "migration", "data_write"], "impact_effect": ["local_behavior", "shared_behavior", "contract", "data", "destructive"]},
-      "suppress_when": [
-        [{"fact": "logic_change", "equals": [false]}, {"fact": "public_api_change", "equals": [false]}, {"fact": "data_transform", "equals": [false]}, {"fact": "destructive_operation", "equals": [false]}]
-      ],
       "order_after": ["adversarial"],
       "steps": []
     }

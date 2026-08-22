@@ -1,6 +1,6 @@
 # Risk Flags
 
-`risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag。可用值與機械觸發清單以 `schemas/task.schema.json` 為準；本檔只提供判斷與使用說明。
+`risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag。可用值與機械觸發清單以 `schemas/task.schema.json` 為準。
 
 `behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
 
@@ -24,7 +24,7 @@
 
 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是主對話考慮 Adversarial 的重要訊號，但不會強制觸發角色。新 task 由主對話在 `workflow_request` 選定角色；Adversarial 可以在沒有 Reviewer 的組合中單獨執行。舊 task 沒有 `workflow_mode: main` 時才沿用 legacy 的保守觸發。
 
-表格右欄的 freeze-required 與額外段落同樣是**宣告觸發、證據解除**：flag 一旦填上就生效，只有當它代表的 capability（`schema`→`schema_compatibility`、`migration`→`migration_safety`、`data_write`／`financial`→`data_impact`、`contract`→`contract_review`，皆另含 `adversarial`）全部被 observed evidence 抑制時，對應的 freeze 與段落要求才會一併解除。`authorization`、`cross_feature`、`unclear_requirements` 無法由 evidence 解除，填上就一定生效。`financial`／`data_write` 命中時另需 mutation check；觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為相容性來源。
+表格右欄的 freeze-required 與額外段落是**單向宣告**：flag 一旦填上就生效，沒有事後解除機制——判斷錯了就編輯 task 拿掉該 flag（連同對應段落一併移除），而不是靠某種證據去抑制它。`financial`／`data_write` 命中時另需 mutation check；觸發集合以 `schemas/task.schema.json` 的 `x_agent_workflow` 為權威來源。
 
 ## Freeze-required 詳細規則
 
@@ -33,7 +33,7 @@
 - Task 增加段落：非目標與相容性、現況與影響面、方案與取捨、邊界與異常、驗收案例、使用者確認。
 - `contract`／`schema`／`data_write`／`financial`／`migration` 另補 `Contract and data impact`。
 - `cross_feature`／`migration`／`irreversible` 另補 `Implementation sequence`（實作順序、依賴與回滾點）。
-- 凍結後不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)，本檔不重述。
+- 凍結後不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)。
 
 ## unclear_requirements 的釐清流程
 

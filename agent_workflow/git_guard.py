@@ -10,7 +10,6 @@ from typing import Any
 
 from .frontmatter import field
 from .paths import is_within
-from .project_resolver import resolve_project
 from .protocol import read_json_stdin, write_json, write_stderr
 
 
@@ -103,6 +102,8 @@ def decision(platform: str, value: str, reason: str) -> None:
 
 
 def active_role(cwd: str, state_root: str) -> str:
+    from .project_resolver import resolve_project
+
     try:
         resolved = resolve_project(cwd, state_root, False, [], "")
     except Exception:

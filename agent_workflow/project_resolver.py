@@ -51,11 +51,16 @@ def resolve_project(path: str, state_root: str, ensure: bool, register: list[str
     repo_fingerprint = ""
     is_git = False
 
-    probe = run_command(["git", "-C", str(resolved_path), "rev-parse", "--is-inside-work-tree"])
-    if probe.returncode == 0 and probe.stdout.strip().lower() == "true":
+    # One process instead of three: rev-parse accepts all its query flags together and
+    # prints one line per flag in order, so the work-tree probe, toplevel, and
+    # git-common-dir lookups collapse into a single subprocess spawn.
+    probe = run_command(["git", "-C", str(resolved_path), "rev-parse",
+                         "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"])
+    probe_lines = probe.stdout.splitlines()
+    if probe.returncode == 0 and len(probe_lines) >= 3 and probe_lines[0].strip().lower() == "true":
         is_git = True
-        root = resolved(run_command(["git", "-C", str(resolved_path), "rev-parse", "--show-toplevel"]).stdout.strip())
-        common_raw = run_command(["git", "-C", str(resolved_path), "rev-parse", "--git-common-dir"]).stdout.strip()
+        root = resolved(probe_lines[1].strip())
+        common_raw = probe_lines[2].strip()
         common_dir = resolved(Path(root, common_raw) if not Path(common_raw).is_absolute() else common_raw)
         remote_result = run_command(["git", "-C", str(resolved_path), "config", "--get", "remote.origin.url"])
         if remote_result.returncode == 0:

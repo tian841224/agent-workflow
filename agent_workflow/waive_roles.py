@@ -6,7 +6,7 @@ from pathlib import Path
 
 def main(argv=None) -> int:
     parser=argparse.ArgumentParser(); parser.add_argument("--task-path",required=True); parser.add_argument("--reason",required=True); parser.add_argument("--confirmed-by-user",action="store_true"); args=parser.parse_args(argv)
-    if not args.confirmed_by_user: print("-ConfirmedByUser is required", file=__import__('sys').stderr); return 1
+    if not args.confirmed_by_user: print("--confirmed-by-user is required", file=__import__('sys').stderr); return 1
     target=Path(args.task_path); raw=target.read_text(encoding="utf-8")
     value=f"roles_waived: {args.reason}"
     if re.search(r"(?m)^roles_waived:",raw): updated=re.sub(r"(?m)^roles_waived:.*$",value,raw,count=1)

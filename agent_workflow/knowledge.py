@@ -16,7 +16,9 @@ def main(argv=None) -> int:
         for path in found:
             text=path.read_text(encoding="utf-8-sig",errors="replace")
             if terms and not all(term in text.casefold() for term in terms): continue
-            out.append({"path":str(path),"topic":frontmatter(text).get("topic",path.stem),"excerpt":" ".join(text.splitlines()[-1:])[:180]})
+            body=re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|\Z)","",text,count=1,flags=re.DOTALL)
+            excerpt=next((line.strip() for line in body.splitlines() if line.strip()),"")[:180]
+            out.append({"path":str(path),"topic":frontmatter(text).get("topic",path.stem),"excerpt":excerpt})
         print(json.dumps(out[:args.limit],ensure_ascii=False)); return 0
     if args.action=="List": print(json.dumps([str(p) for p in found],ensure_ascii=False)); return 0
     if args.action=="Reindex":

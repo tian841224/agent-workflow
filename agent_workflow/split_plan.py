@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, json
 from pathlib import Path
-from .path_grammar import ownership_reason
+from .validate_task import ownership_reason
 from .protocol import write_json
 
 def eligible(task_path: str, plan_path: str | dict) -> dict:

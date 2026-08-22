@@ -1,6 +1,6 @@
 """Executable Python ports of the former PowerShell runner contract boundaries."""
 from __future__ import annotations
-import json, subprocess, sys, tempfile
+import json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 PY=sys.executable
@@ -12,8 +12,35 @@ def call(*args,cwd=ROOT,input_text="",ok=True):
 def cli(command,*args,**kwargs): return call(ROOT/"agent_workflow.py",command,*args,**kwargs)
 def test_contract():
     manifest=json.loads((ROOT/"adapters/managed-manifest.json").read_text(encoding="utf-8")); assert manifest["schema_version"]==4
-    for command in ("git-guard","project-resolver","task-gate","validate-task","workflow-plan","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","path-grammar","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","migrate"):
+    for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate"):
         assert cli(command,"--help").returncode==0
+    # every flag actually written in docs must be argparse's real double-dash lowercase form,
+    # never PowerShell-style single-dash (docs previously drifted to -Action/-Query etc.,
+    # which argparse parses as a cluster of short options and rejects outright)
+    with tempfile.TemporaryDirectory() as t:
+        result = cli("waive-roles", "--task-path", str(Path(t) / "missing.md"), "--reason", "x", ok=False)
+        assert result.returncode != 0
+        message = result.stdout.decode("utf-8", "replace") + result.stderr.decode("utf-8", "replace")
+        assert "--confirmed-by-user is required" in message, message
+def test_posix_wrapper():
+    sh = shutil.which("sh")
+    if not sh:
+        return  # no POSIX shell available on this machine to exercise the wrapper with
+    p = subprocess.run([sh, str(ROOT/"agent-workflow"), "task-gate", "--help"],
+                       cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    assert p.returncode == 0, p.stderr.decode("utf-8", "replace")
+def test_hot_path_imports():
+    # Hooks on the PreToolUse path must not eagerly pull in modules only a
+    # different command needs -- that cost is paid on every single tool call.
+    result=subprocess.run([PY,"-X","utf8","-u","-c",
+        "import sys,runpy;"
+        "sys.argv=['agent_workflow.py','git-guard','--platform','Codex'];"
+        "import io; sys.stdin=io.TextIOWrapper(io.BytesIO(b'{\"tool_input\":{\"command\":\"git status\"}}'), encoding='utf-8');"
+        "runpy.run_path(r'"+str(ROOT/"agent_workflow.py")+"', run_name='__main__');"
+        "assert 'dataclasses' not in sys.modules, 'dataclasses should not be imported on the git-guard hot path';"
+        "assert 'agent_workflow.workflow' not in sys.modules, 'workflow planning should not load for git-guard';"
+    ],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+    assert result.returncode==0,(result.stdout.decode("utf-8","replace"),result.stderr.decode("utf-8","replace"))
 def test_hooks():
     payload=json.dumps({"tool_input":{"command":"git reset --hard HEAD"},"note":"中文"},ensure_ascii=False)
     p=cli("git-guard","--platform","Codex",input_text=payload); assert '"deny"' in p.stdout.decode()
@@ -21,15 +48,80 @@ def test_hooks():
 def test_installer():
     with tempfile.TemporaryDirectory() as t:
         b=Path(t); args=("--state-root",b/"state","--canonical-root",b/"canonical","--claude-target",b/"claude","--codex-target",b/"codex","--antigravity-target",b/"gemini")
-        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_planner.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"state/runtime/scripts/workflow-plan.py").is_file(); assert (b/"codex/agents/agent-workflow-reviewer.toml").is_file()
+        # a stale UserPromptSubmit hook (pre-dating the SessionStart-only memory-context
+        # design) must self-heal on install: _merge_hooks sweeps any command containing
+        # the runtime path before re-merging the current fragment.
+        claude_dir = b / "claude"; claude_dir.mkdir(parents=True)
+        runtime_dir = b / "state" / "runtime"
+        stale = {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command",
+            "command": f'"python" -u "{runtime_dir}\\agent_workflow.py" memory-context --platform Claude --event UserPromptSubmit'}]}]}}
+        (claude_dir / "settings.json").write_text(json.dumps(stale), encoding="utf-8")
+        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-reviewer.toml").is_file()
         for target in (b/"claude/settings.json", b/"codex/hooks.json", b/"gemini/config/hooks.json"):
             hook_text=target.read_text(encoding="utf-8"); assert "memory-context" in hook_text
+        after = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+        assert not after["hooks"].get("UserPromptSubmit"), after["hooks"].get("UserPromptSubmit")
+        for target in (b/"codex/hooks.json", b/"gemini/config/hooks.json"):
+            assert "UserPromptSubmit" not in target.read_text(encoding="utf-8")
+        # the tdd skill is mandatory reading per workflow/SKILL.md and reviewer.md on every
+        # platform, not just Claude -- it must actually be installed everywhere, not just
+        # linked/copied for Claude
+        assert (b/"claude/skills/tdd/SKILL.md").is_file()
+        assert (b/"codex/skills/tdd/SKILL.md").is_file()
+        assert (b/"gemini/config/skills/tdd/SKILL.md").is_file()
+        # a skill removed from source must have its stale Claude junction cleaned up on
+        # the next install, not linger forever
+        ghost = claude_dir/"skills"/"ghost-skill"
+        (canonical_skills:=b/"canonical"/"skills"/"ghost-skill").mkdir(parents=True)
+        (canonical_skills/"SKILL.md").write_text("---\nname: ghost-skill\n---\nghost\n", encoding="utf-8")
+        if os.name == "nt":
+            subprocess.run(["cmd","/c","mklink","/J",str(ghost),str(canonical_skills)],check=True,capture_output=True)
+        else:
+            ghost.symlink_to(canonical_skills, target_is_directory=True)
+        shutil.rmtree(canonical_skills)
+        assert call(ROOT/"install.py","--action","Repair",*args).returncode==0
+        assert not ghost.exists() and not ghost.is_symlink(), "stale skill junction was not cleaned up"
+
+        # Install/Repair must converge the managed tree to exactly the current manifest:
+        # a file that dropped out of the manifest since the last install gets removed,
+        # but only when untouched; a user-edited file with the same fate is preserved.
+        # User data outside the manifest (knowledge, in this case) is never touched.
+        import hashlib as _hashlib
+        def _sha(p): return _hashlib.sha256(p.read_bytes()).hexdigest()
+        keep_entry = b/"state"/"knowledge"/"global"/"entries"/"keep.md"
+        keep_entry.parent.mkdir(parents=True, exist_ok=True)
+        keep_entry.write_text("---\ntopic: keep\n---\nkeep me\n", encoding="utf-8")
+        ghost_file = b/"state"/"runtime"/"agent_workflow"/"ghost_module.py"
+        ghost_file.write_text("# no longer in the manifest\n", encoding="utf-8")
+        edited_file = b/"state"/"runtime"/"agent_workflow"/"edited_ghost.py"
+        edited_file.write_text("# will be user-edited before the fact is recorded\n", encoding="utf-8")
+        manifest_path = b/"state"/"managed-runtime.json"
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_data["files"].append({"path": str(ghost_file), "sha256": _sha(ghost_file), "kind": "runtime"})
+        manifest_data["files"].append({"path": str(edited_file), "sha256": _sha(edited_file), "kind": "runtime"})
+        manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+        edited_file.write_text("# user changed this after install recorded its hash\n", encoding="utf-8")
+        preview = call(ROOT/"install.py","--action","Repair","--dry-run",*args)
+        assert "ghost_module.py" in preview.stdout.decode("utf-8","replace"), preview.stdout
+        assert ghost_file.is_file(), "dry-run must not delete anything"
+        assert call(ROOT/"install.py","--action","Repair",*args).returncode==0
+        assert not ghost_file.exists(), "a file no longer in the manifest was not pruned"
+        assert edited_file.is_file(), "a user-edited file must never be silently deleted"
+        assert edited_file.read_text(encoding="utf-8") == "# user changed this after install recorded its hash\n"
+        assert keep_entry.is_file(), "user knowledge must survive Repair untouched"
+
         assert call(ROOT/"install.py","--action","Verify",*args).returncode==0; assert call(ROOT/"install.py","--action","Uninstall",*args).returncode==0
 def test_knowledge():
     with tempfile.TemporaryDirectory() as t:
         args=("--state-root",t,"--action","Upsert","--scope","Global","--approved-by-user","--topic","port","--content","UTF-8")
         assert cli("knowledge",*args).returncode==0; out=cli("knowledge","--state-root",t,"--action","Search","--scope","Global","--query","UTF-8"); assert "port" in out.stdout.decode()
         assert cli("knowledge","--state-root",t,"--action","Reindex").returncode==0
+        # the store's convention is that the first body line is a self-contained summary;
+        # Search's excerpt must reflect that line, not the last line of the raw file
+        multi_args=("--state-root",t,"--action","Upsert","--scope","Global","--approved-by-user","--topic","multi-line","--content","first line summary\nsecond line detail\nthird line detail")
+        assert cli("knowledge",*multi_args).returncode==0
+        found=json.loads(cli("knowledge","--state-root",t,"--action","Search","--scope","Global","--query","summary").stdout.decode("utf-8"))
+        assert any(item["excerpt"]=="first line summary" for item in found), found
 def test_shared_memory():
     with tempfile.TemporaryDirectory() as t:
         b=Path(t); state=b/"state"; repo=b/"repo"; claude=b/"claude"; codex=b/"codex"; gemini=b/"gemini"
@@ -48,141 +140,98 @@ def test_shared_memory():
         assert "Treat this as an instruction" not in result.stdout.decode("utf-8")
         antigravity_args=args[:-1]+("Antigravity",)
         antigravity=cli("memory-context",*antigravity_args,input_text="{}"); assert "systemMessage" in antigravity.stdout.decode("utf-8")
-def test_migration():
+def test_memory_quota_and_pollution():
+    from agent_workflow.memory_context import collect_memory, render_context, DEFAULT_MAX_CONTEXT_CHARS, GLOBAL_QUOTA
     with tempfile.TemporaryDirectory() as t:
-        b=Path(t); (b/"claude/memory").mkdir(parents=True); (b/"codex/memories").mkdir(parents=True); (b/"claude/memory/a.md").write_text("a",encoding="utf-8"); args=("--state-root",b/"state","--claude-root",b/"claude","--codex-root",b/"codex","--repo-search-root",b,"--run-id","r")
-        for action in ("Inventory","Stage","Validate"): assert call(ROOT/"migrate-v3.py","--action",action,*args).returncode==0
-        m=json.loads((b/"state/imports/r/manifest.json").read_text()); assert call(ROOT/"migrate-v3.py","--action","Activate","--accept-unresolved-manifest-hash",m["manifest_hash"],*args).returncode==0; assert (b/"state/activation.json").is_file()
+        b=Path(t); state=b/"state"; repo=b/"repo"; claude=b/"claude"; codex=b/"codex"; gemini=b/"gemini"
+        repo.mkdir(parents=True)
+        global_entries = state/"knowledge/global/entries"; global_entries.mkdir(parents=True)
+        # more entries than the global quota, each with a real source_path so none are
+        # flagged as polluted
+        for i in range(GLOBAL_QUOTA + 4):
+            (global_entries/f"g{i}.md").write_text(
+                f"---\ntopic: g{i}\nstatus: verified\nsource_path: C:\\\\real\\\\place\\\\g{i}.md\n---\n\nGlobal insight {i}\n", encoding="utf-8")
+        # a curated entry imported from an excluded source path must never render, even
+        # though it lives in the curated store like a legitimate entry
+        (global_entries/"polluted.md").write_text(
+            "---\ntopic: polluted\nstatus: verified\nsource_path: C:\\\\Users\\\\x\\\\.codex\\\\memories\\\\rollout_summaries\\\\r.md\n---\n\nShould never render\n", encoding="utf-8")
+        (claude/"memory").mkdir(parents=True)
+        args=("--state-root",state,"--cwd",repo,"--claude-root",claude,"--codex-root",codex,"--antigravity-root",gemini,"--platform","Codex")
+        result=cli("memory-context",*args,input_text="{}")
+        payload=json.loads(result.stdout.decode("utf-8")); rendered=json.dumps(payload,ensure_ascii=False)
+        assert "Should never render" not in rendered
+        rendered_count=sum(1 for i in range(GLOBAL_QUOTA + 4) if f"Global insight {i}" in rendered)
+        assert rendered_count <= GLOBAL_QUOTA, rendered_count
+        assert len(rendered) < DEFAULT_MAX_CONTEXT_CHARS * 3
 def test_project_doc():
     with tempfile.TemporaryDirectory() as t:
         d=Path(t)/"docs"; d.mkdir(); doc=d/"module.md"; doc.write_text("---\ndoc_type: module\ncovers: [src/]\n---\n\n"+"\n".join(f"## {x}\ncontent" for x in ("Responsibility","Entrypoints","Flow","Shared state","Invariants and gotchas","Unverified")),encoding="utf-8"); assert cli("project-doc","--action","Check","--doc",doc).returncode==0; assert cli("project-doc","--action","List","--repo-root",t).returncode==0
+def test_project_doc_decision_and_glossary():
+    with tempfile.TemporaryDirectory() as t:
+        root=Path(t); subprocess.run(["git","init","-q",str(root)],check=True,stdout=subprocess.PIPE)
+        subprocess.run(["git","-C",str(root),"config","user.email","test@example.invalid"],check=True)
+        subprocess.run(["git","-C",str(root),"config","user.name","workflow-test"],check=True)
+        (root/"src").mkdir(); (root/"src"/"money.py").write_text("AMOUNT = 1\n",encoding="utf-8")
+        d=root/"docs"; d.mkdir(); (d/"decisions").mkdir()
+        decision=d/"decisions"/"decimal-money.md"
+        decision.write_text("---\ndoc_type: decision\ncovers: [\"src/money.py\"]\n---\n\n"+"\n".join(f"## {x}\ncontent" for x in ("Context","Decision","Alternatives","Consequences")),encoding="utf-8")
+        glossary=d/"glossary.md"
+        glossary.write_text("---\ndoc_type: glossary\n---\n\n## Terms\ncontent",encoding="utf-8")
+        subprocess.run(["git","-C",str(root),"add","."],check=True)
+        subprocess.run(["git","-C",str(root),"commit","-qm","base"],check=True)
+        assert cli("project-doc","--action","Check","--doc",decision).returncode==0
+        assert cli("project-doc","--action","Check","--doc",glossary).returncode==0
+        # a decision doc missing 'covers' must fail Check; glossary is exempt
+        bare_decision=d/"decisions"/"bare.md"
+        bare_decision.write_text("---\ndoc_type: decision\ncovers: []\n---\n\n"+"\n".join(f"## {x}\ncontent" for x in ("Context","Decision","Alternatives","Consequences")),encoding="utf-8")
+        bare_issues=json.loads(cli("project-doc","--action","Check","--doc",bare_decision).stdout.decode("utf-8"))[0]["issues"]
+        assert any("covers" in issue for issue in bare_issues), bare_issues
+        # glossary always attaches to Lookup regardless of the query path, like architecture/dataflow
+        lookup=json.loads(cli("project-doc","--action","Lookup","--repo-root",str(root),"--paths","src/other.py").stdout.decode("utf-8"))
+        assert any(item["path"]==str(glossary) for item in lookup["docs"]), lookup
+        # covers a decision doc traces to: touching the covered file after the doc's commit marks it stale
+        (root/"src"/"money.py").write_text("AMOUNT = 2  # changed after the decision doc\n",encoding="utf-8")
+        subprocess.run(["git","-C",str(root),"add","."],check=True)
+        subprocess.run(["git","-C",str(root),"commit","-qm","touch covered file"],check=True)
+        stale=json.loads(cli("project-doc","--action","Stale","--repo-root",str(root)).stdout.decode("utf-8"))
+        assert any(item["path"]==str(decision) and item["stale"] for item in stale), stale
 def test_retro():
     with tempfile.TemporaryDirectory() as t: assert cli("retro","--action","List","--state-root",t).returncode==0
 def test_validate_and_profile():
-    assert call(ROOT/"scripts/task-profile.py","--code-change","--change-kind","fix").returncode==0; assert call(ROOT/"scripts/path-grammar.py","--help").returncode==0
+    from agent_workflow.validate_task import ownership_reason
+    assert ownership_reason("src/pricing/handler.py")==""
+    assert ownership_reason("../escape.py")!=""
+    assert ownership_reason("/abs/path.py")!=""
 
-def test_workflow_planner():
-    from agent_workflow.task_profile import get_task_profile
-    from agent_workflow.workflow_planner import collect_evidence, decision_projection, plan_workflows
+def test_step_matrix():
+    from agent_workflow.workflow import manual_plan
 
-    def names(plan, key): return {item["name"] if isinstance(item, dict) else item for item in plan[key]}
-    def steps(plan, name): return {step["id"] for item in plan["selected"] if item["name"] == name for step in item["steps"]}
+    def steps(plan, name):
+        return {step["id"] for item in plan["selected"] if item["name"] == name for step in item["steps"]}
 
-    schema_task = {
-        "code_change": True, "task_type": "schema", "change_kind": "chore",
-        "risk_flags": ["schema", "migration"], "impact_scope": "file",
-        "impact_effect": "schema", "impact_confidence": "high",
-    }
-    proven_safe = {"schema_operation": "additive_nullable", "schema_constraint_change": False,
-                   "data_transform": False, "has_consumer": False, "public_api_change": False,
-                   "destructive_operation": False, "logic_change": False}
+    file_fix = {"code_change": True, "change_kind": "fix", "risk_flags": [],
+                "impact_scope": "file", "impact_effect": "local_behavior",
+                "workflow_request": ["execution_path_review"]}
+    assert steps(manual_plan(file_fix), "execution_path_review") == {"EP1"}
 
-    # observed evidence proves there is nothing to check -> no capability at all
-    direct = plan_workflows(schema_task, proven_safe)
-    assert direct["selected"] == [] and direct["roles"] == [] and direct["final_action"] == "direct"
-    assert direct["profile"] == "direct"
-    assert names(direct, "suppressed") >= {"schema_compatibility", "migration_safety", "data_impact", "reviewer", "verifier", "adversarial"}
+    cross_refactor = {"code_change": True, "change_kind": "refactor", "risk_flags": [],
+                      "impact_scope": "cross_project", "impact_effect": "shared_behavior",
+                      "workflow_request": ["execution_path_review"]}
+    assert steps(manual_plan(cross_refactor), "execution_path_review") == {"EP1", "EP2", "EP3", "EP4", "EP5"}
 
-    # the very same claims declared by the agent may not suppress anything
-    declared = plan_workflows(dict(schema_task, **proven_safe), {})
-    assert {"reviewer", "verifier"}.issubset(set(declared["roles"]))
-    assert names(declared, "unknown") >= {"reviewer", "verifier"}
-    assert not names(declared, "selected").intersection(names(declared, "suppressed"))
-
-    # an observed consumer escalates a task the agent called harmless
-    consumer = plan_workflows(dict(schema_task, impact_effect="none"), dict(proven_safe, has_consumer=True))
-    assert "reviewer" in consumer["roles"] and "schema_compatibility" in names(consumer, "selected")
-
-    # free role combinations: verifier alone
-    fix_task = {"code_change": True, "task_type": "fix", "change_kind": "fix", "risk_flags": [],
-                "impact_scope": "file", "impact_effect": "local_behavior"}
-    verifier_only = plan_workflows(fix_task, {"logic_change": False, "has_consumer": False, "public_api_change": True})
-    assert verifier_only["roles"] == ["verifier"] and verifier_only["profile"] == "standard"
-
-    # free role combinations: adversarial + verifier without reviewer
-    money_task = {"code_change": True, "task_type": "chore", "change_kind": "chore",
-                  "risk_flags": ["financial"], "impact_scope": "file", "impact_effect": "data"}
-    pair = plan_workflows(money_task, {"logic_change": False, "has_consumer": False, "public_api_change": True,
-                                       "data_transform": True, "destructive_operation": False})
-    assert pair["roles"] == ["adversarial", "verifier"]
-    assert steps(pair, "data_impact") == {"DI1", "DI2", "DI4", "DI5"}
-
-    # inner selection scales with scope and effect
-    observed_logic = {"logic_change": True, "has_consumer": True, "public_api_change": True}
-    small = plan_workflows({"code_change": True, "task_type": "refactor", "change_kind": "refactor",
-                            "risk_flags": [], "impact_scope": "file", "impact_effect": "local_behavior"}, observed_logic)
-    big = plan_workflows({"code_change": True, "task_type": "refactor", "change_kind": "refactor",
-                          "risk_flags": [], "impact_scope": "cross_project", "impact_effect": "shared_behavior"}, observed_logic)
-    assert steps(small, "execution_path_review") == {"EP1", "EP4"}
-    assert steps(big, "execution_path_review") == {"EP1", "EP2", "EP3", "EP4", "EP5"}
-
-    # an ordinary local fix must stay exactly as cheap as the legacy standard profile:
-    # two roles, no evidence step to write up
-    light_fix = plan_workflows({"code_change": True, "task_type": "fix", "change_kind": "fix", "risk_flags": [],
-                                "impact_scope": "file", "impact_effect": "local_behavior"},
-                               {"logic_change": True, "has_consumer": False, "public_api_change": False,
-                                "analysis_coverage": "complete"})
-    assert light_fix["roles"] == ["reviewer", "verifier"]
-    assert sum(len(item["steps"]) for item in light_fix["selected"]) == 0
-
-    # a data-changing migration may never lose the verifier
-    migration = plan_workflows({"code_change": True, "task_type": "migration", "change_kind": "chore",
-                                "risk_flags": ["migration", "irreversible"], "impact_scope": "module", "impact_effect": "data"},
-                               {"schema_operation": "changed", "schema_constraint_change": True, "data_transform": True,
-                                "destructive_operation": True, "has_consumer": True, "public_api_change": False, "logic_change": False})
-    assert {"adversarial", "verifier"}.issubset(set(migration["roles"]))
-    # ordering survives an absent intermediate: verifier follows reviewer without adversarial
-    assert big["roles"] == ["reviewer", "verifier"]
-    assert big["order"].index("execution_path_review") < big["order"].index("reviewer") < big["order"].index("verifier")
-
-    # workflow_request is a capability floor the planner may not drop
-    requested = plan_workflows(dict(schema_task, workflow_request=["verifier", "reviewer"]), proven_safe)
-    assert {"reviewer", "verifier"}.issubset(set(requested["roles"]))
-    assert not names(requested, "selected").intersection(names(requested, "suppressed"))
-
-    # high risk without evidence still reaches adversarial
-    risky = plan_workflows(dict(schema_task, impact_effect="data"), {})
-    assert risky["roles"] == ["reviewer", "adversarial", "verifier"]
-    assert risky["order"].index("reviewer") < risky["order"].index("verifier")
-    assert get_task_profile(True, [], "chore", task={"task_type": "chore"}) == "standard"
-
-    with tempfile.TemporaryDirectory() as temp:
-        repo = Path(temp)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True, stdout=subprocess.PIPE)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
-        migration = repo / "001_add_note.sql"
-        migration.write_text("CREATE TABLE users (id INT);\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
-        migration.write_text("CREATE TABLE users (id INT);\nALTER TABLE users ADD COLUMN note VARCHAR(255);\n", encoding="utf-8")
-        evidence = collect_evidence(repo, schema_task)
-        assert evidence["schema_operation"] == "additive_nullable" and evidence["data_transform"] is False
-        assert evidence["logic_change"] is False and evidence["has_consumer"] is False
-        # DDL that does not live in a .sql file must not qualify for the additive shortcut
-        embedded = repo / "store.go"
-        embedded.write_text("package store\n\nconst up = `ALTER TABLE users ADD COLUMN note TEXT`\n", encoding="utf-8")
-        mixed = collect_evidence(repo, schema_task)
-        assert mixed["schema_operation"] == "unknown" and mixed["logic_change"] is True
-        plan = plan_workflows(schema_task, mixed)
-        assert "schema_compatibility" in names(plan, "selected")
-
-    assert call(ROOT / "scripts/workflow-plan.py", "--task-json", json.dumps(schema_task),
-                "--facts-json", json.dumps(proven_safe)).returncode == 0
-    assert decision_projection(direct)["selected"] == []
+    # a declared fact keeps a step alive even when it would otherwise be dropped:
+    # SC4 only fires on schema_constraint_change == true
+    schema_task = {"code_change": True, "change_kind": "chore", "risk_flags": [],
+                  "impact_scope": "file", "impact_effect": "schema",
+                  "workflow_request": ["schema_compatibility"],
+                  "workflow_facts": json.dumps({"schema_constraint_change": True})}
+    assert "SC4" in steps(manual_plan(schema_task), "schema_compatibility")
+    schema_task_no_fact = dict(schema_task); del schema_task_no_fact["workflow_facts"]
+    # an undeclared fact never proves a step false -- SC4 stays in, unproven is not "no"
+    assert "SC4" in steps(manual_plan(schema_task_no_fact), "schema_compatibility")
 
 def test_workflow_gate():
-    from agent_workflow.workflow_planner import plan_task
-
-    def record(plan):
-        return json.dumps({
-            "final_action": plan["final_action"],
-            "selected": [{"name": item["name"], "kind": item["kind"], "steps": [step["id"] for step in item["steps"]]}
-                         for item in plan["selected"]],
-            "suppressed": [item["name"] for item in plan["suppressed"]],
-            "unknown": [item["name"] for item in plan["unknown"]],
-            "complexity": plan["complexity"],
-        }, ensure_ascii=False, separators=(",", ":"))
+    from agent_workflow.workflow import manual_plan
 
     def write_task(repo, data, body):
         lines = []
@@ -201,8 +250,9 @@ def test_workflow_gate():
     base = {
         "id": "20260820-101010-gate-case", "project_id": "0123456789abcdef",
         "worktree_id": "fedcba9876543210", "status": "in_progress", "code_change": True,
-        "risk_flags": ["schema"], "task_type": "schema", "change_kind": "chore",
+        "risk_flags": [], "task_type": "schema", "change_kind": "chore",
         "impact_scope": "file", "impact_effect": "schema", "impact_confidence": "high",
+        "workflow_mode": "main", "workflow_request": ["reviewer", "verifier"],
         "created_at": "2026-08-20T10:10:10+08:00", "updated_at": "2026-08-20T10:10:10+08:00",
     }
     common = ("\n## Goal\nadd a column\n\n## Scope\none migration file\n\n"
@@ -210,251 +260,97 @@ def test_workflow_gate():
 
     with tempfile.TemporaryDirectory() as temp:
         repo = Path(temp)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True, stdout=subprocess.PIPE)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
-        (repo / "001_add_note.sql").write_text("CREATE TABLE users (id INT);\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
-        (repo / "001_add_note.sql").write_text(
-            "CREATE TABLE users (id INT);\nALTER TABLE users ADD COLUMN note VARCHAR(255);\n", encoding="utf-8")
 
-        plan = plan_task(base, cwd=repo)
-        assert plan["final_action"] == "direct" and plan["roles"] == []
-        data = dict(base, workflow_profile=plan["profile"], workflow_decision=record(plan))
+        plan = manual_plan(base)
+        assert plan["roles"] == ["reviewer", "verifier"]
 
-        # proven-safe change closes without any role, but must justify the suppression
-        light = write_task(repo, data, common + "\n## Impact surface\nadditive nullable column, no consumer found\n")
-        assert run(light, repo) == []
+        passing_review = ("\n## Reviewer result\n- result: PASS\n" +
+                          "".join(f"- {name}: PASS\n" for name in
+                                  ("Architecture consistency", "Code quality and conventions", "Data consistency",
+                                   "Security", "Risk and compatibility", "Performance",
+                                   "Flow and impact completeness", "Failure modes and observability")) +
+                          "\n## Verifier result\n- PASS\n")
+        complete = write_task(repo, base, common + passing_review)
+        assert run(complete, repo) == []
 
-        # the suppression justification is not optional
-        no_surface = write_task(repo, data, common)
-        assert any("Impact surface" in issue for issue in run(no_surface, repo))
-
-        # a decision record that does not reproduce the planner result is rejected
-        tampered = dict(data, workflow_decision=json.dumps(
-            {"final_action": "direct", "selected": [], "suppressed": ["reviewer"], "unknown": []},
-            separators=(",", ":")))
-        assert any("does not match the canonical planner" in issue for issue in run(write_task(repo, tampered, common + "\n## Impact surface\nx\n"), repo))
-
-        # once real code changes, capabilities come back and their step evidence is demanded
-        (repo / "store.go").write_text("package store\n\nfunc Note() string { return \"note\" }\n", encoding="utf-8")
-        heavy_plan = plan_task(base, cwd=repo)
-        assert heavy_plan["roles"] and "reviewer" in heavy_plan["roles"]
-        heavy = write_task(repo, dict(base, workflow_profile=heavy_plan["profile"], workflow_decision=record(heavy_plan)),
-                           common + "\n## Impact surface\nx\n")
-        issues = run(heavy, repo)
-        assert any("evidence line" in issue for issue in issues)
+        incomplete = write_task(repo, base, common)
+        issues = run(incomplete, repo)
         assert any("Reviewer result" in issue for issue in issues)
-        selected_roles = set(heavy_plan["roles"])
-        for absent in {"reviewer", "adversarial", "verifier"} - selected_roles:
-            assert not any(absent.capitalize() + " result" in issue for issue in issues)
+        assert any("Verifier result" in issue for issue in issues)
 
-def test_symbol_evidence():
-    from agent_workflow.workflow_planner import collect_evidence, plan_workflows
+        # a capability not in workflow_request is not required: adversarial-free task closes
+        # cleanly without an Adversarial result section
+        assert not any("Adversarial" in issue for issue in issues)
 
-    def repo_at(temp, files):
-        repo = Path(temp)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True, stdout=subprocess.PIPE)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
-        for name, text in files.items():
-            path = repo / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
-        return repo
+        # an evidence capability in workflow_request demands its steps be written up
+        evidence_data = dict(base, workflow_request=["execution_path_review", "reviewer", "verifier"])
+        evidence_plan = manual_plan(evidence_data)
+        assert "execution_path_review" in {item["name"] for item in evidence_plan["selected"]}
+        no_evidence = write_task(repo, evidence_data, common + passing_review)
+        evidence_issues = run(no_evidence, repo)
+        assert any("evidence line" in issue for issue in evidence_issues)
 
-    isolated = {
-        "internal/pricing.go": (
-            "package internal\n\n"
-            "func calculateBonusRate(level int) float64 {\n\treturn float64(level) * 1.5\n}\n\n"
-            "func Describe(level int) float64 {\n\treturn calculateBonusRate(level)\n}\n"),
-        "cmd/app.go": "package cmd\n\nfunc Boot() int {\n\treturn 1\n}\n",
-    }
-    with tempfile.TemporaryDirectory() as temp:
-        repo = repo_at(temp, isolated)
-        (repo / "internal/pricing.go").write_text(
-            "package internal\n\n"
-            "func calculateBonusRate(level int) float64 {\n\treturn float64(level) * 2.0\n}\n\n"
-            "func Describe(level int) float64 {\n\treturn calculateBonusRate(level)\n}\n", encoding="utf-8")
-        evidence = collect_evidence(repo, {"task_type": "fix"})
-        # the changed symbol has no call site outside its own file
-        assert evidence["symbol_reach"] == "none", evidence
-        assert evidence["has_consumer"] is False, evidence
-        assert evidence["logic_change"] is True
+        # an empty workflow_request (main conversation judged the task isolated) still
+        # has to write down that judgment call in Impact surface
+        bare_data = dict(base, workflow_request=[])
+        bare_plan = manual_plan(bare_data)
+        assert bare_plan["selected"] == []
+        bare_no_surface = write_task(repo, bare_data, common)
+        assert any("Impact surface" in issue for issue in run(bare_no_surface, repo))
+        bare_with_surface = write_task(repo, bare_data, common + "\n## Impact surface\nisolated, no consumer\n")
+        assert not any("Impact surface" in issue for issue in run(bare_with_surface, repo))
 
-    shared = {
-        "svc/payment.go": (
-            "package svc\n\nfunc ProcessPaymentBatch(ids []string) error {\n\treturn nil\n}\n"),
-        "api/handler.go": (
-            "package api\n\nimport \"x/svc\"\n\n"
-            "func Route() error {\n\treturn svc.ProcessPaymentBatch(nil)\n}\n"),
-    }
-    with tempfile.TemporaryDirectory() as temp:
-        repo = repo_at(temp, shared)
-        (repo / "svc/payment.go").write_text(
-            "package svc\n\nfunc ProcessPaymentBatch(ids []string) error {\n\tif len(ids) == 0 {\n\t\treturn nil\n\t}\n\treturn nil\n}\n",
-            encoding="utf-8")
-        evidence = collect_evidence(repo, {"task_type": "fix"})
-        assert evidence["symbol_reach"] == "multi_module", evidence
-        assert evidence["has_consumer"] is True
-
-        # an agent understating the blast radius gets upgraded by the observed call sites
-        understated = {"code_change": True, "task_type": "fix", "change_kind": "fix", "risk_flags": [],
-                       "impact_scope": "file", "impact_effect": "local_behavior"}
-        plan = plan_workflows(understated, evidence)
-        names = {item["name"] for item in plan["selected"]}
-        assert "execution_path_review" in names, plan["selected"]
-        epr = {step["id"] for item in plan["selected"] if item["name"] == "execution_path_review" for step in item["steps"]}
-        assert {"EP2", "EP5"}.issubset(epr), epr
-
-        # the same task without observed evidence stays at the declared scope
-        bare = plan_workflows(understated, {"logic_change": True})
-        assert "execution_path_review" not in {item["name"] for item in bare["selected"]}
-
-def test_dimension_waiver():
-    from agent_workflow.task_gate import gate
-    from agent_workflow.workflow_planner import plan_task
-
-    DIMENSIONS = ("Architecture consistency", "Code quality and conventions", "Data consistency",
-                  "Security", "Risk and compatibility", "Performance",
-                  "Flow and impact completeness", "Failure modes and observability")
-
-    def build(temp, body):
-        repo = Path(temp)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True, stdout=subprocess.PIPE)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
-        (repo / "internal").mkdir(parents=True, exist_ok=True)
-        (repo / "internal/pricing.go").write_text(
-            "package internal\n\nfunc calculateBonusRate(level int) float64 {\n\treturn float64(level) * 1.5\n}\n",
-            encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
-        (repo / "internal/pricing.go").write_text(body, encoding="utf-8")
-        return repo
-
-    pure = ("package internal\n\nfunc calculateBonusRate(level int) float64 {\n"
-            "\tadjusted := float64(level) * 2.0\n\treturn adjusted\n}\n")
-    persisted = ("package internal\n\nfunc calculateBonusRate(level int) float64 {\n"
-                 "\tadjusted := float64(level) * 2.0\n"
-                 "\tdb.Exec(\"UPDATE players SET bonus_rate = ?\", adjusted)\n\treturn adjusted\n}\n")
-
-    task = {"id": "20260820-101010-waiver-case", "project_id": "0123456789abcdef",
-            "worktree_id": "fedcba9876543210", "status": "in_progress", "code_change": True,
-            "risk_flags": [], "task_type": "fix", "change_kind": "fix", "impact_scope": "file",
-            "impact_effect": "local_behavior", "impact_confidence": "high",
-            "created_at": "2026-08-20T10:10:10+08:00", "updated_at": "2026-08-20T10:10:10+08:00"}
-
-    def waived_of(plan):
-        return {name for item in plan["selected"] if item["name"] == "reviewer"
-                for name in item.get("waived_dimensions", [])}
-
-    with tempfile.TemporaryDirectory() as temp:
-        repo = build(temp, pure)
-        plan = plan_task(task, cwd=repo)
-        assert plan["facts"]["shared_state_write"]["value"] is False
-        assert waived_of(plan) == {"Architecture consistency"}, plan["selected"]
-
-    with tempfile.TemporaryDirectory() as temp:
-        repo = build(temp, persisted)
-        plan = plan_task(task, cwd=repo)
-        # writing a shared row is coupling no call-site search can see: nothing may be waived
-        assert plan["facts"]["shared_state_write"]["value"] is True
-        assert waived_of(plan) == set(), plan["selected"]
-
-    def write_and_gate(repo, plan, review_lines):
-        decision = json.dumps({
-            "final_action": plan["final_action"],
-            "selected": [{"name": item["name"], "kind": item["kind"], "steps": [s["id"] for s in item["steps"]],
-                          "waived_dimensions": item.get("waived_dimensions", [])} for item in plan["selected"]],
-            "suppressed": [item["name"] for item in plan["suppressed"]],
-            "unknown": [item["name"] for item in plan["unknown"]],
-            "complexity": plan["complexity"]}, separators=(",", ":"))
-        frontmatter = dict(task, workflow_profile=plan["profile"], workflow_decision=decision)
+def test_legacy_compat():
+    # A task written before workflow_mode: main still gets the same floor it always had:
+    # reviewer + verifier, with no separate migration step and no legacy planner.
+    def write_task(repo, data, body):
         lines = []
-        for key, value in frontmatter.items():
+        for key, value in data.items():
             if isinstance(value, bool): lines.append(f"{key}: {'true' if value else 'false'}")
             elif isinstance(value, list): lines.append(f"{key}: [{', '.join(map(str, value))}]")
             else: lines.append(f"{key}: {value}")
         path = repo / "task.md"
-        path.write_text("---\n" + "\n".join(lines) + "\n---\n\n# Waiver\n\n## Goal\ntune a rate\n\n"
-                        "## Scope\none private helper\n\n## Completion criteria\n- [x] rate updated\n\n"
-                        "## Validation results\n- pre-review: PASS\n\n## Impact surface\nno call site outside the file\n\n"
-                        "## Reviewer result\n- result: PASS\n" + review_lines +
-                        "\n## Verifier result\n- PASS\n", encoding="utf-8")
-        return gate(str(path), cwd=str(repo))["issues"]
+        path.write_text("---\n" + "\n".join(lines) + "\n---\n\n# Task\n" + body, encoding="utf-8")
+        return path
 
-    with tempfile.TemporaryDirectory() as temp:
-        repo = build(temp, pure)
-        plan = plan_task(task, cwd=repo)
-
-        passing = "".join(f"- {name}: PASS\n" for name in DIMENSIONS)
-        assert write_and_gate(repo, plan, passing) == []
-
-        waived_ok = "".join(f"- {name}: " + ("N/A - 無外部呼叫端\n" if name == "Architecture consistency" else "PASS\n")
-                            for name in DIMENSIONS)
-        assert write_and_gate(repo, plan, waived_ok) == []
-
-        # a waived N/A still has to say why
-        bare = "".join(f"- {name}: " + ("N/A\n" if name == "Architecture consistency" else "PASS\n")
-                       for name in DIMENSIONS)
-        assert any("Architecture consistency" in issue for issue in write_and_gate(repo, plan, bare))
-
-        # the impact dimension is never waived, whatever the reason given
-        impact = "".join(f"- {name}: " + ("N/A - 沒人呼叫\n" if name == "Flow and impact completeness" else "PASS\n")
-                         for name in DIMENSIONS)
-        assert any("Flow and impact completeness" in issue for issue in write_and_gate(repo, plan, impact))
-
-def test_v5_complexity_signals():
-    from agent_workflow.workflow_planner import collect_evidence, plan_workflows
-
-    def names(plan): return {item["name"] for item in plan["selected"]}
-
-    local_fix = {"code_change": True, "task_type": "fix", "change_kind": "fix", "risk_flags": [],
-                 "impact_scope": "file", "impact_effect": "local_behavior", "impact_confidence": "high"}
-
-    # A declared complexity signal can only add work, even when the task calls itself local.
-    hinted = plan_workflows(dict(local_fix, complexity_hint=["shared_state"]),
-                             {"logic_change": True, "has_consumer": False, "public_api_change": False,
-                              "data_transform": False, "destructive_operation": False})
-    assert {"execution_path_review", "regression_validation"}.issubset(names(hinted)), hinted
-    assert "shared_state" in hinted["complexity"]["effective"]
-
-    # Medium/low classification confidence must trigger discovery, never suppress it.
-    uncertain = plan_workflows(dict(local_fix, impact_confidence="low"),
-                               {"logic_change": True, "has_consumer": False, "public_api_change": False,
-                                "data_transform": False, "destructive_operation": False})
-    assert "impact_discovery" in names(uncertain), uncertain
-    assert "uncertain_impact" in uncertain["complexity"]["effective"]
-
+    base = {
+        "id": "20260820-101011-legacy-case", "project_id": "0123456789abcdef",
+        "worktree_id": "fedcba9876543210", "status": "in_progress", "code_change": True,
+        "risk_flags": [], "change_kind": "fix",
+        "created_at": "2026-08-20T10:10:11+08:00", "updated_at": "2026-08-20T10:10:11+08:00",
+    }
+    common = "\n## Goal\nfix\n\n## Scope\nsource\n\n## Completion criteria\n- [x] done\n\n## Validation results\n- pre-review: PASS\n"
     with tempfile.TemporaryDirectory() as temp:
         repo = Path(temp)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True, stdout=subprocess.PIPE)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
-        (repo / "engine.cpp").write_text("int score() { return 1; }\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
-        (repo / "engine.cpp").write_text("int score() { return 2; }\n", encoding="utf-8")
-        evidence = collect_evidence(repo, local_fix)
-        assert evidence["analysis_coverage"] == "unsupported", evidence
-        unsupported = plan_workflows(local_fix, evidence)
-        assert "impact_discovery" in names(unsupported), unsupported
-        assert "uncertain_impact" in unsupported["complexity"]["effective"]
-
-        (repo / "new_handler.go").write_text("package app\nfunc NewHandler() {}\n", encoding="utf-8")
-        untracked = collect_evidence(repo, local_fix)
-        assert untracked["analysis_coverage"] == "partial", untracked
-        untracked_plan = plan_workflows(local_fix, untracked)
-        assert "uncertain_impact" in untracked_plan["complexity"]["observed"]
+        incomplete = write_task(repo, base, common)
+        result = call(ROOT / "agent_workflow.py", "task-gate", "--task-path", incomplete, "--cwd", repo, "--mode", "Stop", ok=False)
+        issues = json.loads(result.stdout.decode("utf-8", "replace"))["issues"]
+        assert any("Reviewer result" in issue for issue in issues)
+        assert any("Verifier result" in issue for issue in issues)
 
 def test_parallel_orchestration():
-    from agent_workflow.orchestrate import assess_repository, capture_patch, integrate_patches, snapshot, snapshot_matches
+    from agent_workflow.orchestrate import assess_repository, capture_patch, integrate_patches, launch, snapshot, snapshot_matches
 
     with tempfile.TemporaryDirectory() as temp:
+        dispatcher = Path(temp) / "dispatcher.py"
+        dispatcher.write_text(
+            "import json, sys\n"
+            "request = json.load(sys.stdin)\n"
+            "print(json.dumps({'accepted': True, 'dispatch_id': request['worker_id'], 'worker_root': request['worktree'], 'parent_task_id': request['parent_task_id']}))\n",
+            encoding="utf-8",
+        )
+        previous = os.environ.get("AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND")
+        os.environ["AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND"] = f'"{PY}" "{dispatcher}"'
+        try:
+            requested_root = Path(temp) / "native-worker"
+            reply = launch("Codex", {"parent_task_id": "parent", "worker_id": "alpha", "worktree": str(requested_root)})
+            assert reply == {"accepted": True, "dispatch_id": "alpha", "worker_root": str(requested_root.resolve())}
+        finally:
+            if previous is None:
+                os.environ.pop("AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND", None)
+            else:
+                os.environ["AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND"] = previous
+
         repo = Path(temp) / "repo"
         subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
         subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
@@ -488,7 +384,70 @@ def test_parallel_orchestration():
         (repo / "dirty.py").write_text("changed after snapshot\n", encoding="utf-8")
         assert not snapshot_matches(repo, dirty_snapshot)
 
+def test_register_native():
+    # The host-native path (e.g. Claude Code's Agent tool with isolation: "worktree") creates
+    # worker worktrees and runs them itself -- orchestrate.py never calls Init or launch() for
+    # these. RegisterNative just needs to pick up already-finished worktrees and feed them
+    # through the same Collect -> Integrate -> Apply -> Cleanup lifecycle as subprocess dispatch.
+    import argparse
+    from agent_workflow.orchestrate import register_native, collect, integrate, apply as orchestrate_apply, cleanup
+    from agent_workflow.project_resolver import resolve_project
+
+    with tempfile.TemporaryDirectory() as temp:
+        repo = Path(temp) / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "workflow-test"], check=True)
+        (repo / "src").mkdir(); (repo / "src" / "base.py").write_text("BASE = 1\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+        base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+
+        state_root = Path(temp) / "state"
+        resolved = resolve_project(str(repo), str(state_root), True, [], "")
+        task_dir = Path(resolved["task_root"]) / "coordinator"
+        task_dir.mkdir(parents=True)
+        (task_dir / "task.md").write_text(
+            "---\nid: coordinator\n" f"worktree_id: {resolved['worktree_id']}\n"
+            "status: in_progress\nsubtask_role: coordinator\nintegration_status: pending\n---\n\n# Task\n",
+            encoding="utf-8")
+
+        worker_a, worker_b = Path(temp) / "worker-a", Path(temp) / "worker-b"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", str(worker_a), base], check=True, stdout=subprocess.PIPE)
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", str(worker_b), base], check=True, stdout=subprocess.PIPE)
+        (worker_a / "src" / "alpha.py").write_text("ALPHA = 1\n", encoding="utf-8")
+        (worker_b / "src" / "beta.py").write_text("BETA = 1\n", encoding="utf-8")
+
+        workers_path = Path(temp) / "workers.json"
+        workers_path.write_text(json.dumps([
+            {"id": "alpha", "title": "alpha", "goal": "implement alpha", "completion_criteria": ["alpha"],
+             "file_ownership": ["src/alpha.py"], "worktree": str(worker_a), "base_commit": base},
+            {"id": "beta", "title": "beta", "goal": "implement beta", "completion_criteria": ["beta"],
+             "file_ownership": ["src/beta.py"], "worktree": str(worker_b), "base_commit": base},
+        ]), encoding="utf-8")
+
+        def ns(action, **extra):
+            defaults = dict(action=action, path=str(repo), state_root=str(state_root), plan_path="", platform="Claude",
+                             worker_id="", worker_root="", reason="", local_check=[], workers_path="", base_commit="")
+            defaults.update(extra)
+            return argparse.Namespace(**defaults)
+
+        register_native(ns("RegisterNative", workers_path=str(workers_path), base_commit=base))
+        collect(ns("Collect"))
+        integrate(ns("Integrate"))
+        orchestrate_apply(ns("Apply"))
+        cleanup(ns("Cleanup"))
+
+        assert (repo / "src" / "alpha.py").read_text(encoding="utf-8") == "ALPHA = 1\n"
+        assert (repo / "src" / "beta.py").read_text(encoding="utf-8") == "BETA = 1\n"
+        record = json.loads((task_dir / "orchestration.json").read_text(encoding="utf-8"))
+        assert record["dispatch_mode"] == "native"
+        # Collect already removes each worker's worktree once its patch is captured, so by the
+        # time Cleanup runs there is nothing left for it to do -- workers stay "applied".
+        assert all(worker["status"] == "applied" and worker["worktree_cleaned"] for worker in record["workers"])
+        assert not Path(record["workers"][0]["worktree"]).exists()
+
 def test_pre_review(): assert subprocess.run(["git","-C",str(ROOT),"diff","--check"],stdout=subprocess.PIPE,stderr=subprocess.PIPE).returncode==0
-def test_orchestrate(): assert call(ROOT/"scripts/orchestrate.py","--help").returncode==0
-def test_runtime(): assert call(ROOT/"scripts/runtime-check.py","--help").returncode==0
-SUITES={"contract":test_contract,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"migration":test_migration,"project_doc":test_project_doc,"retro":test_retro,"validate_task":test_validate_and_profile,"workflow_planner":test_workflow_planner,"workflow_gate":test_workflow_gate,"symbol_evidence":test_symbol_evidence,"dimension_waiver":test_dimension_waiver,"v5_complexity":test_v5_complexity_signals,"parallel_orchestration":test_parallel_orchestration,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
+def test_orchestrate(): assert cli("orchestrate","--help").returncode==0
+def test_runtime(): assert cli("runtime-check","--help").returncode==0
+SUITES={"contract":test_contract,"posix_wrapper":test_posix_wrapper,"hot_path_imports":test_hot_path_imports,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"memory_quota":test_memory_quota_and_pollution,"project_doc":test_project_doc,"project_doc_decision_glossary":test_project_doc_decision_and_glossary,"retro":test_retro,"validate_task":test_validate_and_profile,"step_matrix":test_step_matrix,"workflow_gate":test_workflow_gate,"legacy_compat":test_legacy_compat,"parallel_orchestration":test_parallel_orchestration,"register_native":test_register_native,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
