@@ -1,5 +1,5 @@
 ---
-description: Apply agent-workflow v4 to the current programming task.
+description: Apply agent-workflow to the current programming task.
 ---
 
 # /agent-workflow

@@ -9,6 +9,8 @@
     "scope": { "enum": ["global", "project"] },
     "project_id": { "type": ["string", "null"] },
     "origin": { "enum": ["native", "imported"] },
+    "kind": { "type": "string", "minLength": 1 },
+    "source_event": { "type": "string", "minLength": 1 },
     "source_path": { "type": "string", "minLength": 1 },
     "source_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "snapshot": { "type": "string", "minLength": 1 },
@@ -29,7 +31,7 @@
     },
     {
       "if": { "properties": { "scope": { "const": "global" } } },
-      "then": { "properties": { "project_id": { "type": "null" } } }
+      "then": { "properties": { "project_id": { "type": "string" } } }
     }
   ],
   "additionalProperties": false

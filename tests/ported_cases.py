@@ -115,6 +115,14 @@ def test_knowledge():
     with tempfile.TemporaryDirectory() as t:
         args=("--state-root",t,"--action","Upsert","--scope","Global","--approved-by-user","--topic","port","--content","UTF-8")
         assert cli("knowledge",*args).returncode==0; out=cli("knowledge","--state-root",t,"--action","Search","--scope","Global","--query","UTF-8"); assert "port" in out.stdout.decode()
+        metadata = (Path(t) / "knowledge" / "global" / "entries" / "port.md").read_text(encoding="utf-8")
+        for field in ("id", "topic", "scope", "project_id", "origin", "status", "content_sha256", "relationships", "created_at", "updated_at"):
+            assert f"{field}:" in metadata, metadata
+        learned = cli("learn", "--action", "Capture", "--state-root", t, "--project-id", "0123456789abcdef", "--kind", "pitfall", "--topic", "scope-filter", "--content", "project entries live under projects/<id>/knowledge/entries")
+        assert learned.returncode == 0, learned.stderr.decode("utf-8", "replace")
+        learned_path = Path(json.loads(learned.stdout.decode("utf-8"))["path"])
+        learned_metadata = learned_path.read_text(encoding="utf-8")
+        assert "origin: native" in learned_metadata and "relationships: []" in learned_metadata, learned_metadata
         assert cli("knowledge","--state-root",t,"--action","Reindex").returncode==0
         # the store's convention is that the first body line is a self-contained summary;
         # Search's excerpt must reflect that line, not the last line of the raw file
@@ -122,6 +130,16 @@ def test_knowledge():
         assert cli("knowledge",*multi_args).returncode==0
         found=json.loads(cli("knowledge","--state-root",t,"--action","Search","--scope","Global","--query","summary").stdout.decode("utf-8"))
         assert any(item["excerpt"]=="first line summary" for item in found), found
+        project = Path(t) / "projects" / "0123456789abcdef" / "knowledge" / "entries"
+        project.mkdir(parents=True, exist_ok=True)
+        (project / "project.md").write_text("---\ntopic: project-topic\nstatus: verified\n---\n\nproject summary\n", encoding="utf-8")
+        project_result = json.loads(cli("knowledge", "--state-root", t, "--action", "Search", "--scope", "Project", "--query", "project summary").stdout.decode("utf-8"))
+        assert len(project_result) == 1 and project_result[0]["topic"] == "project-topic", project_result
+        filtered = json.loads(cli("knowledge", "--state-root", t, "--action", "Search", "--scope", "Global", "--topic", "port").stdout.decode("utf-8"))
+        assert len(filtered) == 1 and filtered[0]["topic"] == "port", filtered
+        assert cli("knowledge", "--state-root", t, "--action", "Reindex", "--scope", "All").returncode == 0
+        all_index = json.loads((Path(t) / "knowledge" / "index.json").read_text(encoding="utf-8"))
+        assert all_index["scope"] == "all" and any("/projects/" in item["path"].replace("\\", "/") for item in all_index["entries"]), all_index
 def test_shared_memory():
     with tempfile.TemporaryDirectory() as t:
         b=Path(t); state=b/"state"; repo=b/"repo"; claude=b/"claude"; codex=b/"codex"; gemini=b/"gemini"
@@ -196,7 +214,16 @@ def test_project_doc_decision_and_glossary():
         stale=json.loads(cli("project-doc","--action","Stale","--repo-root",str(root)).stdout.decode("utf-8"))
         assert any(item["path"]==str(decision) and item["stale"] for item in stale), stale
 def test_retro():
-    with tempfile.TemporaryDirectory() as t: assert cli("retro","--action","List","--state-root",t).returncode==0
+    with tempfile.TemporaryDirectory() as t:
+        assert cli("retro", "--action", "List", "--state-root", t).returncode == 0
+        task = Path(t) / "task.md"
+        task.write_text("---\nid: 20260823-123456-real-task\n---\n\n## Retrospective result\n- introduced_by: abc1234\n- classification: regression\n- miss_category: test_gap\n- gap_evidence: task gate\n", encoding="utf-8")
+        recorded = json.loads(cli("retro", "--action", "Record", "--state-root", t, "--task-path", task, "--proposed-change", "add regression test").stdout.decode("utf-8"))
+        index = json.loads((Path(t) / "retro" / "index.json").read_text(encoding="utf-8"))
+        assert index["entries"][0]["task_id"] == "20260823-123456-real-task", index
+        assert cli("retro", "--action", "Resolve", "--state-root", t, "--id", recorded["id"], "--status", "applied", "--note", "implemented").returncode == 0
+        finding = (Path(t) / "retro" / "findings" / f"{recorded['id']}.md").read_text(encoding="utf-8")
+        assert "status: applied" in finding and "resolved_at:" in finding and 'resolution_note: "implemented"' in finding, finding
 def test_validate_and_profile():
     from agent_workflow.validate_task import ownership_reason
     assert ownership_reason("src/pricing/handler.py")==""

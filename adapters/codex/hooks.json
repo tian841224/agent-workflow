@@ -1,5 +1,5 @@
 {
-  "description": "agent-workflow v4 minimal hooks",
+  "description": "agent-workflow minimal hooks",
   "hooks": {
     "SessionStart": [
       {

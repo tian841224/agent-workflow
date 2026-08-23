@@ -1,4 +1,4 @@
-# agent-workflow v4 Git safety policy.
+# agent-workflow Git safety policy.
 prefix_rule(pattern=["git", "push", "--force"], decision="forbidden", justification="Force push can destroy remote history.")
 prefix_rule(pattern=["git", "push", "-f"], decision="forbidden", justification="Force push can destroy remote history.")
 prefix_rule(pattern=["git", "reset", "--hard"], decision="forbidden", justification="Hard reset can destroy local work.")

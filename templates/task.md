@@ -24,10 +24,11 @@ independence: native
 workflow_request: may be empty, but the reason must be explained in Impact surface; whether a capability is selected is determined solely by this field.
 workflow_facts: only affects which steps appear within an already-selected capability, not whether the capability is selected;
            an undeclared fact always keeps that step (unknown does not mean "not needed").
-frozen_at: required as ISO-8601 when a freeze-required flag is hit, otherwise impact-guard blocks all code edits —
-           confirm the goal, non-goals, and completion criteria with the user first, then fill this in.
+frozen_at: required as ISO-8601 when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria
+           with the user first, then fill this in. The task gate checks the field at Stop/Close; it is not a per-tool write hook.
 stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
-roles_waived: can only be written via waive-roles --reason '<reason>' --confirmed-by-user; direct edits are blocked by impact-guard.
+roles_waived: can only be written via waive-roles --reason '<reason>' --confirmed-by-user; direct edits are not a valid waiver
+and will not satisfy the completion gate.
 independence: defaults to native, checked only for coordinator/worker tasks or tasks with the legacy completion gate enabled;
            if a native role fails to load, or the main agent fills in a role section on its behalf, this must be honestly recorded as degraded — the close gate rejects unwaived degraded tasks.
 -->

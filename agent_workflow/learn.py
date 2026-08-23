@@ -60,14 +60,18 @@ def capture(args: argparse.Namespace) -> dict[str, str]:
     entry_id = f"{stamp}-{args.kind}-{_slug(args.topic)}-{digest[:10]}"
     path = base / f"{entry_id}.md"
     metadata = {
-        "id": entry_id,
+        "id": digest,
         "topic": _slug(args.topic),
+        "scope": scope,
+        "origin": "native",
+        "source_path": str(path),
         "kind": args.kind,
         "source_event": args.source_event,
         "scope": scope,
         "project_id": "" if scope == "global" else project_id,
         "status": args.status,
         "content_sha256": digest,
+        "relationships": [],
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }

@@ -24,7 +24,7 @@
 | v1 | 初版 Claude workflow 打包 | 建立可重複使用的開發規範與安裝方式 |
 | v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
 | v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
-| v4 | 依情境載入流程、canonical `.agents`、TDD、impact-guard、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
+| v4 | 依情境載入流程、canonical `.agents`、TDD、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
 | v5 | Python runtime、主對話直接選定 capability／角色、條件式品質角色、跨 agents 記憶與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
 
 ## 二、功能介紹
