@@ -14,11 +14,17 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 Workflow 沒有固定 pipeline，也沒有預設檔位。主對話依已知需求與程式脈絡，把這次要跑的 capability 完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。
 
-**外層選取（跑哪些 capability）**：完全由主對話決定，寫進 `workflow_request`。任何組合都合法——只跑 `verifier`、`adversarial` + `verifier` 而沒有 `reviewer`、只跑 evidence capability 而沒有角色、或一個都不跑（此時 `## Impact surface` 必填，說明為何判斷這個 task 不需要任何 capability），都是正常結果。
+**外層選取（跑哪些 capability）**：Planner 先依 task metadata 與 `workflow_facts` 產生 `suggested` 候選，主對話再確認、覆寫或補充，最後寫入 `workflow_request`。任何組合都合法——只跑 `verifier`、`adversarial` + `verifier` 而沒有 `reviewer`、只跑 evidence capability 而沒有角色、或一個都不跑（此時 `## Impact surface` 必填，說明為何判斷這個 task 不需要任何 capability），都是正常結果。候選建議不會自行改寫 `workflow_request`。
 
-**內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`change_kind`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `change_kind: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `change_kind: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響 capability 本身是否被選中——那完全是外層的事。`workflow_facts` 裡沒宣告的欄位一律保留對應的 step（unknown 不等於「不需要」），不會被拿來省略工作。
+**內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`change_kind`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `change_kind: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `change_kind: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響最終 capability 是否被選中——最終選取仍以 `workflow_request` 為準。`workflow_facts` 裡沒宣告的欄位一律保留對應的 step（unknown 不等於「不需要」），但已宣告為真的 fact 可以產生 capability 候選建議。
 
-十個 capability：`impact_discovery`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`，啟動對應原生角色）。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
+十三個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`，啟動對應原生角色）。`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷；`bug_diagnosis` 用於重現、最小化與假設驗證；`tdd` 用於 red → green → refactor、seam 與測試缺口證據。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
+
+選取 `codebase_design` 後，角色依自己的責任載入同一份 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Reviewer 檢查 depth、delete test 與是否過早抽象化，Adversarial 嘗試推翻 adapter 變化與依賴注入的必要性，Verifier 確認測試透過 interface 驗證可觀察結果。這些角色仍由主對話個別選取，不會因 capability 自動補入。
+
+選取 `bug_diagnosis` 時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)，以 task 的 `Bug diagnosis` section 記錄 feedback loop、repro、假設、probe 與回歸結果；選取 `tdd` 時載入 [TDD skill](../tdd/SKILL.md)，以 `TDD evidence` section 記錄 red、green、seam 與測試缺口。`bug_diagnosis` 通常用於 `change_kind: fix`、效能異常或明確的 debug／diagnose 任務；`tdd` 通常用於 feature、fix、行為變更或使用者要求 test-first 的任務，是否選取仍由主對話根據實際影響決定。
+
+前置決策 skill 不建立獨立 task section：架構設計、feature planning、refactor 策略或 `unclear_requirements` 先載入 [planning skill](../planning/SKILL.md)；使用者已選定的方案涉及新增 abstraction、interface、adapter、wrapper、cross-layer seam 或可疑複雜度時，先載入 [push-back skill](../push-back/SKILL.md) 檢查最小方案。遇到高風險且不可逆的未決取捨，再載入 [grill-me skill](../grill-me/SKILL.md) 逐題釐清。
 
 Evidence capability 只在影響確實擴散時才登場，一般 code change 的成本很低：
 
@@ -32,7 +38,7 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 | 大表 migration + backfill | `execution_path_review` → `schema_compatibility` → `data_impact` → `migration_safety` → `reviewer` → `adversarial` → `verifier` | 20 |
 | coordinator／worker | 依上列規則，另加 orchestration 與 legacy close gate（見 [elevated.md](elevated.md)） | 依上列規則 |
 
-`workflow_request` 是主對話寫入的完整 capability 清單（例如 `[reviewer, verifier]`）；runtime 只驗證這份清單本身的執行結果，不新增或抑制其中任何一項。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer` + `verifier`，命中 `adversarial_required` flag 時再加 `adversarial`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
+`workflow-plan` 會輸出 `suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`workflow_request` 是主對話寫入的完整 capability 清單（例如 `[reviewer, verifier]`）；runtime 只驗證這份最終清單的執行結果，不新增或抑制其中任何一項。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer` + `verifier`，命中 `adversarial_required` flag 時再加 `adversarial`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 
 ## 1. 建立 Task
 
@@ -68,8 +74,10 @@ Elevated task 另有建立前與實作前規則見 [elevated.md](elevated.md)（
 - 先讀專案 instructions、相關程式、呼叫端與既有測試；只改需求直接需要的範圍；若發現架構或影響面不明，升級為 Elevated task。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
 - 修改 application source code logic 前，一律載入 [clean-comments skill](../clean-comments/SKILL.md)；test code 與其他 non-code task 不適用。
-- `change_kind: fix` 時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)：先建立一個對這個 bug 會變紅的 feedback loop，再重現、最小化、產生排序過的假設，不得跳過直接猜。修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
-- 有新增或修正可測試行為、或屬於 bug fix／邏輯調整時，載入並遵循 [TDD skill](../tdd/SKILL.md) 的 red → green → refactor、seam、測試設計與 mock 規則。純測試重整或無法自動化時記錄替代驗證與原因；所有進入 workflow 的 source-code task 仍須執行相關驗證。
+- `workflow_request` 選取 `bug_diagnosis` 時，載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)：先建立一個對這個 bug 會變紅的 feedback loop，再重現、最小化、產生排序過的假設，不得跳過直接猜。修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
+- `workflow_request` 選取 `tdd` 時，載入並遵循 [TDD skill](../tdd/SKILL.md) 的 red → green → refactor、seam、測試設計與 mock 規則。純測試重整或無法自動化時記錄替代驗證與原因；所有進入 workflow 的 source-code task 仍須執行相關驗證。
+- 若 task 是 fix 或新增／修正可測試行為但未選取對應 capability，主對話在 `workflow_decision` 說明為何採用替代驗證；不能把 skill 的存在當成已執行證據。
+- 架構設計、feature planning、refactor 策略或 `unclear_requirements` 時先載入 [planning skill](../planning/SKILL.md)；使用者已選定方案且涉及新增 abstraction、interface、adapter、wrapper、cross-layer seam 或可疑複雜度時先載入 [push-back skill](../push-back/SKILL.md)，在實作前完成取捨檢查。
 - 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
 - 若本次新增或修改程式碼註解，依已載入的 [clean-comments skill](../clean-comments/SKILL.md) 執行：函式註解只講對外合約、流程註解就近解釋 Why，不堆內部步驟流水帳。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。

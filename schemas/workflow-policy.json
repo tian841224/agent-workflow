@@ -97,10 +97,68 @@
       ]
     },
     {
+      "name": "codebase_design",
+      "kind": "evidence",
+      "section": "Codebase design",
+      "order_after": ["impact_discovery"],
+      "suggest_when": [
+        [{"change_kind": ["feature", "refactor"]}],
+        [{"fact": "changes_module_interface", "equals": [true]}],
+        [{"fact": "introduces_adapter", "equals": [true]}],
+        [{"fact": "improves_testability", "equals": [true]}]
+      ],
+      "suggest_reason": "模組介面、seam、adapter 或 shared logic 可能需要設計檢查",
+      "steps": [
+        {"id": "CD1", "title": "界定 module 的 interface、invariant、錯誤模式與 seam", "when": [[{"always": true}]]},
+        {"id": "CD2", "title": "以 depth 與 delete test 判斷模組是否真正集中複雜度", "when": [[{"change_kind": ["feature", "refactor"]}], [{"impact_scope_at_least": "module"}], [{"fact": "changes_module_interface", "equals": [true]}]]},
+        {"id": "CD3", "title": "確認 adapter 有實際變化需求，且依賴由外部傳入", "when": [[{"fact": "introduces_adapter", "equals": [true]}], [{"fact": "improves_testability", "equals": [true]}]]},
+        {"id": "CD4", "title": "確認測試透過相同 interface 驗證結果，而非依賴 implementation", "when": [[{"change_kind": ["feature", "refactor"]}], [{"fact": "improves_testability", "equals": [true]}]]}
+      ]
+    },
+    {
+      "name": "bug_diagnosis",
+      "kind": "evidence",
+      "section": "Bug diagnosis",
+      "order_after": ["impact_discovery"],
+      "suggest_when": [
+        [{"change_kind": ["fix"]}],
+        [{"task_type": ["fix", "investigation"]}],
+        [{"fact": "debug_requested", "equals": [true]}],
+        [{"fact": "performance_anomaly", "equals": [true]}],
+        [{"fact": "flaky_failure", "equals": [true]}]
+      ],
+      "suggest_reason": "任務涉及 bug、debug、效能異常或需要建立可重現的 feedback loop",
+      "steps": [
+        {"id": "BD1", "title": "建立實際執行過、可重現且會捕捉症狀的 feedback loop", "when": [[{"always": true}]]},
+        {"id": "BD2", "title": "重現症狀並逐步最小化輸入、呼叫端、設定與資料", "when": [[{"always": true}]]},
+        {"id": "BD3", "title": "提出 3–5 個排序後且可證偽的根因假設", "when": [[{"always": true}]]},
+        {"id": "BD4", "title": "以單一變因的 probe 驗證假設，效能問題先建立 baseline", "when": [[{"always": true}]]},
+        {"id": "BD5", "title": "修復後重跑原始 repro、regression test，並清除 debug instrumentation", "when": [[{"always": true}]]}
+      ]
+    },
+    {
+      "name": "tdd",
+      "kind": "evidence",
+      "section": "TDD evidence",
+      "order_after": ["codebase_design", "bug_diagnosis"],
+      "suggest_when": [
+        [{"change_kind": ["feature", "fix"]}],
+        [{"risk_flags": ["behavior_change"]}],
+        [{"fact": "testable_behavior_change", "equals": [true]}]
+      ],
+      "suggest_reason": "任務可能修改可測試行為，需要 red → green → refactor 與 seam 證據",
+      "steps": [
+        {"id": "TD1", "title": "Red：修改前測試確實捕捉目標行為並失敗", "when": [[{"always": true}]]},
+        {"id": "TD2", "title": "Green：以最小實作使測試通過，再保留可重現的驗證結果", "when": [[{"always": true}]]},
+        {"id": "TD3", "title": "確認測試透過公開 interface 或 real entrypoint 的 seam 驗證行為", "when": [[{"always": true}]]},
+        {"id": "TD4", "title": "記錄 refactor 階段、測試缺口與 mock／fake 的使用理由", "when": [[{"always": true}]]}
+      ]
+    },
+    {
       "name": "reviewer",
       "kind": "role",
       "section": "Reviewer result",
-      "order_after": ["impact_discovery", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
+      "order_after": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
       "steps": []
     },
     {

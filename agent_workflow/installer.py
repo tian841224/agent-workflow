@@ -169,7 +169,15 @@ def _link_skill_dir(source, target):
         target.symlink_to(source, target_is_directory=True)
 
 
-PLATFORM_COPIED_SKILLS = ("workflow", "learn", "tdd")
+PLATFORM_COPIED_SKILLS = (
+    "workflow",
+    "codebase-design",
+    "diagnosing-bugs",
+    "planning",
+    "push-back",
+    "learn",
+    "tdd",
+)
 
 
 def _ensure_shared_skill_links(canonical, claude, selected, dry_run):

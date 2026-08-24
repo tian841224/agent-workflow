@@ -1,11 +1,11 @@
-"""Workflow capability selection under ``workflow_mode: main``.
+"""Workflow capability suggestions and selection under ``workflow_mode: main``.
 
 The main conversation is the only capability selector: it writes the
 complete list of capabilities into ``workflow_request`` and this module
 turns that into ordered evidence/role work with each capability's steps.
-There is no suppression logic here and none is needed -- the main
-conversation can already omit an entire capability from the request, which
-is strictly more powerful than any runtime-side suppression could be.
+Suggestions are deterministic hints derived from task metadata; they never
+silently alter ``workflow_request``. The main conversation remains the final
+selector and can accept, reject, or supplement the suggestions.
 """
 
 from __future__ import annotations
@@ -75,12 +75,10 @@ def order(names: list[str], order_after: Mapping[str, list[str]]) -> list[str]:
 
 
 def _facts(task: Mapping[str, Any]) -> dict[str, Any]:
-    """Declared facts only -- the agent's own ``workflow_facts`` JSON blob.
+    """Read the agent's declared ``workflow_facts`` JSON blob.
 
-    There is no observed-fact collection in main mode: the main conversation
-    already decided which capabilities apply by writing ``workflow_request``.
-    Step selection inside a selected capability is a strictly weaker,
-    declared-only refinement of that same decision.
+    Facts refine evidence steps and deterministic capability suggestions. They
+    never silently change the final ``workflow_request`` selection.
     """
     raw = task.get("workflow_facts")
     if not raw:
@@ -125,6 +123,8 @@ def _condition(policy: Mapping[str, Any], task: Mapping[str, Any], facts: Mappin
         return _member(facts[name], list(condition.get("equals", [])))
     if "change_kind" in condition:
         return _member(str(task.get("change_kind", "")), list(condition["change_kind"]))
+    if "task_type" in condition:
+        return _member(str(task.get("task_type", "")), list(condition["task_type"]))
     if "risk_flags" in condition:
         flags = {str(value).casefold() for value in task.get("risk_flags", [])}
         return bool(flags.intersection(str(item).casefold() for item in condition["risk_flags"]))
@@ -167,6 +167,23 @@ def selected_steps(policy: Mapping[str, Any], task: Mapping[str, Any], facts: Ma
     return chosen
 
 
+def suggested_capabilities(task: Mapping[str, Any], policy_path: str | Path = POLICY_PATH) -> list[dict[str, str]]:
+    """Return deterministic capability hints without changing the requested plan."""
+    policy = load_policy(policy_path)
+    facts = _facts(task)
+    suggestions = []
+    for capability in policy["capabilities"]:
+        groups = capability.get("suggest_when", [])
+        if groups and _groups(policy, task, facts, groups) is True:
+            suggestions.append({
+                "name": str(capability["name"]),
+                "kind": str(capability["kind"]),
+                "section": str(capability["section"]),
+                "reason": str(capability.get("suggest_reason", "task metadata matched")),
+            })
+    return suggestions
+
+
 def manual_plan(task: Mapping[str, Any], policy_path: str | Path = POLICY_PATH) -> dict[str, Any]:
     """Build exactly the capabilities selected by the main conversation."""
     policy = load_policy(policy_path)
@@ -181,6 +198,6 @@ def manual_plan(task: Mapping[str, Any], policy_path: str | Path = POLICY_PATH) 
     selected.sort(key=lambda item: ordered.index(item["name"]))
     roles = [item["name"] for item in selected if item["kind"] == "role"]
     profile = "direct" if not selected else ("elevated" if "adversarial" in roles else "standard" if roles else "light")
-    return {"version": policy["version"], "selected": selected, "suppressed": [], "unknown": [], "order": ordered,
+    return {"version": policy["version"], "selected": selected, "suggested": suggested_capabilities(task, policy_path), "suppressed": [], "unknown": [], "order": ordered,
             "roles": roles, "sections": sorted({item["section"] for item in selected if item["kind"] == "evidence"}),
             "profile": profile, "final_action": "direct" if not selected else "workflow"}

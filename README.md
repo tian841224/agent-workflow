@@ -29,11 +29,17 @@
 
 ## 二、功能介紹
 
+### 框架特色
+
+本框架採用條件式組合 workflow，所有流程、skills 與角色都會依據實際任務情境選擇性載入，而不是固定套用完整 pipeline。同時，框架採用漸進式載入方式，會根據每次任務的性質選擇適合的流程，並依當下情境決定需要讀取的文件深度，在維持輸出品質的前提下，盡可能減少 token 浪費與執行時間。透過這種設計，流程能保有最大的彈性與靈活度，既能讓簡單任務維持輕量，也能在複雜或高風險任務中提供足夠的規劃、角色分工與品質控管。
+
 ### 條件式 workflow
 
-流程沒有固定 pipeline，由主對話依已知需求與程式脈絡先判斷任務的性質與影響範圍，再決定是否需要建立 task，並把這次要跑的角色與檢查完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。
+流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把最終要跑的角色與檢查完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。可透過 `agent_workflow.py workflow-plan` 查看候選與理由。
 
 簡單任務維持直接處理；涉及程式碼邏輯、跨模組影響、資料、契約或高風險行為的任務，才會增加相應的規劃與驗證流程。
+
+Skill 也採條件式主動載入：`codebase_design` 用於介面與 seam 設計，`bug_diagnosis` 用於重現與根因驗證，`tdd` 用於 red → green → refactor 與測試 seam；架構規劃或需求不明時先載入 `planning`，使用者已選定的方案可能增加抽象或複雜度時先載入 `push-back`，高風險且不可逆的未決取捨才載入 `grill-me`。這些 skill 不會自動套用到所有任務，主對話會依場景把需要的 capability 寫入 `workflow_request`。
 
 ### 角色化品質檢查
 
@@ -63,19 +69,19 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 
 ### Skills
 
-`.agents/skills/` 是跨平台共用的 skill canonical source。安裝程式會依指定的平台建立對應的 adapter；AI agent 會根據任務性質載入適用的 skill。
+`.agents/skills/` 是跨平台共用的 skill canonical source。安裝程式會依 managed manifest 將適用的 skill 同步到指定平台的 adapter；AI agent 會根據任務性質與 workflow_request 載入適用的 skill。
 
 | Skill | 用途與適用時機 |
 | --- | --- |
 | [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由主對話依實際觀察到的 impact 與 risk 決定是否建立 task、寫入 `workflow_request` 啟用哪些 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
-| [`tdd`](.agents/skills/tdd/SKILL.md) | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；source code 行為變更或 bug fix 時由 workflow 引用。 |
-| [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略或技術方案比較時，釐清目標、限制與完成條件。 |
+| [`tdd`](.agents/skills/tdd/SKILL.md) | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；選取 `tdd` capability 時由 workflow 主動載入並在 task 記錄 TDD evidence。 |
+| [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略、技術方案比較或需求不明時，先釐清目標、限制與完成條件。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
-| [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |
+| [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，若涉及新增 abstraction、interface、adapter、wrapper 或 cross-layer seam，先檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |
 | [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
 | [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 修改 application source code logic 前載入；若涉及註解，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。test code 與其他 non-code task 不適用。 |
-| [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／seam／adapter 等共用詞彙。 |
-| [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正，避免跳過重現步驟直接猜測。 |
+| [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／seam／adapter 等共用詞彙；選取 `codebase_design` capability 時主動載入。 |
+| [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正；選取 `bug_diagnosis` capability 時主動載入並記錄診斷證據。 |
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 產生或翻譯正體中文（臺灣）內容時，統一術語、語氣與標點，避免中國用語與簡體直譯。 |
 | [`learn`](.agents/skills/learn/SKILL.md) | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |

@@ -71,9 +71,9 @@ Keep only the role sections actually in workflow_request: that list is the compl
 only source of truth for which roles must run, and the gate checks nothing else. A task
 may legitimately request verifier alone, or adversarial + verifier without reviewer.
 
-workflow_facts is declared by the agent; it only decides which steps appear inside an
-already-selected evidence capability (see schemas/workflow-policy.json), never which
-capabilities are selected -- that is workflow_request alone.
+workflow_facts is declared by the agent; it decides which steps appear inside an
+already-selected evidence capability and can produce deterministic capability suggestions
+(see schemas/workflow-policy.json). Suggestions never replace the final workflow_request.
 
 Use templates/task.md when workflow_request includes an evidence capability (their step
 lines live there), or for coordinator/worker tasks.

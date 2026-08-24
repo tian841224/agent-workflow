@@ -12,7 +12,7 @@ def call(*args,cwd=ROOT,input_text="",ok=True):
 def cli(command,*args,**kwargs): return call(ROOT/"agent_workflow.py",command,*args,**kwargs)
 def test_contract():
     manifest=json.loads((ROOT/"adapters/managed-manifest.json").read_text(encoding="utf-8")); assert manifest["schema_version"]==4
-    for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate"):
+    for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","workflow-plan"):
         assert cli(command,"--help").returncode==0
     # every flag actually written in docs must be argparse's real double-dash lowercase form,
     # never PowerShell-style single-dash (docs previously drifted to -Action/-Query etc.,
@@ -56,7 +56,7 @@ def test_installer():
         stale = {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command",
             "command": f'"python" -u "{runtime_dir}\\agent_workflow.py" memory-context --platform Claude --event UserPromptSubmit'}]}]}}
         (claude_dir / "settings.json").write_text(json.dumps(stale), encoding="utf-8")
-        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-reviewer.toml").is_file()
+        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_plan.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-reviewer.toml").is_file()
         for target in (b/"claude/settings.json", b/"codex/hooks.json", b/"gemini/config/hooks.json"):
             hook_text=target.read_text(encoding="utf-8"); assert "memory-context" in hook_text
         after = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
@@ -69,6 +69,10 @@ def test_installer():
         assert (b/"claude/skills/tdd/SKILL.md").is_file()
         assert (b/"codex/skills/tdd/SKILL.md").is_file()
         assert (b/"gemini/config/skills/tdd/SKILL.md").is_file()
+        for skill in ("codebase-design", "diagnosing-bugs", "planning", "push-back"):
+            assert (b/"claude/skills"/skill/"SKILL.md").is_file()
+            assert (b/"codex/skills"/skill/"SKILL.md").is_file()
+            assert (b/"gemini/config/skills"/skill/"SKILL.md").is_file()
         # a skill removed from source must have its stale Claude junction cleaned up on
         # the next install, not linger forever
         ghost = claude_dir/"skills"/"ghost-skill"
@@ -231,7 +235,7 @@ def test_validate_and_profile():
     assert ownership_reason("/abs/path.py")!=""
 
 def test_step_matrix():
-    from agent_workflow.workflow import manual_plan
+    from agent_workflow.workflow import manual_plan, suggested_capabilities
 
     def steps(plan, name):
         return {step["id"] for item in plan["selected"] if item["name"] == name for step in item["steps"]}
@@ -245,6 +249,40 @@ def test_step_matrix():
                       "impact_scope": "cross_project", "impact_effect": "shared_behavior",
                       "workflow_request": ["execution_path_review"]}
     assert steps(manual_plan(cross_refactor), "execution_path_review") == {"EP1", "EP2", "EP3", "EP4", "EP5"}
+
+    design_task = {"code_change": True, "change_kind": "refactor", "risk_flags": [],
+                   "impact_scope": "module", "impact_effect": "shared_behavior",
+                   "workflow_request": ["codebase_design", "reviewer"],
+                   "workflow_facts": json.dumps({"improves_testability": True})}
+    design_plan = manual_plan(design_task)
+    assert steps(design_plan, "codebase_design") == {"CD1", "CD2", "CD3", "CD4"}
+    assert design_plan["order"] == ["codebase_design", "reviewer"]
+
+    isolated_design = dict(design_task, change_kind="chore", impact_scope="file",
+                           workflow_facts=json.dumps({"changes_module_interface": False,
+                                                      "introduces_adapter": False,
+                                                      "improves_testability": False}))
+    assert steps(manual_plan(isolated_design), "codebase_design") == {"CD1"}
+
+    diagnosis_task = {"code_change": True, "change_kind": "fix", "risk_flags": [],
+                      "impact_scope": "module", "impact_effect": "local_behavior",
+                      "workflow_request": ["bug_diagnosis", "tdd", "reviewer", "verifier"]}
+    diagnosis_plan = manual_plan(diagnosis_task)
+    assert steps(diagnosis_plan, "bug_diagnosis") == {"BD1", "BD2", "BD3", "BD4", "BD5"}
+    assert steps(diagnosis_plan, "tdd") == {"TD1", "TD2", "TD3", "TD4"}
+    assert diagnosis_plan["order"] == ["bug_diagnosis", "tdd", "reviewer", "verifier"]
+
+    fix_candidates = suggested_capabilities(diagnosis_task)
+    assert [item["name"] for item in fix_candidates] == ["bug_diagnosis", "tdd"]
+    assert all(item["reason"] for item in fix_candidates)
+
+    behavior_refactor = {"code_change": True, "change_kind": "refactor", "risk_flags": ["behavior_change"],
+                         "impact_scope": "module", "impact_effect": "shared_behavior",
+                         "workflow_request": []}
+    assert [item["name"] for item in suggested_capabilities(behavior_refactor)] == ["codebase_design", "tdd"]
+
+    docs_task = {"code_change": False, "task_type": "docs", "risk_flags": [], "workflow_request": []}
+    assert suggested_capabilities(docs_task) == []
 
     # a declared fact keeps a step alive even when it would otherwise be dropped:
     # SC4 only fires on schema_constraint_change == true

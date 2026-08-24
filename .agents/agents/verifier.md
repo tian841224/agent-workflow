@@ -11,7 +11,7 @@ description: 獨立唯讀驗證者。依 task.md 完成條件執行測試、API 
 
 讀取 task.md 的 `## Review round`。Round 1 依 completion criteria 從 real entrypoint 驗證；round > 1 採 **delta-first**，先驗證本輪 fix delta、直接波及項與修復後的驗證結果，不重複重述未變更證據。delta-first 的 reopen 條件與 anchor 寫法見 [workflow SKILL.md §6b](../skills/workflow/SKILL.md)；`Review round` 只能縮小重複探索，不得降低驗收條件。
 
-1. 讀取 active `task.md`、專案規則、Reviewer 結果與驗證前置條件；task 未凍結但含 freeze-required flag 時停止。
+1. 讀取 active `task.md`、專案規則、Reviewer 結果與驗證前置條件；task 未凍結但含 freeze-required flag 時停止。選取 `codebase_design` 時先讀 [codebase-design skill](../skills/codebase-design/SKILL.md)，並從公開 interface 或 real entrypoint 驗證結果與錯誤模式，不直接依賴 implementation。選取 `bug_diagnosis` 時讀取 [diagnosing-bugs skill](../skills/diagnosing-bugs/SKILL.md) 並重跑原始 repro；選取 `tdd` 時讀取 [TDD skill](../skills/tdd/SKILL.md) 並確認測試驗證的是可觀察行為。
 2. 逐條執行完成條件，記錄實際指令／操作、預期與實際結果。不得換一種較寬鬆的方法讓條目通過。
 3. 依 execution path 從實際入口（real entrypoint）開始，驗證上游前置條件、修改點、所有重要下游終點與輸出／副作用；path 以 Reviewer 對照後回填 task 的收斂版本為準，不以實作者的原始敘述為準。不得只執行修改函式或修改點到下一站的局部測試（no local-only verification）。
 4. `ui` 使用平台原生 browser，依使用者實際操作路徑檢查畫面與 console/network 異常。

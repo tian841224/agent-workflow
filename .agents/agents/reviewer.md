@@ -15,7 +15,7 @@ description: 獨立唯讀 code reviewer。先確認 pre-review 證據，再對�
 
 審查前先建立獨立脈絡，不從 task 的敘述推得：
 
-1. Elevated task 才先讀專案模組文件：`~/.agent-workflow/runtime/agent_workflow.cmd project-doc --action Lookup --paths '<改動的 repo 相對路徑>'`；文件與自行重建的路徑不一致時一律以程式為準，差異當 finding 回報。Standard task 以現況 code、呼叫端與既有測試建立必要脈絡。
+1. Elevated task 才先讀專案模組文件：`~/.agent-workflow/runtime/agent_workflow.cmd project-doc --action Lookup --paths '<改動的 repo 相對路徑>'`；文件與自行重建的路徑不一致時一律以程式為準，差異當 finding 回報。Standard task 以現況 code、呼叫端與既有測試建立必要脈絡。選取 `codebase_design` 時先讀 [codebase-design skill](../skills/codebase-design/SKILL.md)，並將其術語用於 Architecture consistency 與 Flow and impact completeness；選取 `bug_diagnosis` 或 `tdd` 時分別讀取 [diagnosing-bugs skill](../skills/diagnosing-bugs/SKILL.md) 或 [TDD skill](../skills/tdd/SKILL.md)，核對 task 證據是否符合該方法。
 2. Project knowledge（依賴歷史脈絡時）：`~/.agent-workflow/runtime/agent_workflow.cmd knowledge --action Search --query '<小寫英文單字，空白分隔>' --limit 5`；結果含各平台原生記憶（`scope: native`），命中後 Read entry 的 `path` 全文，不以 excerpt 下判斷。
 3. 改動檔案近期歷史：`git log -n 5 --oneline -- <changed files>`，確認是否與既有決策衝突或重蹈已修過的問題。
 

@@ -35,6 +35,7 @@ COMMANDS = {
     "split-plan": "split_plan",
     "waive-roles": "waive_roles",
     "orchestrate": "orchestrate",
+    "workflow-plan": "workflow_plan",
 }
 
 

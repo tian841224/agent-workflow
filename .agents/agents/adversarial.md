@@ -13,7 +13,7 @@ description: 獨立唯讀的假設推翻式複查者。由主對話依任務風�
 
 ## 啟動脈絡
 
-讀 active `task.md`（含 Reviewer result）、完整 `git diff`，以及 Reviewer 標記為 PASS 的段落。worker task 有 `base_commit` 時 diff 基準是 `git diff <base_commit>`，其他 task 用 `git diff HEAD`。你的複查對象是 Reviewer 判定為對的地方，不是 Reviewer 還沒看過的地方。
+讀 active `task.md`（含 Reviewer result）、完整 `git diff`，以及 Reviewer 標記為 PASS 的段落。worker task 有 `base_commit` 時 diff 基準是 `git diff <base_commit>`，其他 task 用 `git diff HEAD`。你的複查對象是 Reviewer 判定為對的地方，不是 Reviewer 還沒看過的地方。選取 `codebase_design` 時先讀 [codebase-design skill](../skills/codebase-design/SKILL.md)，優先推翻 seam 是否真的有變化、adapter 是否只是 pass-through，以及依賴注入是否帶來足夠 leverage；選取 `bug_diagnosis` 或 `tdd` 時分別讀取 [diagnosing-bugs skill](../skills/diagnosing-bugs/SKILL.md) 或 [TDD skill](../skills/tdd/SKILL.md)，優先推翻 repro、假設、red／green 或測試 seam 的關鍵前提。
 
 ## 四項檢查
 
