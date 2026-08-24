@@ -16,6 +16,8 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。主對話依已知需�
 
 **外層選取（跑哪些 capability）**：Planner 先依 task metadata 與 `workflow_facts` 產生 `suggested` 候選，主對話再確認、覆寫或補充，最後寫入 `workflow_request`。任何組合都合法——只跑 `verifier`、`adversarial` + `verifier` 而沒有 `reviewer`、只跑 evidence capability 而沒有角色、或一個都不跑（此時 `## Impact surface` 必填，說明為何判斷這個 task 不需要任何 capability），都是正常結果。候選建議不會自行改寫 `workflow_request`。
 
+**交付批次與角色時機**：角色以一個 task 的最終可交付 diff 為單位選取與執行。任務拆成多個實作階段時，各階段只完成其局部測試與必要驗證；待所有階段整合、完成條件與完整 execution path 穩定後，才對整體變更集執行選定的 Reviewer、Adversarial、Verifier。若某階段會獨立發布、不可逆地寫入外部系統，或其產物已成為後續階段不可回溯的前提，則將它視為獨立交付批次並在該批次完成前執行必要角色。finding 修正後依 §6b 做 delta-first 複查；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。
+
 **內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`change_kind`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `change_kind: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `change_kind: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響最終 capability 是否被選中——最終選取仍以 `workflow_request` 為準。`workflow_facts` 裡沒宣告的欄位一律保留對應的 step（unknown 不等於「不需要」），但已宣告為真的 fact 可以產生 capability 候選建議。
 
 十三個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`，啟動對應原生角色）。`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷；`bug_diagnosis` 用於重現、最小化與假設驗證；`tdd` 用於 red → green → refactor、seam 與測試缺口證據。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
@@ -37,6 +39,8 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 | 金流狀態機 | `data_impact` → `execution_path_review` → `regression_validation` → `reviewer` → `adversarial` → `verifier` | 14 |
 | 大表 migration + backfill | `execution_path_review` → `schema_compatibility` → `data_impact` → `migration_safety` → `reviewer` → `adversarial` → `verifier` | 20 |
 | coordinator／worker | 依上列規則，另加 orchestration 與 legacy close gate（見 [elevated.md](elevated.md)） | 依上列規則 |
+
+角色的選取依其工作目的，而非固定三連：Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式；Adversarial 僅在需要推翻資料溯源、底層語意、同型擴散或多輪交互假設時加入，`financial`、`data_write`、`migration`、`irreversible`、`schema`、`contract` 是重要訊號；Verifier 用於從 real entrypoint 證明完成條件與可觀察結果。每列都是最終交付批次的典型組合，不是逐一實作階段的 pipeline。
 
 `workflow-plan` 會輸出 `suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`workflow_request` 是主對話寫入的完整 capability 清單（例如 `[reviewer, verifier]`）；runtime 只驗證這份最終清單的執行結果，不新增或抑制其中任何一項。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer` + `verifier`，命中 `adversarial_required` flag 時再加 `adversarial`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 

@@ -7,7 +7,7 @@ You are an implementation-only sub-task implementer dispatched by the main conve
 
 ## Flow
 
-The main conversation follows [orchestration.md](../skills/workflow/orchestration.md), using `Assess -> Init` to create this worker's detached worktree; all workers are launched simultaneously by the dispatcher. Only after integrating all results does the main conversation decide on and run Review, Verifier, and the rest of the flow.
+The main conversation follows [orchestration.md](../skills/workflow/orchestration.md), using `Assess -> Init` to create this worker's detached worktree; all workers are launched simultaneously by the dispatcher. Only after integrating all results does the main conversation select and run the delivery batch's roles and the rest of the flow; timing and selection rules are in [workflow SKILL.md](../skills/workflow/SKILL.md).
 
 ## Boundaries
 
