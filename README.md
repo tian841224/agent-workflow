@@ -73,7 +73,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
 | [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |
 | [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
-| [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 撰寫或檢視程式碼註解時，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。 |
+| [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 修改 application source code logic 前載入；若涉及註解，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。test code 與其他 non-code task 不適用。 |
 | [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／seam／adapter 等共用詞彙。 |
 | [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正，避免跳過重現步驟直接猜測。 |
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |

@@ -6,7 +6,7 @@ description: Apply agent-workflow to the current programming task.
 
 Only invoke this workflow when the task modifies source code logic or test code. For comment-only, config, docs, script edits/operations, or other non-logic tasks, stay in the single main conversation: do not create a task, load this workflow, or invoke Reviewer/Verifier.
 
-1. Read the project instructions and `workflow` skill.
+1. Read the project instructions, `workflow` skill, and `clean-comments` skill before modifying application source code logic. Test code and other non-logic work do not trigger `clean-comments`.
 2. For a Standard code task, create or resume the known `task.md` directly. Resolve project/worktree only for coordinator, worker, or Elevated legacy-gate tasks.
 3. Set `code_change` explicitly, set `change_kind` (`fix | feature | refactor | chore`) whenever `code_change` is true, and add controlled `risk_flags`; request freeze only when a freeze-required flag applies.
 4. For an Elevated task, before reading the code run `~/.agent-workflow/runtime/agent_workflow.cmd project-doc --action Lookup --paths '<paths>'` (POSIX: `agent-workflow project-doc ...`) and record the matched docs under `## Project docs` - `read:`. Standard tasks use current code, callers, and tests without a mandatory project-doc lookup.

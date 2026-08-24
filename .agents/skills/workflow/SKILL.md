@@ -67,10 +67,11 @@ Elevated task 另有建立前與實作前規則見 [elevated.md](elevated.md)（
 
 - 先讀專案 instructions、相關程式、呼叫端與既有測試；只改需求直接需要的範圍；若發現架構或影響面不明，升級為 Elevated task。
 - 先說明必要假設與完成條件；不確定且會改變結果時才詢問使用者。
+- 修改 application source code logic 前，一律載入 [clean-comments skill](../clean-comments/SKILL.md)；test code 與其他 non-code task 不適用。
 - `change_kind: fix` 時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)：先建立一個對這個 bug 會變紅的 feedback loop，再重現、最小化、產生排序過的假設，不得跳過直接猜。修改後執行相關驗證，無法自動化時在 task 記錄替代驗證與原因。
 - 有新增或修正可測試行為、或屬於 bug fix／邏輯調整時，載入並遵循 [TDD skill](../tdd/SKILL.md) 的 red → green → refactor、seam、測試設計與 mock 規則。純測試重整或無法自動化時記錄替代驗證與原因；所有進入 workflow 的 source-code task 仍須執行相關驗證。
 - 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
-- 新增或修改程式碼註解時載入 [clean-comments skill](../clean-comments/SKILL.md)：函式註解只講對外合約、流程註解就近解釋 Why，不堆內部步驟流水帳。
+- 若本次新增或修改程式碼註解，依已載入的 [clean-comments skill](../clean-comments/SKILL.md) 執行：函式註解只講對外合約、流程註解就近解釋 Why，不堆內部步驟流水帳。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 - `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時，在跑 pre-review 之前處理受影響文件（原料是 `Impact surface` 與 `Execution path`）；觸發條件、建立／更新判斷與 `## Project docs` 的 `updated:` 填法見 [project-docs.md](project-docs.md)。其餘情況只在 Lookup 回報 `stale: true` 時確認內容仍正確。
 

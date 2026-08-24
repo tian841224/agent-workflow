@@ -15,4 +15,5 @@
 - 使用者要求記憶、糾正 agent、拍板決策或確認錯誤修正時，立即透過 active `learn` skill 記錄可重用結論。
 - 使用臺灣慣用繁體中文回應；程式碼與技術術語保留原文。
 - 對話開始時載入 `localization-tw` skill，中文輸出（回覆、文件、註解）依其臺灣用語規範檢查，避免中國用語殘留。
+- 修改 application source code logic 前，一律載入 `clean-comments` skill；test code、文件、指令、設定、script、除錯、規劃及其他非程式邏輯工作不適用。
 - 修改 `.agents/` 下任何 agent 或 skill 文件時載入 `writing-for-agents` skill。
