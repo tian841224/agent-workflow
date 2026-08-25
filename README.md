@@ -81,6 +81,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
 | [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 修改 application source code logic 前載入；若涉及註解，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。test code 與其他 non-code task 不適用。 |
 | [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／seam／adapter 等共用詞彙；選取 `codebase_design` capability 時主動載入。 |
+| [`architecture-review`](.agents/skills/architecture-review/SKILL.md) | 審查既有程式架構、跨層耦合、模組責任、契約漂移與遷移風險；以 static fact、hypothesis、runtime proof 區分證據，並提出最小可行的漸進式改善方案。 |
 | [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正；選取 `bug_diagnosis` capability 時主動載入並記錄診斷證據。 |
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 產生或翻譯正體中文（臺灣）內容時，統一術語、語氣與標點，避免中國用語與簡體直譯。 |

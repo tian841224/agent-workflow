@@ -177,6 +177,7 @@ PLATFORM_COPIED_SKILLS = (
     "push-back",
     "learn",
     "tdd",
+    "localization-tw",
 )
 
 

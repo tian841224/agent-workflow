@@ -73,6 +73,7 @@ def test_installer():
             assert (b/"claude/skills"/skill/"SKILL.md").is_file()
             assert (b/"codex/skills"/skill/"SKILL.md").is_file()
             assert (b/"gemini/config/skills"/skill/"SKILL.md").is_file()
+        assert (b/"gemini/config/skills/localization-tw/SKILL.md").is_file()
         # a skill removed from source must have its stale Claude junction cleaned up on
         # the next install, not linger forever
         ghost = claude_dir/"skills"/"ghost-skill"
