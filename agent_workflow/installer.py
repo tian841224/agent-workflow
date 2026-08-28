@@ -178,6 +178,9 @@ PLATFORM_COPIED_SKILLS = (
     "learn",
     "tdd",
     "localization-tw",
+    "eli5",
+    "archify",
+    "design-and-refine",
 )
 
 
@@ -206,9 +209,58 @@ def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
         _link_skill_dir(skills_root / name, target)
 
 
-def _install_platform_files(selected, canonical, claude, codex, antigravity, dry_run):
+def _skill_catalog(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    catalog = manifest.get("skills", {})
+    if not isinstance(catalog, dict) or not catalog:
+        raise RuntimeError("managed manifest must define a non-empty skills catalog")
+    return catalog
+
+
+def _prompt_skills(catalog: dict[str, dict[str, Any]]) -> set[str]:
+    names = list(catalog)
+    print("請選擇要安裝的 skills：")
+    for index, name in enumerate(names, 1):
+        description = str(catalog[name].get("description", "無說明"))
+        required = "（必裝）" if catalog[name].get("required") is True else ""
+        print(f"[{index}] {name}{required}：{description}")
+    print("[0] 全部安裝")
+    while True:
+        answer = input("請輸入編號（可用逗號分隔）：").strip()
+        if answer == "0":
+            return set(names)
+        try:
+            indexes = {int(value.strip()) for value in answer.split(",") if value.strip()}
+        except ValueError:
+            indexes = set()
+        if indexes and indexes.issubset(range(1, len(names) + 1)):
+            return {names[index - 1] for index in indexes}
+        print(f"輸入無效，請輸入 0 或 1～{len(names)} 的編號。")
+
+
+def _resolve_skills(args: argparse.Namespace, manifest: dict[str, Any], previous_state: dict[str, Any]) -> set[str]:
+    catalog = _skill_catalog(manifest)
+    requested = args.skills
+    if requested is None and args.action == "Repair":
+        saved = previous_state.get("selected_skills")
+        if isinstance(saved, list):
+            requested = ",".join(str(item) for item in saved)
+    if requested is None:
+        interactive = args.action == "Install" and sys.stdin.isatty() and sys.stdout.isatty() and not args.non_interactive
+        requested_names = _prompt_skills(catalog) if interactive else set(catalog)
+    elif requested.strip().casefold() == "all":
+        requested_names = set(catalog)
+    else:
+        requested_names = {item.strip() for item in requested.split(",") if item.strip()}
+    unknown = sorted(requested_names - set(catalog))
+    if unknown:
+        raise RuntimeError(f"unknown skill(s): {', '.join(unknown)}")
+    required = {name for name, metadata in catalog.items() if metadata.get("required") is True}
+    return requested_names | required
+
+
+def _install_platform_files(selected, selected_skills, canonical, claude, codex, antigravity, dry_run):
     managed=[]
-    for skill in PLATFORM_COPIED_SKILLS:
+    for skill in selected_skills:
         source=canonical/"skills"/skill
         for target in ([claude/"skills"/skill] if "Claude" in selected else [])+([codex/"skills"/skill] if "Codex" in selected else [])+([antigravity/"config"/"skills"/skill] if "Antigravity" in selected else []):
             if not source.is_dir(): continue
@@ -218,10 +270,23 @@ def _install_platform_files(selected, canonical, claude, codex, antigravity, dry
                     if target.is_symlink() or is_reparse: target.unlink()
                     else: shutil.rmtree(target)
                 target.parent.mkdir(parents=True,exist_ok=True); shutil.copytree(source,target)
-                for file in target.rglob("*"):
-                    if file.is_file(): managed.append({"path":str(file),"sha256":_hash(file),"kind":"platform-skill"})
-    _ensure_shared_skill_links(canonical, claude, selected, dry_run)
+            for file in source.rglob("*"):
+                if file.is_file():
+                    destination = target / file.relative_to(source)
+                    managed.append({"path":str(destination),"sha256":_hash(file),"kind":"platform-skill"})
     return managed
+
+
+def _remove_stale_skill_links(claude: Path, selected: set[str], dry_run: bool) -> None:
+    if "Claude" not in selected:
+        return
+    skills_root = claude / "skills"
+    if not skills_root.is_dir():
+        return
+    for target in sorted(skills_root.iterdir()):
+        is_reparse = getattr(os, "isjunction", lambda value: False)(target)
+        if (target.is_symlink() or is_reparse) and not target.exists() and not dry_run:
+            target.unlink()
 
 def _remove_managed_hooks(path, runtime_root, dry_run):
     if not path.is_file(): return
@@ -288,8 +353,15 @@ def install(args: argparse.Namespace) -> int:
         print(json.dumps({"valid": good, "python": sys.executable, "python_version": list(sys.version_info[:3]), "runtime_root": str(runtime)}, ensure_ascii=False)); return 0 if good else 1
     state_file = state / "managed-runtime.json"
     previous = {}
+    previous_state: dict[str, Any] = {}
+    source_root = ROOT
     try:
-        old=json.loads(state_file.read_text(encoding="utf-8")); previous={str(item.get("path")):item.get("sha256","") for item in old.get("files",[])}
+        old=json.loads(state_file.read_text(encoding="utf-8")); previous_state=old; previous={str(item.get("path")):item.get("sha256","") for item in old.get("files",[])}
+        recorded_source = Path(str(old.get("source", ""))).expanduser().resolve()
+        # A repo checkout is the authoritative source when install.py is run from it.
+        # Only an installed runtime needs to resolve its recorded canonical source.
+        if ROOT == runtime and (recorded_source / "adapters" / "managed-manifest.json").is_file():
+            source_root = recorded_source
     except (FileNotFoundError, json.JSONDecodeError): pass
     if args.action == "Uninstall":
         try: previous = json.loads(state_file.read_text(encoding="utf-8"))
@@ -302,37 +374,40 @@ def install(args: argparse.Namespace) -> int:
     if args.action not in {"Install", "Repair"}: raise RuntimeError(f"unsupported action: {args.action}")
     if sys.version_info < (3, 11): raise RuntimeError("Python 3.11 or newer is required; install it and run install.py again")
     files: list[dict[str, str]] = []
-    manifest = json.loads((ROOT / "adapters" / "managed-manifest.json").read_text(encoding="utf-8-sig"))
+    manifest = json.loads((source_root / "adapters" / "managed-manifest.json").read_text(encoding="utf-8-sig"))
+    selected_skills = _resolve_skills(args, manifest, previous_state)
     force=args.action=="Repair"
     for relative in manifest["runtime"]:
-        source = (ROOT / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (ROOT / relative)
+        source = (source_root / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (source_root / relative)
         _copy(source, runtime / relative, files, args.dry_run, previous, force)
     # Canonical shared source lives once; platform copies are written from it during each install.
     for relative in ("agents/reviewer.md", "agents/adversarial.md", "agents/verifier.md", "agents/retrospective.md", "agents/worker.md", "agents/reviewer-code-smells.md"):
-        _copy(ROOT / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
+        _copy(source_root / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
     # reviewer.md's relative link to reviewer-code-smells.md only resolves for Claude,
     # whose deployed agent file keeps the same directory shape as canonical/agents/.
     if "Claude" in selected:
-        _copy(ROOT / ".agents" / "agents" / "reviewer-code-smells.md", claude / "agents" / "reviewer-code-smells.md", files, args.dry_run, previous, force)
-    for source in (ROOT / ".agents" / "skills").rglob("*"):
-        if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)
+        _copy(source_root / ".agents" / "agents" / "reviewer-code-smells.md", claude / "agents" / "reviewer-code-smells.md", files, args.dry_run, previous, force)
+    source_skills = source_root / ".agents" / "skills"
+    for source in source_skills.rglob("*"):
+        if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(source_skills), files, args.dry_run, previous, force)
     python_executable = Path(sys.executable).resolve()
     files.extend(_write_agents(canonical, selected, claude, codex, antigravity, runtime, python_executable, args.dry_run))
-    files.extend(_install_platform_files(selected, canonical, claude, codex, antigravity, args.dry_run))
+    files.extend(_install_platform_files(selected, selected_skills, canonical, claude, codex, antigravity, args.dry_run))
+    _remove_stale_skill_links(claude, selected, args.dry_run)
     entry_targets = []
     if "Claude" in selected: entry_targets.append(claude / "CLAUDE.md")
     if "Codex" in selected: entry_targets.append(codex / "AGENTS.md")
     if "Antigravity" in selected: entry_targets.append(antigravity / "GEMINI.md")
     _managed_entrypoint(runtime / "AGENTS.md", canonical / "AGENTS.md", entry_targets, args.dry_run)
-    if "Claude" in selected: _merge_hooks(ROOT / "adapters/claude/settings.hooks.json", claude / "settings.json", runtime, python_executable, False, args.dry_run)
+    if "Claude" in selected: _merge_hooks(source_root / "adapters/claude/settings.hooks.json", claude / "settings.json", runtime, python_executable, False, args.dry_run)
     if "Codex" in selected:
-        _merge_hooks(ROOT / "adapters/codex/hooks.json", codex / "hooks.json", runtime, python_executable, False, args.dry_run)
-        _copy(ROOT / "adapters/codex/execpolicy.rules", codex / "rules/agent-workflow.rules", files, args.dry_run, previous, force)
+        _merge_hooks(source_root / "adapters/codex/hooks.json", codex / "hooks.json", runtime, python_executable, False, args.dry_run)
+        _copy(source_root / "adapters/codex/execpolicy.rules", codex / "rules/agent-workflow.rules", files, args.dry_run, previous, force)
         if not args.dry_run:
             missing=untrusted(str(codex/"hooks.json"),str(codex/"config.toml"),str(runtime))
             if missing: print(f"[install] Codex has {len(missing)} untrusted agent-workflow hook(s); approve them before relying on the hook:")
             for key in missing: print(f"  - {key}")
-    if "Antigravity" in selected: _merge_hooks(ROOT / "adapters/antigravity/hooks.json", antigravity / "config/hooks.json", runtime, python_executable, True, args.dry_run)
+    if "Antigravity" in selected: _merge_hooks(source_root / "adapters/antigravity/hooks.json", antigravity / "config/hooks.json", runtime, python_executable, True, args.dry_run)
     managed_roots = [runtime, canonical] + [root for name, root in
                      (("Claude", claude), ("Codex", codex), ("Antigravity", antigravity)) if name in selected]
     stale = _prune_stale(previous, files, managed_roots, args.dry_run)
@@ -341,7 +416,7 @@ def install(args: argparse.Namespace) -> int:
         print(f"[install] {verb} {len(stale)} file(s) no longer in the manifest:")
         for path in stale: print(f"  - {path}")
     if not args.dry_run:
-        _json(state_file, {"schema_version": 4, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT), "files": files})
+        _json(state_file, {"schema_version": 5, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT), "selected_skills": sorted(selected_skills), "files": files})
     _backup_legacy(args,args.dry_run)
     print(f"agent-workflow v5 {args.action} complete for {target}.")
     return 0
@@ -352,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target-agent", "--agent", default="All", choices=("Claude", "Codex", "Antigravity", "Both", "All"))
     parser.add_argument("--claude-target", default=str(home / ".claude")); parser.add_argument("--codex-target", default=str(home / ".codex")); parser.add_argument("--antigravity-target", default=str(home / ".gemini"))
-    parser.add_argument("--state-root", default=str(home / ".agent-workflow")); parser.add_argument("--canonical-root", default=str(home / ".agents")); parser.add_argument("--legacy-root", default=str(home / ".agents")); parser.add_argument("--action", default="Install", choices=("Install", "Status", "Repair", "Uninstall", "Verify")); parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--state-root", default=str(home / ".agent-workflow")); parser.add_argument("--canonical-root", default=str(home / ".agents")); parser.add_argument("--legacy-root", default=str(home / ".agents")); parser.add_argument("--action", default="Install", choices=("Install", "Status", "Repair", "Uninstall", "Verify")); parser.add_argument("--skills", help="all 或以逗號分隔的 skill 名稱"); parser.add_argument("--non-interactive", action="store_true"); parser.add_argument("--dry-run", action="store_true")
     return install(parser.parse_args(argv))
 
 

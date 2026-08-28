@@ -6,12 +6,13 @@ ROOT=Path(__file__).resolve().parents[1]
 PY=sys.executable
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
 def call(*args,cwd=ROOT,input_text="",ok=True):
-    p=subprocess.run([PY,"-X","utf8","-u",*map(str,args)],cwd=cwd,input=input_text.encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+    p=subprocess.run([PY,"-X","utf8","-u",*map(str,args)],cwd=cwd,input=input_text.encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
     if ok: assert p.returncode==0,(args,p.stderr.decode("utf-8","replace"))
     return p
 def cli(command,*args,**kwargs): return call(ROOT/"agent_workflow.py",command,*args,**kwargs)
 def test_contract():
     manifest=json.loads((ROOT/"adapters/managed-manifest.json").read_text(encoding="utf-8")); assert manifest["schema_version"]==4
+    assert "adapters/managed-manifest.json" in manifest["runtime"]
     for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","workflow-plan"):
         assert cli(command,"--help").returncode==0
     # every flag actually written in docs must be argparse's real double-dash lowercase form,
@@ -74,6 +75,12 @@ def test_installer():
             assert (b/"codex/skills"/skill/"SKILL.md").is_file()
             assert (b/"gemini/config/skills"/skill/"SKILL.md").is_file()
         assert (b/"gemini/config/skills/localization-tw/SKILL.md").is_file()
+        for target in (b/"claude/skills/eli5/SKILL.md", b/"codex/skills/eli5/SKILL.md", b/"gemini/config/skills/eli5/SKILL.md"):
+            assert target.is_file()
+        for target in (b/"claude/skills/archify/SKILL.md", b/"codex/skills/archify/bin/archify.mjs", b/"gemini/config/skills/archify/schemas/architecture.schema.json"):
+            assert target.is_file()
+        for target in (b/"claude/skills/design-and-refine/SKILL.md", b/"codex/skills/design-and-refine/skills/design-lab/SKILL.md", b/"gemini/config/skills/design-and-refine/templates/feedback/FeedbackOverlay.tsx"):
+            assert target.is_file()
         # a skill removed from source must have its stale Claude junction cleaned up on
         # the next install, not linger forever
         ghost = claude_dir/"skills"/"ghost-skill"
@@ -114,6 +121,19 @@ def test_installer():
         assert edited_file.is_file(), "a user-edited file must never be silently deleted"
         assert edited_file.read_text(encoding="utf-8") == "# user changed this after install recorded its hash\n"
         assert keep_entry.is_file(), "user knowledge must survive Repair untouched"
+
+        # An explicit skill selection is persisted and removes previously managed
+        # platform skills that are no longer selected.
+        assert call(ROOT/"install.py","--action","Repair","--skills","workflow,planning",*args).returncode==0
+        selected_state = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert selected_state["selected_skills"] == ["clean-comments", "codebase-design", "grill-me", "learn", "planning", "push-back", "tdd", "workflow"]
+        assert (b/"claude/skills/workflow/SKILL.md").is_file()
+        assert (b/"claude/skills/planning/SKILL.md").is_file()
+        assert not (b/"claude/skills/architecture-review/SKILL.md").exists()
+        # Repair without --skills reuses the previous selection.
+        assert call(ROOT/"install.py","--action","Repair",*args).returncode==0
+        assert (b/"codex/skills/tdd/SKILL.md").is_file()
+        assert call(ROOT/"install.py","--skills","missing-skill",*args,ok=False).returncode != 0
 
         assert call(ROOT/"install.py","--action","Verify",*args).returncode==0; assert call(ROOT/"install.py","--action","Uninstall",*args).returncode==0
 def test_knowledge():

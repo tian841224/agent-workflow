@@ -14,6 +14,8 @@
 - Agent session 啟動時會由 managed `SessionStart` hook 自動載入 shared memory reference；原生來源只讀且可能過時，使用前仍須回查目前程式碼與設定。
 - 使用者要求記憶、糾正 agent、拍板決策或確認錯誤修正時，立即透過 active `learn` skill 記錄可重用結論。
 - 使用臺灣慣用繁體中文回應；程式碼與技術術語保留原文。
+- Use ASCII to visualize content when explaining concepts.
 - 中文回覆、文件或註解開始前載入 `localization-tw` skill；每次輸出前依已載入的 skill 檢查完整內容，再修正臺灣用語、語氣、標點與中國用語，只有完成檢查後才輸出。遇到不確定詞彙時，再查閱該 skill 的 references，不需每次重讀整份 skill。
 - 修改 application source code logic 前，一律載入 `clean-comments` skill；test code、文件、指令、設定、script、除錯、規劃及其他非程式邏輯工作不適用。
 - 修改 `.agents/` 下任何 agent 或 skill 文件時載入 `writing-for-agents` skill。
+- 新增專案 skill 時，先詢問使用者要列為必裝或選擇性，再更新 managed manifest；未獲確認前不得自行分類。

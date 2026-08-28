@@ -74,6 +74,9 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | Skill | 用途與適用時機 |
 | --- | --- |
 | [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由主對話依實際觀察到的 impact 與 risk 決定是否建立 task、寫入 `workflow_request` 啟用哪些 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
+| [`eli5`](.agents/skills/eli5/SKILL.md) | 依指定的年齡、職務或背景，用適合對方程度的方式解釋主題、程式碼、概念或錯誤。 |
+| [`archify`](.agents/skills/archify/SKILL.md) | 將架構、workflow、sequence、data-flow 與 lifecycle 需求轉成可驗證、可互動的 standalone HTML 圖表；來源：[tt-a1i/archify](https://github.com/tt-a1i/archify)。 |
+| [`design-and-refine`](.agents/skills/design-and-refine/SKILL.md) | 透過設計訪談、五種 UI 變體、互動回饋與實作計畫，協助探索與收斂元件或頁面的設計方向；來源：[0xdesign/design-plugin](https://github.com/0xdesign/design-plugin)。 |
 | [`tdd`](.agents/skills/tdd/SKILL.md) | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；選取 `tdd` capability 時由 workflow 主動載入並在 task 記錄 TDD evidence。 |
 | [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略、技術方案比較或需求不明時，先釐清目標、限制與完成條件。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
@@ -171,6 +174,15 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 install.cmd --target-agent All
 ```
 
+未指定 `--skills` 時，互動式安裝會列出 skills 與簡短說明，輸入編號即可選擇；`workflow` 為必裝 skill，其餘 skills 可選。也可以直接指定：
+
+```bat
+install.cmd --target-agent All --skills workflow,planning,tdd
+install.cmd --target-agent All --skills all
+```
+
+`Repair` 未指定 `--skills` 時會沿用上次安裝的選擇。若要在腳本或 CI 中避免互動提示，請加上 `--non-interactive`；未指定 skills 時會安裝全部 skills。
+
 `--target-agent` 可依需求指定安裝平台：
 
 - `Claude`
@@ -179,6 +191,8 @@ install.cmd --target-agent All
 - `All`
 
 安裝程式會將共用的 skills、角色、workflow 規則與 hooks 設定到對應平台，並在使用者家目錄建立 `.agent-workflow` runtime 與資料夾。
+
+新增 skill 時，先確認它要列為必裝或選擇性，再在 `adapters/managed-manifest.json` 的 `skills` catalog 登錄名稱、說明與 `required` 設定。
 
 ### 檢查安裝狀態
 
