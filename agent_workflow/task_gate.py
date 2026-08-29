@@ -83,6 +83,29 @@ def _retro_check(content: str, task_path: Path, issues: list[str]) -> None:
             issues.append('a regression needs framework_change: either "recorded:<retro-id>" from retro --action Record, or "not_needed - <reason>"')
 
 
+def _review_cause_check(content: str, issues: list[str]) -> None:
+    """A round past the first exists because the previous one was pushed back, so that
+    round is exactly where the attribution belongs."""
+    body = section(content, "Review round")
+    if not body:
+        return
+    try:
+        round_number = int(line_value(body, "round"))
+    except ValueError:
+        return
+    if round_number < 2:
+        return
+    value = line_value(body, "cause")
+    if not value or re.fullmatch(r"<.*>", value):
+        issues.append('round >= 2 needs a cause: either an id from review-cause --action Record, or "none - <reason>"')
+        return
+    none = re.match(r"(?i)^none\s*-\s*(.+)$", value)
+    if none and (not none.group(1).strip() or re.fullmatch(r"<.*>", none.group(1).strip())):
+        issues.append("'## Review round' - cause: none needs an actual reason, not a placeholder")
+    elif not none and not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[a-f0-9]{8}", value):
+        issues.append('cause must be a review-cause id (YYYYMMDD-HHmmss-xxxxxxxx) or "none - <reason>"')
+
+
 def required_evidence(plan: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
     """Selected evidence capabilities collapsed to section -> steps (sections may be shared)."""
     required: dict[str, list[dict[str, str]]] = {}
@@ -189,6 +212,7 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
             if deep and change_kind in {"feature", "refactor"} and not line_value(section(content, "Project docs"), "updated"):
                 issues.append(f"'## Project docs' has no '- updated:' line (change_kind {change_kind} requires a disposition here)")
             _retro_check(content, path, issues)
+            _review_cause_check(content, issues)
     except Exception as exc:
         issues.append(f"task-gate failed to inspect the task: {exc}")
     return {"issues": issues, "waiting": waiting, "waived": waived}

@@ -2,7 +2,8 @@
 from __future__ import annotations
 import argparse, hashlib, json, re, time
 from pathlib import Path
-from .frontmatter import frontmatter
+from .frontmatter import frontmatter, summary_line
+from .protocol import write_json
 
 
 def entries(root):
@@ -61,18 +62,17 @@ def _index_path(state_root: str, scope: str, project_id: str) -> Path:
 
 
 def main(argv=None) -> int:
-    parser=argparse.ArgumentParser(); parser.add_argument("--action",required=True,choices=("Search","Upsert","Reindex","List")); parser.add_argument("--state-root",default=str(Path.home()/".agent-workflow")); parser.add_argument("--query",default=""); parser.add_argument("--limit",type=int,default=8); parser.add_argument("--scope",default="All",choices=("All","Global","Project")); parser.add_argument("--topic",default=""); parser.add_argument("--content",default=""); parser.add_argument("--project-id",default=""); parser.add_argument("--path",default="."); parser.add_argument("--status",default="verified",choices=("verified","needs_verification")); parser.add_argument("--relationship",action="append",default=[]); parser.add_argument("--approved-by-user",action="store_true"); parser.add_argument("--exclude-native",action="store_true"); parser.add_argument("--include-session-summaries",action="store_true"); args=parser.parse_args(argv)
+    parser=argparse.ArgumentParser(); parser.add_argument("--action",required=True,choices=("Search","Upsert","Reindex","List")); parser.add_argument("--state-root",default=str(Path.home()/".agent-workflow")); parser.add_argument("--query",default=""); parser.add_argument("--limit",type=int,default=8); parser.add_argument("--scope",default="All",choices=("All","Global","Project")); parser.add_argument("--topic",default=""); parser.add_argument("--content",default=""); parser.add_argument("--project-id",default=""); parser.add_argument("--path",default="."); parser.add_argument("--status",default="verified",choices=("verified","needs_verification","superseded")); parser.add_argument("--relationship",action="append",default=[]); parser.add_argument("--approved-by-user",action="store_true"); parser.add_argument("--exclude-native",action="store_true"); parser.add_argument("--include-session-summaries",action="store_true"); args=parser.parse_args(argv)
     found=_filter_entries(args.state_root, args.scope, args.project_id, args.topic, args.status, args.path, args.exclude_native, args.include_session_summaries)
     if args.action=="Search":
         terms=args.query.casefold().split(); out=[]
         for path in found:
             text=path.read_text(encoding="utf-8-sig",errors="replace")
             if terms and not all(term in text.casefold() for term in terms): continue
-            body=re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|\Z)","",text,count=1,flags=re.DOTALL)
-            excerpt=next((line.strip() for line in body.splitlines() if line.strip()),"")[:180]
+            excerpt=summary_line(text,180)
             out.append({"path":str(path),"topic":frontmatter(text).get("topic",path.stem),"excerpt":excerpt})
-        print(json.dumps(out[:args.limit],ensure_ascii=False)); return 0
-    if args.action=="List": print(json.dumps([str(p) for p in found],ensure_ascii=False)); return 0
+        write_json(out[:args.limit]); return 0
+    if args.action=="List": write_json([str(p) for p in found]); return 0
     if args.action=="Reindex":
         index=_index_path(args.state_root, args.scope, args.project_id); index.parent.mkdir(parents=True,exist_ok=True); index.write_text(json.dumps({"scope":args.scope.casefold(),"entries":[{"id":p.stem,"path":str(p)} for p in found]},ensure_ascii=False,indent=2)+"\n",encoding="utf-8",newline="\n"); print("reindex complete"); return 0
     if not args.topic or not args.content: raise RuntimeError("Upsert requires --topic and --content")

@@ -17,6 +17,7 @@ if SOURCE_ROOT not in sys.path:
 COMMANDS = {
     "git-guard": "git_guard",
     "skill-guard": "skill_guard",
+    "skill-draft": "skill_draft",
     "project-resolver": "project_resolver",
     "task-gate": "task_gate",
     "validate-task": "validate_task",
@@ -30,6 +31,7 @@ COMMANDS = {
     "pre-review": "pre_review",
     "project-doc": "project_doc",
     "retro": "retro",
+    "review-cause": "review_cause",
     "runtime-check": "runtime_check",
     "split-plan": "split_plan",
     "waive-roles": "waive_roles",

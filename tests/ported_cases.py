@@ -1,6 +1,6 @@
 """Executable Python ports of the former PowerShell runner contract boundaries."""
 from __future__ import annotations
-import json, os, shutil, subprocess, sys, tempfile
+import json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 PY=sys.executable
@@ -12,7 +12,7 @@ def call(*args,cwd=ROOT,input_text="",ok=True):
 def cli(command,*args,**kwargs): return call(ROOT/"agent_workflow.py",command,*args,**kwargs)
 def test_contract():
     manifest=json.loads((ROOT/"adapters/managed-manifest.json").read_text(encoding="utf-8")); assert manifest["schema_version"]==4
-    for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","workflow-plan"):
+    for command in ("git-guard","project-resolver","task-gate","validate-task","worktree-fingerprint","close-task","check-task","install","knowledge","memory-context","skill-draft","review-cause","pre-review","project-doc","retro","runtime-check","split-plan","waive-roles","orchestrate","workflow-plan"):
         assert cli(command,"--help").returncode==0
     # every flag actually written in docs must be argparse's real double-dash lowercase form,
     # never PowerShell-style single-dash (docs previously drifted to -Action/-Query etc.,
@@ -69,7 +69,14 @@ def test_installer():
         assert (b/"claude/skills/tdd/SKILL.md").is_file()
         assert (b/"codex/skills/tdd/SKILL.md").is_file()
         assert (b/"gemini/config/skills/tdd/SKILL.md").is_file()
-        for skill in ("codebase-design", "diagnosing-bugs", "planning", "project-docs", "push-back"):
+        for skill in (
+            "codebase-design",
+            "diagnosing-bugs",
+            "operational-verification",
+            "planning",
+            "project-docs",
+            "push-back",
+        ):
             assert (b/"claude/skills"/skill/"SKILL.md").is_file()
             assert (b/"codex/skills"/skill/"SKILL.md").is_file()
             assert (b/"gemini/config/skills"/skill/"SKILL.md").is_file()
@@ -534,3 +541,233 @@ def test_pre_review(): assert subprocess.run(["git","-C",str(ROOT),"diff","--che
 def test_orchestrate(): assert cli("orchestrate","--help").returncode==0
 def test_runtime(): assert cli("runtime-check","--help").returncode==0
 SUITES={"contract":test_contract,"posix_wrapper":test_posix_wrapper,"hot_path_imports":test_hot_path_imports,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"memory_quota":test_memory_quota_and_pollution,"project_doc":test_project_doc,"project_doc_decision_glossary":test_project_doc_decision_and_glossary,"project_doc_structure_flow":test_project_doc_structure_and_flow,"retro":test_retro,"validate_task":test_validate_and_profile,"step_matrix":test_step_matrix,"workflow_gate":test_workflow_gate,"legacy_compat":test_legacy_compat,"parallel_orchestration":test_parallel_orchestration,"register_native":test_register_native,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
+def _seed_entry(state, project, topic, content):
+    result = cli("learn", "--action", "Capture", "--state-root", state, "--project-id", project,
+                 "--kind", "correction", "--topic", topic, "--content", content)
+    return json.loads(result.stdout.decode("utf-8"))["path"]
+def _scan(state, project, *extra):
+    return json.loads(cli("skill-draft", "--action", "Scan", "--state-root", state, "--project-id", project,
+                          "--canonical-root", str(Path(state) / "canonical"), *extra).stdout.decode("utf-8"))
+def _seed_store(state, project, retry_count=4):
+    for index in range(retry_count):
+        _seed_entry(state, project, f"retry backoff {index}", f"always republish through exponential backoff variant {index}")
+    for index in range(4):
+        _seed_entry(state, project, f"cache warmup {index}", f"warm every shard before serving variant {index}")
+def _retry_cluster(found):
+    return next((item for item in found if item["occurrences"] == 4 and
+                 any("backoff" in summary for summary in item["summaries"])), None)
+def test_skill_draft():
+    project = "0123456789abcdef"
+    with tempfile.TemporaryDirectory() as t:
+        _seed_store(t, project)
+        assert _retry_cluster(_scan(t, project, "--min-occurrences", "5")) is None, "a cluster under the threshold must not surface"
+        cluster = _retry_cluster(_scan(t, project))
+        assert cluster and len(cluster["entry_sha"]) == 4, cluster
+        source = sum((["--source-entry", sha] for sha in cluster["entry_sha"]), [])
+        secret = cli("skill-draft", "--action", "Draft", "--state-root", t, "--name", "leaky",
+                     "--description", "d", "--content", "use api_key = abcd1234efgh", *source, ok=False)
+        assert secret.returncode != 0, "a credential-shaped draft body must be refused"
+        drafted = json.loads(cli("skill-draft", "--action", "Draft", "--state-root", t, "--name", "republish-backoff",
+                                 "--description", "Republish with backoff", "--content", "# republish\n\nRetry with backoff.",
+                                 "--cluster-id", cluster["cluster_id"], *source).stdout.decode("utf-8"))
+        draft_path = Path(drafted["path"])
+        assert draft_path.is_file() and draft_path.parent.parent.name == "skill-drafts", draft_path
+        # the whole safety argument: a draft never sits anywhere a platform loads skills from
+        assert "skills" not in [part for part in draft_path.parts if part != "skill-drafts"], draft_path
+        denied = cli("skill-draft", "--action", "Promote", "--state-root", t, "--name", "republish-backoff", ok=False)
+        assert denied.returncode != 0, "Promote without --approved-by-user must fail"
+        assert not (Path(t) / "skills" / "republish-backoff").exists()
+        cli("skill-draft", "--action", "Promote", "--state-root", t, "--name", "republish-backoff",
+            "--approved-by-user", "--no-distribute")
+        promoted = (Path(t) / "skills" / "republish-backoff" / "SKILL.md").read_text(encoding="utf-8")
+        assert "status: draft" not in promoted and "description: Republish with backoff" in promoted, promoted
+        assert _retry_cluster(_scan(t, project)) is None, "entries behind a promoted skill are consumed"
+    with tempfile.TemporaryDirectory() as t:
+        _seed_store(t, project)
+        cluster = _retry_cluster(_scan(t, project))
+        source = sum((["--source-entry", sha] for sha in cluster["entry_sha"]), [])
+        cli("skill-draft", "--action", "Draft", "--state-root", t, "--name", "republish-backoff",
+            "--description", "Republish with backoff", "--content", "body", "--cluster-id", cluster["cluster_id"], *source)
+        cli("skill-draft", "--action", "Reject", "--state-root", t, "--name", "republish-backoff", "--note", "too narrow")
+        assert _retry_cluster(_scan(t, project)) is None, "a rejected pattern must stay suppressed"
+        for index in range(4, 7):
+            _seed_entry(t, project, f"retry backoff {index}", f"always republish through exponential backoff variant {index}")
+            _seed_entry(t, project, f"tracing span {index}", f"close every span at handler exit variant {index}")
+        revived = next((item for item in _scan(t, project) if len(set(item["entry_sha"])) == 7 and
+                        any("backoff" in summary for summary in item["summaries"])), None)
+        assert revived, "enough new entries must bring a rejected pattern back"
+        listed = json.loads(cli("skill-draft", "--action", "List", "--state-root", t, "--status", "rejected").stdout.decode("utf-8"))
+        assert len(listed) == 1 and listed[0]["name"] == "republish-backoff", listed
+    with tempfile.TemporaryDirectory() as t:
+        # an import batch shares only its timestamp prefix, which is not a subject
+        for slug in ("powershell bom fix", "readme documentation", "git packaging", "dev flow kit"):
+            _seed_entry(t, project, f"2026-07-21t08-01-15 {slug}", f"session summary of {slug}")
+        assert not _scan(t, project), "date fragments in a topic slug must not form a cluster"
+        for index in range(4):
+            _seed_entry(t, project, f"backoff and the retry {index}", f"republish with backoff variant {index}")
+        assert {item["cluster_id"] for item in _scan(t, project)} <= {"backoff", "retry"}, _scan(t, project)
+    with tempfile.TemporaryDirectory() as t:
+        paths = [_seed_entry(t, project, f"retry backoff {index}",
+                             f"always republish through exponential backoff variant {index}")
+                 for index in range(4)]
+        assert _retry_cluster(_scan(t, project)), "captured entries still cluster"
+        for path, replacement in zip(paths, ("origin: imported", "status: needs_verification")):
+            entry = Path(path)
+            field = replacement.split(":")[0]
+            entry.write_text(re.sub(rf"(?m)^{field}:.*$", replacement, entry.read_text(encoding="utf-8"), count=1),
+                             encoding="utf-8")
+        assert not _scan(t, project), "only what learn captured and verified is distilled"
+    from agent_workflow.frontmatter import summary_line
+    nested = "---\nid: x\n---\n\n---\nname: imported\ndescription: d\n---\n\nthe real first line\n"
+    assert summary_line(nested, 240) == "the real first line", summary_line(nested, 240)
+    assert summary_line("---\nid: x\n---\n\n---\n\nnot frontmatter", 240) == "---"
+    from agent_workflow.skill_draft import _skill_match
+    known = {"eli5": ({"eli5"}, {"eli5", "explain", "code", "topic"}),
+             "backoff-retry": ({"backoff", "retry"}, {"backoff", "retry", "republish"})}
+    assert _skill_match("code", {"code"}, known) == "", "one shared description word is not coverage"
+    assert _skill_match("backoff", {"backoff", "retry"}, known) == "backoff-retry"
+    assert _skill_match("republish", {"republish", "backoff"}, known) == "backoff-retry"
+    from agent_workflow.memory_context import render_context
+    nudged = render_context([], 3000, 2)
+    assert "2 recurring memory pattern" in nudged and "distill" in nudged, nudged
+    assert render_context([], 3000, 0) == ""
+SUITES["skill_draft"]=test_skill_draft
+def _cause_task(root, task_id="20260830-101010-cause-demo", round_number=2, cause_line=None):
+    directory = Path(root) / task_id
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "task.md"
+    extra = f"- cause: {cause_line}\n" if cause_line else ""
+    path.write_text(
+        f"---\nid: {task_id}\nproject_id: fedcba9876543210\nstatus: in_progress\n---\n\n"
+        f"# demo\n\n## Review round\n\n- round: {round_number}\n{extra}- unverified nodes: none\n",
+        encoding="utf-8")
+    return path
+def _rc(state, *args, ok=True):
+    return cli("review-cause", "--state-root", state, *args, ok=ok)
+def test_review_cause():
+    with tempfile.TemporaryDirectory() as t:
+        tasks = Path(t) / "tasks"
+        first = _cause_task(tasks, "20260830-101010-alpha")
+        recorded = json.loads(_rc(t, "--action", "Record", "--task-path", str(first), "--round", "2",
+                                  "--cause", "doc_gap", "--evidence", "no doc covered agent_workflow/",
+                                  "--paths", "agent_workflow/").stdout.decode("utf-8"))
+        assert recorded["remedy_kind"] == "project_doc" and recorded["occurrences"] == 1, recorded
+        # re-recording the same round corrects the judgement instead of inflating the count
+        again = json.loads(_rc(t, "--action", "Record", "--task-path", str(first), "--round", "2",
+                               "--cause", "doc_gap", "--evidence", "restated",
+                               "--paths", "agent_workflow/").stdout.decode("utf-8"))
+        assert again["id"] == recorded["id"] and again["occurrences"] == 1, again
+        assert json.loads(_rc(t, "--action", "Escalate").stdout.decode("utf-8")) == [], "one occurrence is under the threshold"
+        for name in ("beta", "gamma"):
+            task = _cause_task(tasks, f"20260830-101010-{name}")
+            _rc(t, "--action", "Record", "--task-path", str(task), "--round", "2", "--cause", "doc_gap",
+                "--evidence", f"no doc covered {name}", "--paths", "agent_workflow/")
+        groups = json.loads(_rc(t, "--action", "Escalate", "--repo-root", str(ROOT)).stdout.decode("utf-8"))
+        assert len(groups) == 1 and groups[0]["cause"] == "doc_gap" and groups[0]["occurrences"] == 3, groups
+        assert groups[0]["remedy_kind"] == "project_doc" and "uncovered_paths" in groups[0], groups
+        # routing without the evidence text gives the agent nothing to write the remedy from
+        assert all(text.strip() for text in groups[0]["evidence"]), groups[0]["evidence"]
+        # a plain coding mistake has no input to fix, so it never earns a remedy
+        for name in ("delta", "epsilon", "zeta"):
+            task = _cause_task(tasks, f"20260830-101010-{name}")
+            _rc(t, "--action", "Record", "--task-path", str(task), "--round", "2", "--cause", "logic_error",
+                "--evidence", "off-by-one")
+        causes = {group["cause"] for group in json.loads(_rc(t, "--action", "Escalate").stdout.decode("utf-8"))}
+        assert causes == {"doc_gap"}, causes
+        _rc(t, "--action", "Resolve", "--status", "applied", "--note", "wrote the doc",
+            *sum((["--id", ident] for ident in groups[0]["finding_ids"]), []))
+        assert json.loads(_rc(t, "--action", "Escalate").stdout.decode("utf-8")) == [], "resolved findings stop counting"
+        assert _rc(t, "--action", "Record", "--task-path", str(first), "--round", "1",
+                   "--cause", "doc_gap", "--evidence", "x", ok=False).returncode != 0, "round 1 had no push-back to explain"
+        assert _rc(t, "--action", "Record", "--task-path", str(first), "--round", "2",
+                   "--cause", "nonsense", "--evidence", "x", ok=False).returncode != 0
+    from agent_workflow.task_gate import _review_cause_check
+    for line, expected in ((None, 1), ("<review-cause id>", 1), ("none -", 1), ("not-an-id", 1),
+                           ("none - single typo, no input was missing", 0), ("20260830-101010-abcdef01", 0)):
+        issues = []
+        body = f"---\nid: x\n---\n\n## Review round\n\n- round: 2\n" + (f"- cause: {line}\n" if line else "")
+        _review_cause_check(body, issues)
+        assert len(issues) == expected, (line, issues)
+    issues = []
+    _review_cause_check("## Review round\n\n- round: 1\n", issues)
+    assert not issues, "round 1 needs no cause"
+    from agent_workflow.memory_context import render_context
+    nudged = render_context([], 3000, 0, 2)
+    assert "2 review cause(s) have reached" in nudged, nudged
+SUITES["review_cause"]=test_review_cause
+def _capture(state, project, topic, content, *extra, ok=True):
+    result = cli("learn", "--action", "Capture", "--state-root", state, "--project-id", project,
+                 "--kind", "correction", "--topic", topic, "--content", content, *extra, ok=ok)
+    return json.loads(result.stdout.decode("utf-8")) if ok else result
+def test_learn_supersede():
+    project = "0123456789abcdef"
+    with tempfile.TemporaryDirectory() as t:
+        # a CJK topic keeps its characters in the entry id, so the result must survive
+        # a console codepage rather than being encoded by print()
+        old = _capture(t, project, "TDD 適用範圍", "TDD 只在改程式邏輯時執行")
+        new = _capture(t, project, "TDD 適用範圍", "TDD 只在改 application source code 邏輯時執行",
+                       "--supersedes", old["id"])
+        assert new["superseded"] == [old["id"]], new
+        retired = Path(old["path"]).read_text(encoding="utf-8")
+        assert "status: superseded" in retired and "superseded_by: " in retired, retired
+        assert "supersedes:" in Path(new["path"]).read_text(encoding="utf-8")
+        assert "status: verified" in Path(new["path"]).read_text(encoding="utf-8")
+        # a superseded entry stays readable but stops driving anything downstream
+        for status, expected in (("verified", 1), ("superseded", 1)):
+            listed = json.loads(cli("knowledge", "--action", "List", "--state-root", t, "--scope", "Project",
+                                    "--project-id", project, "--status", status).stdout.decode("utf-8"))
+            assert len(listed) == expected, (status, listed)
+        assert not _scan(t, project), "a superseded entry is not distilled"
+        from agent_workflow.memory_context import collect_memory
+        injected = collect_memory(state_root=t, cwd=t, claude_root=Path(t) / "none",
+                                  codex_root=Path(t) / "none", antigravity_root=Path(t) / "none",
+                                  project_id=project)
+        assert len(injected) == 1 and "application source code" in injected[0]["content"], injected
+        # both failures must abort before anything is written, or the store keeps the stale entry
+        assert _capture(t, project, "x", "y", "--supersedes", "does-not-exist", ok=False).returncode != 0
+        assert _capture(t, project, "TDD 適用範圍", "TDD 只在改 application source code 邏輯時執行",
+                        "--supersedes", new["id"], ok=False).returncode != 0, "an entry cannot supersede itself"
+        sha = next(line.split(": ")[1] for line in Path(new["path"]).read_text(encoding="utf-8").splitlines()
+                   if line.startswith("content_sha256"))
+        third = _capture(t, project, "TDD 適用範圍", "第三版結論", "--supersedes", sha)
+        assert third["superseded"] == [new["id"]], "a content sha resolves the same entry as its id"
+SUITES["learn_supersede"]=test_learn_supersede
+def _learn(state, project, *args, ok=True):
+    return cli("learn", "--state-root", state, "--project-id", project, *args, ok=ok)
+def test_learn_forget_and_conflicts():
+    project = "0123456789abcdef"
+    with tempfile.TemporaryDirectory() as t:
+        first = _capture(t, project, "TDD 適用範圍", "TDD 只在改程式邏輯時執行")
+        assert first["related"] == [], "the first entry on a subject has nothing to reconcile"
+        # different content, overlapping topic: the sha never matches, so only the topic can catch it
+        second = _capture(t, project, "TDD 適用範圍與 skill 分流", "另一種說法，內容完全不同")
+        assert [item["id"] for item in second["related"]] == [first["id"]], second["related"]
+        groups = json.loads(_learn(t, project, "--action", "Conflicts").stdout.decode("utf-8"))
+        assert len(groups) == 1 and groups[0]["occurrences"] == 2, groups
+        # a settled judgement stops being raised, but only for the pair it was made about
+        _learn(t, project, "--action", "Keep", "--id", first["id"], "--id", second["id"],
+               "--reason", "一個講範圍一個講分流，互補")
+        assert json.loads(_learn(t, project, "--action", "Conflicts").stdout.decode("utf-8")) == []
+        assert _learn(t, project, "--action", "Keep", "--id", first["id"], ok=False).returncode != 0
+        # an overturned conclusion is deleted, not retired: nothing may read it as current
+        overturned = _capture(t, project, "TDD 適用範圍", "推翻：TDD 不再限縮範圍", "--forget", first["id"])
+        assert overturned["forgotten"] == [first["id"]] and not Path(first["path"]).exists()
+        listed = json.loads(cli("knowledge", "--action", "List", "--state-root", t, "--scope", "Project",
+                                "--project-id", project, "--status", "superseded").stdout.decode("utf-8"))
+        assert listed == [], "forget leaves no tombstone the way supersede does"
+        removed = json.loads(_learn(t, project, "--action", "Forget", "--id", second["id"],
+                                    "--reason", "這條也被推翻").stdout.decode("utf-8"))
+        assert removed["removed"][0]["id"] == second["id"] and not Path(second["path"]).exists()
+        assert _learn(t, project, "--action", "Forget", "--id", overturned["id"], ok=False).returncode != 0, \
+            "a deletion without a stated reason is refused"
+        assert _capture(t, project, "x", "y", "--supersedes", overturned["id"], "--forget", overturned["id"],
+                        ok=False).returncode != 0, "an entry is either superseded or forgotten, not both"
+    from agent_workflow.memory_context import render_context
+    nudged = render_context([], 3000, 0, 0, 3)
+    assert "3 group(s) of memory entries" in nudged and "Conflicts" in nudged, nudged
+    assert render_context([], 3000, 0, 0, 0) == ""
+    from agent_workflow.topics import same_subject, shares_word, tokens
+    assert shares_word(tokens("tdd-scope"), tokens("tdd-routing"))
+    assert not same_subject(tokens("tdd-scope"), tokens("tdd-routing")), "one word is the looser test only"
+    assert same_subject(tokens("tdd-scope-policy"), tokens("tdd-scope-boundary"))
+SUITES["learn_forget_conflicts"]=test_learn_forget_and_conflicts

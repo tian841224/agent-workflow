@@ -165,19 +165,29 @@ PLATFORM_COPIED_SKILLS = (
     "project-docs",
     "push-back",
     "learn",
+    "distill",
+    "operational-verification",
     "tdd",
     "localization-tw",
 )
 
 
-def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
-    # Skills outside the copied set are shared read-only from canonical/skills via a
+def _linkable_skills(sources):
+    found = {}
+    for root in sources:
+        if not root.is_dir(): continue
+        for path in sorted(root.iterdir()):
+            if path.is_dir() and path.name not in PLATFORM_COPIED_SKILLS: found.setdefault(path.name, path)
+    return found
+
+
+def _ensure_shared_skill_links(sources, claude, selected, dry_run):
+    # Skills outside the copied set are shared read-only from their source directory via a
     # junction/symlink; link every one so a newly added skill is picked up without a
     # manual per-skill step, and remove a link whose source skill no longer exists so
     # a removed skill does not linger forever in the platform's skills directory.
     if "Claude" not in selected: return
-    skills_root = canonical / "skills"
-    current = {p.name for p in skills_root.iterdir() if p.is_dir() and p.name not in PLATFORM_COPIED_SKILLS} if skills_root.is_dir() else set()
+    current = _linkable_skills(sources)
     claude_skills = claude / "skills"
     if not dry_run and claude_skills.is_dir():
         for target in sorted(claude_skills.iterdir()):
@@ -186,16 +196,43 @@ def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
                 continue  # a real directory might be user content; never touch it
             if target.name not in current:
                 target.unlink()
-    if dry_run or not skills_root.is_dir(): return
-    for name in sorted(current):
+    if dry_run: return
+    for name, source in sorted(current.items()):
         target = claude_skills / name
         is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
         if target.is_symlink() or is_reparse or target.exists(): continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        _link_skill_dir(skills_root / name, target)
+        _link_skill_dir(source, target)
 
 
-def _install_platform_files(selected, canonical, claude, codex, antigravity, dry_run):
+def ensure_platform_skill_visibility(state_skills, targets):
+    """Expose promoted state skills to each installed platform; returns the paths written.
+
+    Called by skill-draft Promote so an approved skill is usable immediately rather
+    than only after the next install.
+    """
+    if not Path(state_skills).is_dir(): return []
+    touched = []
+    for skill in sorted(Path(state_skills).iterdir()):
+        if not (skill / "SKILL.md").is_file(): continue
+        claude = targets.get("Claude")
+        if claude:
+            target = Path(claude) / "skills" / skill.name
+            is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
+            if not (target.exists() or target.is_symlink() or is_reparse):
+                target.parent.mkdir(parents=True, exist_ok=True); _link_skill_dir(skill, target); touched.append(str(target))
+        for platform, parts in (("Codex", ("skills",)), ("Antigravity", ("config", "skills"))):
+            root = targets.get(platform)
+            if not root: continue
+            target = Path(root).joinpath(*parts, skill.name)
+            if target.exists() or target.is_symlink():
+                is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
+                target.unlink() if (target.is_symlink() or is_reparse) else shutil.rmtree(target)
+            target.parent.mkdir(parents=True, exist_ok=True); shutil.copytree(skill, target); touched.append(str(target))
+    return touched
+
+
+def _install_platform_files(selected, canonical, claude, codex, antigravity, state, dry_run):
     managed=[]
     for skill in PLATFORM_COPIED_SKILLS:
         source=canonical/"skills"/skill
@@ -209,7 +246,13 @@ def _install_platform_files(selected, canonical, claude, codex, antigravity, dry
                 target.parent.mkdir(parents=True,exist_ok=True); shutil.copytree(source,target)
                 for file in target.rglob("*"):
                     if file.is_file(): managed.append({"path":str(file),"sha256":_hash(file),"kind":"platform-skill"})
-    _ensure_shared_skill_links(canonical, claude, selected, dry_run)
+    # Promoted skills live in the state root and are never in the manifest, so they are
+    # linked from here as a second source rather than copied like the managed set.
+    _ensure_shared_skill_links([canonical / "skills", state / "skills"], claude, selected, dry_run)
+    if not dry_run:
+        ensure_platform_skill_visibility(state / "skills", {name: str(root) for name, root in
+                                                            (("Claude", claude), ("Codex", codex), ("Antigravity", antigravity))
+                                                            if name in selected and name != "Claude"})
     return managed
 
 def _remove_managed_hooks(path, runtime_root, dry_run):
@@ -303,7 +346,7 @@ def install(args: argparse.Namespace) -> int:
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)
     python_executable = Path(sys.executable).resolve()
     files.extend(_write_agents(canonical, selected, claude, codex, antigravity, runtime, python_executable, args.dry_run))
-    files.extend(_install_platform_files(selected, canonical, claude, codex, antigravity, args.dry_run))
+    files.extend(_install_platform_files(selected, canonical, claude, codex, antigravity, state, args.dry_run))
     entry_targets = []
     if "Claude" in selected: entry_targets.append(claude / "CLAUDE.md")
     if "Codex" in selected: entry_targets.append(codex / "AGENTS.md")
@@ -326,7 +369,9 @@ def install(args: argparse.Namespace) -> int:
         print(f"[install] {verb} {len(stale)} file(s) no longer in the manifest:")
         for path in stale: print(f"  - {path}")
     if not args.dry_run:
-        _json(state_file, {"schema_version": 4, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT), "files": files})
+        _json(state_file, {"schema_version": 4, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT),
+                           "targets": {name: str(root) for name, root in (("Claude", claude), ("Codex", codex), ("Antigravity", antigravity)) if name in selected},
+                           "files": files})
     _backup_legacy(args,args.dry_run)
     print(f"agent-workflow v5 {args.action} complete for {target}.")
     return 0
