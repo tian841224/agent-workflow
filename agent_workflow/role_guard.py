@@ -19,6 +19,9 @@ WRITE_TOOL_NAMES = frozenset({
     "rename_file", "write", "write_file",
 })
 VERIFIER_EPHEMERAL_NAME = r"aw-verifier[-_][a-zA-Z0-9_.-]+"
+VERIFIER_SCRATCH_FILE = re.compile(r"^aw[-_]verifier[-_][A-Za-z0-9_.-]+$", re.I)
+CREATE_TOOL_NAMES = frozenset({"write", "write_file", "create_file"})
+PATH_KEYS = ("file_path", "filePath", "path", "target_file", "notebook_path")
 SQL_CLIENT = re.compile(r"(?:^|[\s;&|])(?:mysql|mariadb|psql|sqlite3|sqlcmd|isql)(?:\.exe)?\b", re.I)
 SQL_WRITE = re.compile(r"\b(?:insert|update|delete|drop|alter|truncate|replace|grant|revoke|create|load\s+data|copy)\b", re.I)
 DOCKER_READ_COMMANDS = frozenset({"version", "info", "ps", "images", "inspect", "logs", "stats", "top", "port", "history", "diff", "pull"})
@@ -140,6 +143,41 @@ def protected_external_write(command: str) -> bool:
     return False
 
 
+def path_from_payload(payload: dict[str, Any]) -> str:
+    call = payload.get("toolCall")
+    if isinstance(call, dict):
+        args = call.get("args") or {}
+        if isinstance(args, dict):
+            for key in PATH_KEYS:
+                value = args.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+    tool_input = payload.get("tool_input") or payload.get("input") or {}
+    if isinstance(tool_input, dict):
+        for key in PATH_KEYS:
+            value = tool_input.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return ""
+
+
+def verifier_scratch_create(payload: dict[str, Any]) -> bool:
+    """Verifier may create its own disposable verification files and nothing else.
+
+    Create-only on an `aw-verifier-*` name: an existing path is always refused, so
+    anything the main conversation wrote stays untouched.
+    """
+    if tool_name(payload) not in CREATE_TOOL_NAMES:
+        return False
+    raw = path_from_payload(payload)
+    if not raw:
+        return False
+    target = Path(raw)
+    if not VERIFIER_SCRATCH_FILE.match(target.name):
+        return False
+    return not target.exists()
+
+
 def write_requested(payload: dict[str, Any]) -> bool:
     name = tool_name(payload)
     if name in WRITE_TOOL_NAMES or any(token in name for token in ("write", "edit", "delete", "rename")):
@@ -176,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
             decision(args.platform, "deny", "role-guard: only verifier may use mutating Docker or SQL operations, and only in disposable test resources.")
             return 0
         if role in WRITE_ROLES or not role or not write_requested(payload):
+            return 0
+        if role == "verifier":
+            if verifier_scratch_create(payload):
+                return 0
+            decision(args.platform, "deny", "role-guard: verifier may only create a new file named aw-verifier-*; existing files stay as the main conversation left them.")
             return 0
         decision(args.platform, "deny", f"role-guard: {role or 'unknown'} role is read-only; write operation denied.")
     except Exception as error:

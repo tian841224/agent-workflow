@@ -98,7 +98,7 @@ Standard source-code task 在 diff 完成後執行相關測試與必要的 `~/.a
 
 ## 6. Review、Adversarial 複查與 Verifier
 
-`workflow_request` 選了 `adversarial`、`verifier` 就啟動對應的原生 `agent-workflow-adversarial`、`agent-workflow-verifier`（選取規則見「流程層級」一節），兩者皆唯讀，方法論定義在各自角色檔案。選了 `reviewer` 時由主對話直接執行 review，不啟動獨立角色，作法見下。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
+`workflow_request` 選了 `adversarial`、`verifier` 就啟動對應的原生 `agent-workflow-adversarial`、`agent-workflow-verifier`（選取規則見「流程層級」一節）；Adversarial 唯讀，Verifier 僅能新建自己的一次性驗證檔，方法論定義在各自角色檔案。選了 `reviewer` 時由主對話直接執行 review，不啟動獨立角色，作法見下。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
 
 ### Review 的執行方式
 
@@ -106,7 +106,7 @@ Review 跑兩趟，兩趟的盲點互補：獨立 subagent 抓得到主對話因
 
 第一趟派一般 subagent（`general-purpose`，不指定角色），指令載明這兩項要求：
 
-- 實際執行相關測試；對可疑的數值、邊界與併發行為寫臨時程式跑過再下判斷，驗證完即刪。只用讀的判斷不了數值與邊界是否正確。
+- 實際執行既有的相關測試。數值、邊界與併發行為若現有測試沒有涵蓋，列為測試缺口並指出應補的具體案例，由實作者依 TDD 補齊。
 - 對改動的欄位與資料流，往上下游追到 repository 與 entity，確認欄位映射、呼叫端與程式宣稱的行為一致。
 
 第二趟由主對話自己對照完整 diff 走一次，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。
