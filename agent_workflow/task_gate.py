@@ -187,9 +187,6 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
             if "reviewer" in role_set:
                 review = section(content, "Reviewer result")
                 if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", review): issues.append("Reviewer result is missing or not passed")
-                for dim in schema["x_agent_workflow"]["reviewer_dimensions"]:
-                    allowed = r"(?:PASS|N/A)" if dim.get("na_allowed") else r"PASS"
-                    if not re.search(rf"(?mi)^\s*-\s*{re.escape(dim['name'])}:\s*{allowed}(?:\s+.*)?\s*$", review): issues.append(f"Reviewer result missing or not passed dimension: {dim['name']}")
             if "adversarial" in role_set:
                 adversarial = section(content, "Adversarial result")
                 if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", adversarial): issues.append("Adversarial result is missing or not passed")

@@ -28,7 +28,7 @@ description: 獨立唯讀的回歸歸因者。只在疑似 regression、同一�
    |---|---|
    | `impact_surface` | 影響面沒列到：漏掉呼叫端、觸發入口或共用狀態 |
    | `execution_path` | 只審到局部路徑，沒從實際入口追到終點 |
-   | `reviewer_dimension` | Reviewer 八面向中某一項該抓沒抓 |
+   | `reviewer_dimension` | review 該抓沒抓（正確性、影響完整性、失敗模式等） |
    | `risk_flag` | `risk_flags` 判斷錯，導致該觸發的 Adversarial／freeze／mutation check 沒觸發 |
    | `completion_criteria` | 完成條件沒涵蓋這個情境，Verifier 照條件驗也驗不到 |
    | `test_gap` | 測試沒涵蓋（未遵循 [TDD skill](../skills/tdd/SKILL.md)、TDD 沒寫到這個 case，或該區完全沒有測試基礎設施） |

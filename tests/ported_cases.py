@@ -56,7 +56,7 @@ def test_installer():
         stale = {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command",
             "command": f'"python" -u "{runtime_dir}\\agent_workflow.py" memory-context --platform Claude --event UserPromptSubmit'}]}]}}
         (claude_dir / "settings.json").write_text(json.dumps(stale), encoding="utf-8")
-        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_plan.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-reviewer.toml").is_file()
+        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_plan.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-adversarial.toml").is_file()
         for target in (b/"claude/settings.json", b/"codex/hooks.json", b/"gemini/config/hooks.json"):
             hook_text=target.read_text(encoding="utf-8"); assert "memory-context" in hook_text
         after = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))

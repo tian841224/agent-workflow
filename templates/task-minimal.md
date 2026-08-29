@@ -55,11 +55,7 @@ frozen_at:
 ## Reviewer result
 
 - result: <PASS | FAIL>
-- findings: <none or concise findings>
-<!-- Only list dimensions actually checked (one line each, e.g. `- Security: PASS`).
-Pick from: Architecture consistency, Code quality and conventions, Data consistency,
-Security, Risk and compatibility, Performance, Flow and impact completeness,
-Failure modes and observability. Skip anything not checked -- no need to report N/A. -->
+- findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
 ## Verifier result
 

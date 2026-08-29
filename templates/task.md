@@ -106,14 +106,7 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 
 ## Reviewer result (fill in only when `workflow_request` selects reviewer)
 - result: <PASS | FAIL>
-- Architecture consistency: <PASS>
-- Code quality and conventions: <PASS>
-- Data consistency: <PASS | N/A - reason>
-- Security: <PASS | N/A - reason>
-- Risk and compatibility: <PASS>
-- Performance: <PASS | N/A - reason>
-- Flow and impact completeness: <PASS>
-- Failure modes and observability: <PASS>
+- findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
 ## Adversarial result (fill in only when `workflow_request` selects adversarial)
 - result: <PASS means "attempted to refute, refutation did not hold">

@@ -20,7 +20,7 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。主對話依已知需�
 
 **內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`change_kind`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `change_kind: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `change_kind: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響最終 capability 是否被選中——最終選取仍以 `workflow_request` 為準。`workflow_facts` 裡沒宣告的欄位一律保留對應的 step（unknown 不等於「不需要」），但已宣告為真的 fact 可以產生 capability 候選建議。
 
-十三個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`，啟動對應原生角色）。`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷；`bug_diagnosis` 用於重現、最小化與假設驗證；`tdd` 用於 red → green → refactor、seam 與測試缺口證據。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
+十三個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`、`adversarial`、`verifier`（`kind: role`；`adversarial`、`verifier` 啟動對應原生角色，`reviewer` 由主對話依 §6 執行）。`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷；`bug_diagnosis` 用於重現、最小化與假設驗證；`tdd` 用於 red → green → refactor、seam 與測試缺口證據。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
 
 選取 `codebase_design` 後，角色依自己的責任載入同一份 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Reviewer 檢查 depth、delete test 與是否過早抽象化，Adversarial 嘗試推翻 adapter 變化與依賴注入的必要性，Verifier 確認測試透過 interface 驗證可觀察結果。這些角色仍由主對話個別選取，不會因 capability 自動補入。
 
@@ -82,7 +82,6 @@ Elevated task 另有建立前與實作前規則見 [elevated.md](elevated.md)（
 - `workflow_request` 選取 `tdd` 時，載入並遵循 [TDD skill](../tdd/SKILL.md) 的 red → green → refactor、seam、測試設計與 mock 規則。純測試重整或無法自動化時記錄替代驗證與原因；所有進入 workflow 的 source-code task 仍須執行相關驗證。
 - 若 task 是 fix 或新增／修正可測試行為但未選取對應 capability，主對話在 `workflow_decision` 說明為何採用替代驗證；不能把 skill 的存在當成已執行證據。
 - 架構設計、feature planning、refactor 策略或 `unclear_requirements` 時先載入 [planning skill](../planning/SKILL.md)；使用者已選定方案且涉及新增 abstraction、interface、adapter、wrapper、cross-layer seam 或可疑複雜度時先載入 [push-back skill](../push-back/SKILL.md)，在實作前完成取捨檢查。
-- 選最簡完整解法，沿用既有依賴與風格；不順手整理、抽象或擴張範圍。
 - 若本次新增或修改程式碼註解，依已載入的 [clean-comments skill](../clean-comments/SKILL.md) 執行：函式註解只講對外合約、流程註解就近解釋 Why，不堆內部步驟流水帳。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
 - `change_kind: feature｜refactor`，或 `risk_flags` 命中 `behavior_change`／`contract`／`schema`／`cross_feature` 時，在跑 pre-review 之前處理受影響文件（原料是 `Impact surface` 與 `Execution path`）；觸發條件、建立／更新判斷與 `## Project docs` 的 `updated:` 填法見 [project-docs.md](project-docs.md)。其餘情況只在 Lookup 回報 `stale: true` 時確認內容仍正確。
@@ -97,15 +96,26 @@ Standard source-code task 在 diff 完成後執行相關測試與必要的 `~/.a
 - `diff_sha256` 記錄與比對只在 coordinator／worker 或明確啟用 legacy completion gate 時需要，見 [elevated.md](elevated.md)；一般 task 以最後一次驗證與角色結果為準。
 - `financial` 或 `data_write` 命中時另做一次 mutation check：把本次最關鍵的 1–2 個判斷人為改壞，確認守住它的測試真的變紅，再還原，於 `- mutation check:` 記 PASS 或 SKIP＋理由。測試全綠但斷言恆真、或 fixture 寫死成通過形狀，只有這一步抓得到。權威清單是 `schemas/task.schema.json` 的 `x_agent_workflow.mutation_check_required`。
 
-## 6. Reviewer、Adversarial 複查與 Verifier
+## 6. Review、Adversarial 複查與 Verifier
 
-`workflow_request` 選了哪些角色就啟動哪些原生 `agent-workflow-reviewer`、`agent-workflow-adversarial`、`agent-workflow-verifier`（選取規則見「流程層級」一節）。三者皆唯讀，方法論定義在各自角色檔案。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
+`workflow_request` 選了 `adversarial`、`verifier` 就啟動對應的原生 `agent-workflow-adversarial`、`agent-workflow-verifier`（選取規則見「流程層級」一節），兩者皆唯讀，方法論定義在各自角色檔案。選了 `reviewer` 時由主對話直接執行 review，不啟動獨立角色，作法見下。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
 
-Reviewer 的八個面向永遠全部檢查，沒有放寬機制：`Flow and impact completeness` 正是用來抓呼叫端搜尋看不到的資料層耦合，而程式碼品質與正確性和影響範圍無關——「沒有人呼叫它」不代表「它寫得對」。
+### Review 的執行方式
 
-- Reviewer 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task；不得為了避開 gate 而不加 flag。
+Review 跑兩趟，兩趟的盲點互補：獨立 subagent 抓得到主對話因為熟悉而略過的死碼與慣例偏離，主對話抓得到 subagent 缺少專案脈絡而串不起來的跨檔案語意問題。
+
+第一趟派一般 subagent（`general-purpose`，不指定角色），指令載明這兩項要求：
+
+- 實際執行相關測試；對可疑的數值、邊界與併發行為寫臨時程式跑過再下判斷，驗證完即刪。只用讀的判斷不了數值與邊界是否正確。
+- 對改動的欄位與資料流，往上下游追到 repository 與 entity，確認欄位映射、呼叫端與程式宣稱的行為一致。
+
+第二趟由主對話自己對照完整 diff 走一次，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。
+
+兩趟結果合併寫入 `## Reviewer result`：`- result:` 記 PASS 或 FAIL，`- findings:` 只列 blocker，每項附 path、symbol／hunk、可觸發情境、影響與最小修正方向；沒有 blocker 時 findings 記 none。
+
+- Review 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task；不得為了避開 gate 而不加 flag。
 - 回填後的 task 路徑即為唯一版本，Verifier、後續複審與 knowledge 回寫都以它為準；差異只存在於審查當下，不留到下游。
-- Reviewer 有 blocker：主 agent 修正，重新執行相關驗證，再送複審。
+- Review 有 blocker：主 agent 修正，重新執行相關驗證，再重跑上述兩趟。
 
 ### 6a. Adversarial 複查
 
@@ -116,12 +126,12 @@ Reviewer 的八個面向永遠全部檢查，沒有放寬機制：`Flow and impa
 
 Verifier 排在組合中其他角色之後；`reviewer`／`adversarial` 不在 `workflow_request` 內時 Verifier 可直接啟動。探索範圍與方法論見角色檔案。
 - Verifier 分類為實作缺陷、規格缺漏、測試缺口、環境阻塞（定義見角色檔案）：實作缺陷批次修正後重驗失敗與波及項。測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時，比照實作缺陷退回補齊，重跑 pre-review 與相關驗證後重驗；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
-- 原生角色（Reviewer／Adversarial／Verifier）載入失敗，或在合理等待內沒有回報，一律先執行 installer `Repair` 再試一次；仍失敗就把 task 設為 `blocked` 並記錄下一步，不得由主 agent 代跑後結案，也不得把段落留空或寫 `SKIPPED` 直接結案。使用者明確決定要跳過角色時，以 `~/.agent-workflow/runtime/agent_workflow.cmd waive-roles --reason '<使用者的理由>' --confirmed-by-user` 寫入 `roles_waived`；task gate 只接受此流程產生的欄位，直接手動編輯不應視為有效豁免。豁免只放寬三個角色段落，完成條件、pre-review、Impact surface、Project docs、mutation check 與已主動啟動的回顧仍照常。
+- 原生角色（Adversarial／Verifier）載入失敗，或在合理等待內沒有回報，一律先執行 installer `Repair` 再試一次；仍失敗就把 task 設為 `blocked` 並記錄下一步，不得由主 agent 代跑後結案，也不得把段落留空或寫 `SKIPPED` 直接結案。使用者明確決定要跳過角色時，以 `~/.agent-workflow/runtime/agent_workflow.cmd waive-roles --reason '<使用者的理由>' --confirmed-by-user` 寫入 `roles_waived`；task gate 只接受此流程產生的欄位，直接手動編輯不應視為有效豁免。豁免只放寬三個角色段落，完成條件、pre-review、Impact surface、Project docs、mutation check 與已主動啟動的回顧仍照常。
 - 角色輪詢回傳 `timed_out` 時保留原本的 `pending_init`／`running` 狀態；持續沒有回應才觸發 Repair，仍失敗則依上一點設為 `blocked`。
 
 ### 6b. Review round 與增量錨定
 
-第一輪依角色檔案建立獨立脈絡。Reviewer blocker 或 Verifier 實作缺陷修正後，後續輪次在 task.md 的 `## Review round` 記錄前一輪 finding、本輪 fix delta、impact delta、重新執行的驗證與未確認節點；角色可用它導航，但仍須自行核對 diff，不得把 task 敘述當成正確性證據。
+第一輪由 review（依 §6）與各角色檔案分別建立獨立脈絡。Review blocker 或 Verifier 實作缺陷修正後，後續輪次在 task.md 的 `## Review round` 記錄前一輪 finding、本輪 fix delta、impact delta、重新執行的驗證與未確認節點；角色可用它導航，但仍須自行核對 diff，不得把 task 敘述當成正確性證據。
 
 後續輪次採 delta-first：先檢查修復項、直接呼叫端與本輪新增波及項，不重複輸出未變更內容。若修改入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前輪存在未確認節點，則重新展開完整 execution path。Diff anchor 使用 repo-relative path、symbol 與 diff hunk，不得只依賴行號。
 
