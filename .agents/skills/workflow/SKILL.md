@@ -124,6 +124,8 @@ Review 跑兩趟，兩趟的盲點互補：獨立 subagent 抓得到主對話因
 
 第一輪依 §6 建立脈絡。Blocker 修正後，後續輪次在 task.md 的 `## Review round` 記錄前一輪 finding、本輪 fix delta、impact delta、重新執行的驗證與未確認節點；可用它導航，但仍須自行核對 diff，不得把 task 敘述當成正確性證據。
 
+開下一輪前先做歸因：這次被打回，是當初缺文件、任務描述沒講清楚、慣例沒寫成規範、有文件規範但沒讀到，還是單純寫錯。執行 `review-cause --action Record --task-path <task> --round <n> --cause <cause> --evidence <當初缺的是什麼> --paths <本次改動路徑>`，把回傳的 id 填進該輪的 `- cause:`。分類定義與累積後的補救路由見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。
+
 後續輪次採 delta-first：先檢查修復項、直接呼叫端與本輪新增波及項，不重複輸出未變更內容。若修改入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前輪存在未確認節點，則重新展開完整 execution path。Diff anchor 使用 repo-relative path、symbol 與 diff hunk，不得只依賴行號。
 
 subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制時，輸出具體錯誤、依據、影響與可重現位置，省略所有 PASS 項目；全部通過時只輸出單行 `PASS`。不得以固定 token 截斷輸出。Task 內仍依 schema 回填必要的機械檢查欄位。
@@ -139,7 +141,7 @@ subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制
 
 1. 對照 task 完成條件，填入 pre-review、其他實際指令、結果與未驗證限制。
 2. 回填 `workflow_request` 選中角色的結果；coordinator／worker 或 legacy completion gate 另需 `diff_sha256` 與 `independence` 狀態，見 [elevated.md](elevated.md)。
-3. 只有疑似 regression、同一問題反覆修正或使用者要求時，由主對話做回歸歸因，結果寫入 `## Retrospective result`：查不到引入點就寫 `unknown` 並列出跑過的搜尋，framework change 需指名哪個檔案的哪一條規則要改成什麼。確認 regression 才執行 `retro.py --action Record`。
+3. Review 打回的歸因已在 §6b 每輪記錄。只有疑似 regression、同一問題反覆修正或使用者要求時，另由主對話做回歸歸因，結果寫入 `## Retrospective result`：查不到引入點就寫 `unknown` 並列出跑過的搜尋，framework change 需指名哪個檔案的哪一條規則要改成什麼。確認 regression 才執行 `retro.py --action Record`。
 4. Standard task 在完成條件、驗證與 Review 都完成後即可更新 `status: done`；coordinator／worker 或 Elevated task 才執行 `~/.agent-workflow/runtime/agent_workflow.cmd close-task` 重跑完整 legacy gate（見 [elevated.md](elevated.md)）。工作停在半途用 `paused`，缺外部條件用 `blocked`。
 5. 回報改了什麼、驗證證據、剩餘風險與可重現的複驗方式。
 6. Review 找到的 blocker 若屬於路徑或影響面的認知缺口，且同類修改下次仍會踩到（例如隱藏的第二個入口、共用 table 的另一個寫入者、某目錄完全沒有測試基礎設施），以 `knowledge --action Upsert --scope Project` 寫入，topic 用英文 kebab-case，第一行寫成可獨立理解的摘要並含具體 symbol 或路徑；單次筆誤或單點邏輯錯誤不寫。

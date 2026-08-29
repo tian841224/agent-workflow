@@ -57,6 +57,10 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 
 自動學習只保存可重複使用的決策、修正與經驗，不保存整段對話；各平台原生記憶維持只讀。
 
+同一類結論反覆出現時，runtime 會把它標為可提煉的模式；agent 依 `distill` skill 寫成 skill 草稿暫存在 `skill-drafts/`，只有使用者明確核准才會 Promote 成生效的 skill。
+
+Review 有打回時，該輪要記錄一次歸因：當初缺的是文件、任務描述、明文規範，還是有規範但沒讀到。同一種原因累積達門檻後，`distill` skill 依原因分派對應補救——缺文件就補文件、缺規範就寫 skill、任務描述不足就改 task 模板，補救一律需使用者核准。
+
 ### 跨平台記憶讀取
 
 專案支援 Claude Code、Codex 與 Antigravity 之間的記憶脈絡讀取。各平台啟動新的 session 或收到新的 prompt 時，runtime 會依目前專案與任務內容，從共用 knowledge 與各平台可讀取的原生記憶中篩選相關資訊，提供給 AI 參考。
@@ -83,6 +87,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 產生或翻譯正體中文（臺灣）內容時，統一術語、語氣與標點，避免中國用語與簡體直譯。 |
 | [`learn`](.agents/skills/learn/SKILL.md) | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |
+| [`distill`](.agents/skills/distill/SKILL.md) | 記憶中同一類結論反覆出現時，提煉成待審的 skill 草稿；Promote 需要使用者明確核准。 |
 
 ### 設計原則與邊界
 
@@ -128,6 +133,9 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 └─ .agent-workflow/           agent-workflow runtime 與使用者資料
    ├─ runtime/                已安裝的 Python runtime 與 CLI
    ├─ knowledge/              跨專案與專案共用的 knowledge
+   ├─ skill-drafts/           待審的 skill 草稿與提煉狀態（不會被 agent 載入）
+   ├─ review-causes/          review 打回的歸因紀錄與累積狀態
+   ├─ skills/                 已核准的 skill，散佈到各平台
    ├─ projects/               專案識別資料與 task 狀態
    │  └─ <project-id>/
    │     └─ tasks/

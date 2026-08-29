@@ -267,7 +267,7 @@
         },
         {
           "id": "DI2",
-          "title": "寫入路徑盤點：誰會寫這些欄位／表",
+          "title": "寫入路徑盤點：producer 與所有 writers，schema 變更後逐一驗證輸出",
           "when": [
             [
               {
@@ -288,7 +288,7 @@
         },
         {
           "id": "DI3",
-          "title": "讀取路徑盤點與 NULL／預設值語意",
+          "title": "完整資料鏈：producer → storage → reader → index/schema，含 scope filter、metadata round trip 與 NULL／預設值語意",
           "when": [
             [
               {
@@ -541,7 +541,7 @@
         },
         {
           "id": "RV3",
-          "title": "執行受影響測試並記錄結果",
+          "title": "執行受影響測試並記錄結果；每個 CLI option 需有會改變輸出的 read-side regression test",
           "when": [
             [
               {

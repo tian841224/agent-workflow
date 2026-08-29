@@ -46,11 +46,12 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 ## Review round
 
 - round: 1
-<!-- The following four delta lines are only required for round >= 2; omit for round 1:
+<!-- The following five lines are only required for round >= 2; omit for round 1:
 - prior findings: <specific conclusions from the previous review round>
 - fix delta: <what was actually changed in this round relative to the previous one>
 - impact delta: <new callers/affected nodes relative to the previous round, or none>
 - validation delta: <new targeted validation relative to the previous round, or none>
+- cause: <review-cause id from review-cause --action Record, or "none - reason">
 -->
 - unverified nodes: <fill "none" for non-Elevated tasks; for Elevated tasks fill "see Impact surface" to avoid duplicate recording below>
 
