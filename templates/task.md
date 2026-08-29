@@ -121,10 +121,10 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 ## Retrospective result (only added for suspected regressions, repeated fixes for the same issue, or on user request)
 - introduced_by: <commit sha that introduced the defect, or unknown - which searches were run>
 - classification: <regression | pre_existing | external>
-- miss_category: <required only when regression; see the eight categories in schemas/retro.schema.json>
+- miss_category: <required only when regression; a category from schemas/retro.schema.json, or "other" when none of them fits — then describe the actual gap in gap_evidence>
 - gap_evidence: <required only when regression: which section of which task, or which gate failed to catch it; include task id or path:line>
 - framework_change: <required only when regression: recorded:<retro-id>, or not_needed - reason>
-- summary: <the sixth line reported by retrospective.md, a one-line summary understandable on its own>
+- summary: <a one-line summary understandable on its own>
 - occurrences: <fill only when regression: the cumulative count of similar occurrences returned by retro --action Record>
 -->
 

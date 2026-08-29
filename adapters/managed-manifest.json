@@ -36,7 +36,6 @@
     "AGENTS.md",
     "agents/adversarial.md",
     "agents/verifier.md",
-    "agents/retrospective.md",
     "agents/worker.md",
     "skills/workflow/SKILL.md",
     "skills/workflow/risk-flags.md",
@@ -60,8 +59,8 @@
     "schemas/import-manifest.schema.json"
   ],
   "platform_files": {
-    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-adversarial.md", "agents/agent-workflow-verifier.md", "agents/agent-workflow-retrospective.md", "agents/agent-workflow-worker.md", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/push-back/", "skills/learn/", "skills/tdd/"],
-    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-adversarial.toml", "agents/agent-workflow-verifier.toml", "agents/agent-workflow-retrospective.toml", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/push-back/", "skills/learn/", "skills/tdd/", "rules/agent-workflow.rules"],
-    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-adversarial/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/agents/agent-workflow-retrospective/agent.md", "config/skills/workflow/", "config/skills/codebase-design/", "config/skills/diagnosing-bugs/", "config/skills/planning/", "config/skills/push-back/", "config/skills/learn/", "config/skills/tdd/", "config/skills/localization-tw/", "config/global_workflows/agent-workflow.md"]
+    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-adversarial.md", "agents/agent-workflow-verifier.md", "agents/agent-workflow-worker.md", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/push-back/", "skills/learn/", "skills/tdd/", "skills/focused-output/"],
+    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-adversarial.toml", "agents/agent-workflow-verifier.toml", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/push-back/", "skills/learn/", "skills/tdd/", "skills/focused-output/", "rules/agent-workflow.rules"],
+    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-adversarial/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/skills/workflow/", "config/skills/codebase-design/", "config/skills/diagnosing-bugs/", "config/skills/planning/", "config/skills/push-back/", "config/skills/learn/", "config/skills/tdd/", "config/skills/localization-tw/", "config/skills/focused-output/", "config/global_workflows/agent-workflow.md"]
   }
 }

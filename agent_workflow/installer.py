@@ -132,7 +132,7 @@ def _claude_readonly_hooks(raw, name, runtime_root, python_executable):
 
 def _write_agents(canonical, selected, claude, codex, antigravity, runtime_root, python_executable, dry_run):
     managed=[]
-    for name in ("adversarial","verifier","retrospective","worker"):
+    for name in ("adversarial","verifier","worker"):
         source=canonical/"agents"/(name+".md")
         if not source.is_file(): raise RuntimeError(f"canonical agent is missing: {source}")
         raw=source.read_text(encoding="utf-8-sig"); body=re.sub(r"(?s)^---.*?---\s*", "", raw).strip(); match=re.search(r"(?m)^description:\s*(.+)$",raw); desc=(match.group(1).strip() if match else f"{name} agent").replace('"','\\"')
@@ -178,6 +178,7 @@ PLATFORM_COPIED_SKILLS = (
     "learn",
     "tdd",
     "localization-tw",
+    "focused-output",
 )
 
 
@@ -308,7 +309,7 @@ def install(args: argparse.Namespace) -> int:
         source = (ROOT / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (ROOT / relative)
         _copy(source, runtime / relative, files, args.dry_run, previous, force)
     # Canonical shared source lives once; platform copies are written from it during each install.
-    for relative in ("agents/adversarial.md", "agents/verifier.md", "agents/retrospective.md", "agents/worker.md"):
+    for relative in ("agents/adversarial.md", "agents/verifier.md", "agents/worker.md"):
         _copy(ROOT / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
     for source in (ROOT / ".agents" / "skills").rglob("*"):
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)
