@@ -50,7 +50,7 @@ Prefix every debug log line with a unique `[DEBUG-xxxx]` tag so it can be greppe
 
 **Write the failing regression test before fixing — but only if the right seam exists.** The right seam reproduces the bug pattern in the same form it actually occurs at the call site; if the only available seam is too shallow (the bug requires multiple callers to manifest, but only a single-caller unit test is available), a regression test written there is false reassurance.
 
-**No correct seam being available is itself a finding** — it means the architecture is not preventing this bug class from recurring; record it (maps to the Verifier's "test gap" category).
+**No correct seam being available is itself a finding** — it means the architecture is not preventing this bug class from recurring; record it as a test gap in Review.
 
 When a correct seam exists: turn the minimized repro into a failing test at that seam → confirm it fails → apply the fix → confirm it passes → re-run the Phase 1 loop against the original (non-minimized) scenario.
 

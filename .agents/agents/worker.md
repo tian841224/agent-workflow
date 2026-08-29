@@ -24,7 +24,7 @@ The main conversation follows [orchestration.md](../skills/workflow/orchestratio
 
 3. Confirm the current working directory matches the `worker_root` reported by the dispatcher; if the paths don't match, stop immediately and report.
 
-When making behavioral changes, follow red-green per the [TDD skill](../skills/tdd/SKILL.md): within file_ownership scope, write a failing test and run it to confirm red, then implement and run it to confirm green. However, do not run pre-review, Reviewer, Adversarial, Verifier, close-task, or any task-gate-level overall acceptance / cross-worker integration tests — those are left for the main conversation to handle uniformly after integration.
+When making behavioral changes, follow red-green per the [TDD skill](../skills/tdd/SKILL.md): within file_ownership scope, write a failing test and run it to confirm red, then implement and run it to confirm green. However, do not run pre-review, Review, close-task, or any task-gate-level overall acceptance / cross-worker integration tests — those are left for the main conversation to handle uniformly after integration.
 
 ## When files outside scope are needed
 

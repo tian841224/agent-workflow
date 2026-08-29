@@ -57,15 +57,10 @@ frozen_at:
 - result: <PASS | FAIL>
 - findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
-## Verifier result
-
-- result: <PASS | FAIL>
-- evidence: <real entrypoint and relevant verification>
-
 <!--
-Keep only the role sections actually in workflow_request: that list is the complete and
-only source of truth for which roles must run, and the gate checks nothing else. A task
-may legitimately request verifier alone, or adversarial + verifier without reviewer.
+Keep the Reviewer result section only when workflow_request selects reviewer: that list is
+the complete and only source of truth, and the gate checks nothing else. A task may
+legitimately request evidence capabilities alone, with no reviewer.
 
 workflow_facts is declared by the agent; it decides which steps appear inside an
 already-selected evidence capability and can produce deterministic capability suggestions

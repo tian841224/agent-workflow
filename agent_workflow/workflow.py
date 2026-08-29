@@ -197,7 +197,7 @@ def manual_plan(task: Mapping[str, Any], policy_path: str | Path = POLICY_PATH) 
                     {str(item["name"]): list(item.get("order_after", [])) for item in policy["capabilities"]})
     selected.sort(key=lambda item: ordered.index(item["name"]))
     roles = [item["name"] for item in selected if item["kind"] == "role"]
-    profile = "direct" if not selected else ("elevated" if "adversarial" in roles else "standard" if roles else "light")
+    profile = "direct" if not selected else ("standard" if roles else "light")
     return {"version": policy["version"], "selected": selected, "suggested": suggested_capabilities(task, policy_path), "suppressed": [], "unknown": [], "order": ordered,
             "roles": roles, "sections": sorted({item["section"] for item in selected if item["kind"] == "evidence"}),
             "profile": profile, "final_action": "direct" if not selected else "workflow"}

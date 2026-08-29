@@ -22,7 +22,7 @@
     "workflow_request": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "enum": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"] }
+      "items": { "enum": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer"] }
     },
     "workflow_profile": { "enum": ["direct", "light", "standard", "elevated"] },
     "workflow_mode": { "enum": ["main", "legacy"] },
@@ -52,11 +52,10 @@
   },
   "additionalProperties": false,
   "x_agent_workflow": {
-    "workflow_capabilities": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer", "adversarial", "verifier"],
+    "workflow_capabilities": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer"],
     "workflow_sections": ["Impact discovery", "Codebase design", "Bug diagnosis", "TDD evidence", "Schema compatibility", "Migration safety", "Contract and data impact", "Execution path and regression evidence"],
     "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
     "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
-    "adversarial_required": ["financial", "data_write", "migration", "irreversible", "schema", "contract"],
     "mutation_check_required": ["financial", "data_write"]
   }
 }

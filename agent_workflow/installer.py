@@ -118,28 +118,16 @@ def _managed_entrypoint(source: Path, canonical: Path, destinations: list[Path],
     _write(canonical, content)
     for destination in destinations: _write(destination, content)
 
-def _claude_readonly_hooks(raw, name, runtime_root, python_executable):
-    if name == "worker":
-        return raw
-    command = f'"{python_executable}" -X utf8 -u "{runtime_root / "agent_workflow.py"}" role-guard --platform Claude --role {name}'
-    hook = "hooks:\n  PreToolUse:\n    - matcher: \"*\"\n      hooks:\n        - type: command\n          command: " + json.dumps(command) + "\n          timeout: 15"
-    marker = re.search(r"(?ms)^---\s*\n(.*?)\n---\s*\n", raw)
-    if not marker:
-        raise RuntimeError(f"canonical agent is missing frontmatter: {name}")
-    frontmatter = marker.group(1).rstrip() + "\n" + hook
-    return "---\n" + frontmatter + "\n---\n" + raw[marker.end():]
-
-
 def _write_agents(canonical, selected, claude, codex, antigravity, runtime_root, python_executable, dry_run):
     managed=[]
-    for name in ("adversarial","verifier","worker"):
+    for name in ("worker",):
         source=canonical/"agents"/(name+".md")
         if not source.is_file(): raise RuntimeError(f"canonical agent is missing: {source}")
         raw=source.read_text(encoding="utf-8-sig"); body=re.sub(r"(?s)^---.*?---\s*", "", raw).strip(); match=re.search(r"(?m)^description:\s*(.+)$",raw); desc=(match.group(1).strip() if match else f"{name} agent").replace('"','\\"')
         targets=[]
         if "Claude" in selected:
             claude_raw = re.sub(r"(?m)^name:\s*.+$", f"name: agent-workflow-{name}", raw)
-            targets.append((claude/"agents"/f"agent-workflow-{name}.md", _claude_readonly_hooks(claude_raw, name, runtime_root, python_executable)))
+            targets.append((claude/"agents"/f"agent-workflow-{name}.md", claude_raw))
         if "Antigravity" in selected: targets.append((antigravity/"config"/"agents"/f"agent-workflow-{name}"/"agent.md",re.sub(r"(?m)^name:\s*.+$",f"name: agent-workflow-{name}",raw)))
         if "Codex" in selected:
             sandbox_mode = "workspace-write" if name == "worker" else "read-only"
@@ -174,11 +162,11 @@ PLATFORM_COPIED_SKILLS = (
     "codebase-design",
     "diagnosing-bugs",
     "planning",
+    "project-docs",
     "push-back",
     "learn",
     "tdd",
     "localization-tw",
-    "focused-output",
 )
 
 
@@ -309,7 +297,7 @@ def install(args: argparse.Namespace) -> int:
         source = (ROOT / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (ROOT / relative)
         _copy(source, runtime / relative, files, args.dry_run, previous, force)
     # Canonical shared source lives once; platform copies are written from it during each install.
-    for relative in ("agents/adversarial.md", "agents/verifier.md", "agents/worker.md"):
+    for relative in ("agents/worker.md",):
         _copy(ROOT / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
     for source in (ROOT / ".agents" / "skills").rglob("*"):
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)

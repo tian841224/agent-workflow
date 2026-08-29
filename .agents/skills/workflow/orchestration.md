@@ -33,7 +33,7 @@ Assess -> Init/Dispatch -> worker implementation -> Collect
 
 The dispatcher request includes at minimum `parent_task_id`, `worker_id`, `worktree`, `goal`, `file_ownership`, and `base_commit`. The native worker must use `worktree` as its actual working directory, load that worktree's task.md, and call `WorkerReady` upon completion. The dispatcher must not place the worker back in the main working directory, and must not wait for the worker to finish before returning the acknowledgement.
 
-A worker implements only its own ownership and ends directly after reporting completion; it does not run tests, pre-review, Review, Verifier, or task gates. If a worker fails, times out, oversteps its boundary, or cannot be integrated, successful independent patches may be retained, and the main conversation completes the failed scope sequentially. The coordinator does not modify the main working directory's source directly — it can only go through the orchestrator's `Apply` action; the worker boundary is a collaborative guard, not a security sandbox.
+A worker implements only its own ownership and ends directly after reporting completion; it does not run tests, pre-review, Review, or task gates. If a worker fails, times out, oversteps its boundary, or cannot be integrated, successful independent patches may be retained, and the main conversation completes the failed scope sequentially. The coordinator does not modify the main working directory's source directly — it can only go through the orchestrator's `Apply` action; the worker boundary is a collaborative guard, not a security sandbox.
 
 The main conversation only begins Review or verification after all original completion criteria have been met.
 

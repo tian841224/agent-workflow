@@ -7,7 +7,6 @@
     "agent_workflow/__init__.py",
     "agent_workflow/frontmatter.py",
     "agent_workflow/git_guard.py",
-    "agent_workflow/role_guard.py",
     "agent_workflow/skill_guard.py",
     "agent_workflow/paths.py",
     "agent_workflow/project_resolver.py",
@@ -34,19 +33,17 @@
     "agent_workflow/worktree_fingerprint.py",
     "runtime/README.md",
     "AGENTS.md",
-    "agents/adversarial.md",
-    "agents/verifier.md",
     "agents/worker.md",
     "skills/workflow/SKILL.md",
     "skills/workflow/risk-flags.md",
     "skills/workflow/orchestration.md",
-    "skills/workflow/project-docs.md",
     "skills/workflow/elevated.md",
     "skills/codebase-design/SKILL.md",
     "skills/architecture-review/SKILL.md",
     "skills/diagnosing-bugs/SKILL.md",
     "skills/diagnosing-bugs/feedback-loops.md",
     "skills/planning/SKILL.md",
+    "skills/project-docs/SKILL.md",
     "skills/push-back/SKILL.md",
     "skills/tdd/SKILL.md",
     "templates/task.md",
@@ -59,8 +56,8 @@
     "schemas/import-manifest.schema.json"
   ],
   "platform_files": {
-    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-adversarial.md", "agents/agent-workflow-verifier.md", "agents/agent-workflow-worker.md", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/push-back/", "skills/learn/", "skills/tdd/", "skills/focused-output/"],
-    "codex": ["AGENTS.md#managed-block", "agents/agent-workflow-adversarial.toml", "agents/agent-workflow-verifier.toml", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/push-back/", "skills/learn/", "skills/tdd/", "skills/focused-output/", "rules/agent-workflow.rules"],
-    "antigravity": ["GEMINI.md#managed-block", "config/agents/agent-workflow-adversarial/agent.md", "config/agents/agent-workflow-verifier/agent.md", "config/skills/workflow/", "config/skills/codebase-design/", "config/skills/diagnosing-bugs/", "config/skills/planning/", "config/skills/push-back/", "config/skills/learn/", "config/skills/tdd/", "config/skills/localization-tw/", "config/skills/focused-output/", "config/global_workflows/agent-workflow.md"]
+    "claude": ["CLAUDE.md#managed-block", "agents/agent-workflow-worker.md", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/project-docs/", "skills/push-back/", "skills/learn/", "skills/tdd/"],
+    "codex": ["AGENTS.md#managed-block", "skills/workflow/", "skills/codebase-design/", "skills/diagnosing-bugs/", "skills/planning/", "skills/project-docs/", "skills/push-back/", "skills/learn/", "skills/tdd/", "rules/agent-workflow.rules"],
+    "antigravity": ["GEMINI.md#managed-block", "config/skills/workflow/", "config/skills/codebase-design/", "config/skills/diagnosing-bugs/", "config/skills/planning/", "config/skills/project-docs/", "config/skills/push-back/", "config/skills/learn/", "config/skills/tdd/", "config/skills/localization-tw/", "config/global_workflows/agent-workflow.md"]
   }
 }

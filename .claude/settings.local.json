@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p docs/history && ls docs 2>/dev/null; wc -l agent_workflow/*.py | tail -1)"
+    ]
+  }
+}

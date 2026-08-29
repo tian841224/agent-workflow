@@ -56,7 +56,7 @@ def test_installer():
         stale = {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command",
             "command": f'"python" -u "{runtime_dir}\\agent_workflow.py" memory-context --platform Claude --event UserPromptSubmit'}]}]}}
         (claude_dir / "settings.json").write_text(json.dumps(stale), encoding="utf-8")
-        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_plan.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-adversarial.toml").is_file()
+        assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_plan.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-worker.toml").is_file()
         for target in (b/"claude/settings.json", b/"codex/hooks.json", b/"gemini/config/hooks.json"):
             hook_text=target.read_text(encoding="utf-8"); assert "memory-context" in hook_text
         after = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
@@ -69,7 +69,7 @@ def test_installer():
         assert (b/"claude/skills/tdd/SKILL.md").is_file()
         assert (b/"codex/skills/tdd/SKILL.md").is_file()
         assert (b/"gemini/config/skills/tdd/SKILL.md").is_file()
-        for skill in ("codebase-design", "diagnosing-bugs", "planning", "push-back"):
+        for skill in ("codebase-design", "diagnosing-bugs", "planning", "project-docs", "push-back"):
             assert (b/"claude/skills"/skill/"SKILL.md").is_file()
             assert (b/"codex/skills"/skill/"SKILL.md").is_file()
             assert (b/"gemini/config/skills"/skill/"SKILL.md").is_file()
@@ -218,6 +218,25 @@ def test_project_doc_decision_and_glossary():
         subprocess.run(["git","-C",str(root),"commit","-qm","touch covered file"],check=True)
         stale=json.loads(cli("project-doc","--action","Stale","--repo-root",str(root)).stdout.decode("utf-8"))
         assert any(item["path"]==str(decision) and item["stale"] for item in stale), stale
+def test_project_doc_structure_and_flow():
+    with tempfile.TemporaryDirectory() as t:
+        root=Path(t); d=root/"docs"; d.mkdir(); (d/"flows").mkdir()
+        def issues_of(doc): return json.loads(cli("project-doc","--action","Check","--doc",doc).stdout.decode("utf-8"))[0]["issues"]
+        structure=d/"structure.md"
+        structure.write_text("---\ndoc_type: structure\ncovers: []\n---\n\n"+"\n".join(f"## {x}\ncontent" for x in ("Layout","Placement rules","Unverified")),encoding="utf-8")
+        # structure joins architecture/dataflow/glossary as a whole-repo doc: empty covers is valid
+        assert issues_of(structure)==[], issues_of(structure)
+        for doc_type in ("architecture","dataflow"):
+            overview=d/f"{doc_type}.md"
+            overview.write_text(f"---\ndoc_type: {doc_type}\ncovers: []\n---\n\n## Overview\ncontent",encoding="utf-8")
+            assert issues_of(overview)==[], (doc_type, issues_of(overview))
+        flow=d/"flows"/"exchange.md"
+        sections=("Trigger","Steps","Failure modes","Unverified")
+        flow.write_text("---\ndoc_type: flow\ncovers: [\"src/\"]\n---\n\n"+"\n".join(f"## {x}\ncontent" for x in sections),encoding="utf-8")
+        assert issues_of(flow)==[], issues_of(flow)
+        # a flow doc only earns its keep by recording how the path fails, so that section is required
+        flow.write_text("---\ndoc_type: flow\ncovers: [\"src/\"]\n---\n\n"+"\n".join(f"## {x}\ncontent" for x in sections if x!="Failure modes"),encoding="utf-8")
+        assert issues_of(flow)==["missing section: Failure modes"], issues_of(flow)
 def test_retro():
     with tempfile.TemporaryDirectory() as t:
         assert cli("retro", "--action", "List", "--state-root", t).returncode == 0
@@ -267,11 +286,11 @@ def test_step_matrix():
 
     diagnosis_task = {"code_change": True, "change_kind": "fix", "risk_flags": [],
                       "impact_scope": "module", "impact_effect": "local_behavior",
-                      "workflow_request": ["bug_diagnosis", "tdd", "reviewer", "verifier"]}
+                      "workflow_request": ["bug_diagnosis", "tdd", "reviewer"]}
     diagnosis_plan = manual_plan(diagnosis_task)
     assert steps(diagnosis_plan, "bug_diagnosis") == {"BD1", "BD2", "BD3", "BD4", "BD5"}
     assert steps(diagnosis_plan, "tdd") == {"TD1", "TD2", "TD3", "TD4"}
-    assert diagnosis_plan["order"] == ["bug_diagnosis", "tdd", "reviewer", "verifier"]
+    assert diagnosis_plan["order"] == ["bug_diagnosis", "tdd", "reviewer"]
 
     fix_candidates = suggested_capabilities(diagnosis_task)
     assert [item["name"] for item in fix_candidates] == ["bug_diagnosis", "tdd"]
@@ -318,7 +337,7 @@ def test_workflow_gate():
         "worktree_id": "fedcba9876543210", "status": "in_progress", "code_change": True,
         "risk_flags": [], "task_type": "schema", "change_kind": "chore",
         "impact_scope": "file", "impact_effect": "schema", "impact_confidence": "high",
-        "workflow_mode": "main", "workflow_request": ["reviewer", "verifier"],
+        "workflow_mode": "main", "workflow_request": ["reviewer"],
         "created_at": "2026-08-20T10:10:10+08:00", "updated_at": "2026-08-20T10:10:10+08:00",
     }
     common = ("\n## Goal\nadd a column\n\n## Scope\none migration file\n\n"
@@ -328,28 +347,26 @@ def test_workflow_gate():
         repo = Path(temp)
 
         plan = manual_plan(base)
-        assert plan["roles"] == ["reviewer", "verifier"]
+        assert plan["roles"] == ["reviewer"]
 
         passing_review = ("\n## Reviewer result\n- result: PASS\n" +
                           "".join(f"- {name}: PASS\n" for name in
                                   ("Architecture consistency", "Code quality and conventions", "Data consistency",
                                    "Security", "Risk and compatibility", "Performance",
-                                   "Flow and impact completeness", "Failure modes and observability")) +
-                          "\n## Verifier result\n- PASS\n")
+                                   "Flow and impact completeness", "Failure modes and observability")))
         complete = write_task(repo, base, common + passing_review)
         assert run(complete, repo) == []
 
         incomplete = write_task(repo, base, common)
         issues = run(incomplete, repo)
         assert any("Reviewer result" in issue for issue in issues)
-        assert any("Verifier result" in issue for issue in issues)
 
-        # a capability not in workflow_request is not required: adversarial-free task closes
-        # cleanly without an Adversarial result section
-        assert not any("Adversarial" in issue for issue in issues)
+        # a capability not in workflow_request is not required: the gate asks only for
+        # what workflow_request actually selected
+        assert not any("Verifier" in issue or "Adversarial" in issue for issue in issues)
 
         # an evidence capability in workflow_request demands its steps be written up
-        evidence_data = dict(base, workflow_request=["execution_path_review", "reviewer", "verifier"])
+        evidence_data = dict(base, workflow_request=["execution_path_review", "reviewer"])
         evidence_plan = manual_plan(evidence_data)
         assert "execution_path_review" in {item["name"] for item in evidence_plan["selected"]}
         no_evidence = write_task(repo, evidence_data, common + passing_review)
@@ -368,7 +385,7 @@ def test_workflow_gate():
 
 def test_legacy_compat():
     # A task written before workflow_mode: main still gets the same floor it always had:
-    # reviewer + verifier, with no separate migration step and no legacy planner.
+    # reviewer, with no separate migration step and no legacy planner.
     def write_task(repo, data, body):
         lines = []
         for key, value in data.items():
@@ -392,7 +409,7 @@ def test_legacy_compat():
         result = call(ROOT / "agent_workflow.py", "task-gate", "--task-path", incomplete, "--cwd", repo, "--mode", "Stop", ok=False)
         issues = json.loads(result.stdout.decode("utf-8", "replace"))["issues"]
         assert any("Reviewer result" in issue for issue in issues)
-        assert any("Verifier result" in issue for issue in issues)
+        assert not any("Verifier" in issue for issue in issues)
 
 def test_parallel_orchestration():
     from agent_workflow.orchestrate import assess_repository, capture_patch, integrate_patches, launch, snapshot, snapshot_matches
@@ -516,4 +533,4 @@ def test_register_native():
 def test_pre_review(): assert subprocess.run(["git","-C",str(ROOT),"diff","--check"],stdout=subprocess.PIPE,stderr=subprocess.PIPE).returncode==0
 def test_orchestrate(): assert cli("orchestrate","--help").returncode==0
 def test_runtime(): assert cli("runtime-check","--help").returncode==0
-SUITES={"contract":test_contract,"posix_wrapper":test_posix_wrapper,"hot_path_imports":test_hot_path_imports,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"memory_quota":test_memory_quota_and_pollution,"project_doc":test_project_doc,"project_doc_decision_glossary":test_project_doc_decision_and_glossary,"retro":test_retro,"validate_task":test_validate_and_profile,"step_matrix":test_step_matrix,"workflow_gate":test_workflow_gate,"legacy_compat":test_legacy_compat,"parallel_orchestration":test_parallel_orchestration,"register_native":test_register_native,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
+SUITES={"contract":test_contract,"posix_wrapper":test_posix_wrapper,"hot_path_imports":test_hot_path_imports,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"memory_quota":test_memory_quota_and_pollution,"project_doc":test_project_doc,"project_doc_decision_glossary":test_project_doc_decision_and_glossary,"project_doc_structure_flow":test_project_doc_structure_and_flow,"retro":test_retro,"validate_task":test_validate_and_profile,"step_matrix":test_step_matrix,"workflow_gate":test_workflow_gate,"legacy_compat":test_legacy_compat,"parallel_orchestration":test_parallel_orchestration,"register_native":test_register_native,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}

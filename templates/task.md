@@ -47,7 +47,7 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 
 - round: 1
 <!-- The following four delta lines are only required for round >= 2; omit for round 1:
-- prior findings: <specific conclusions from the previous Reviewer/Adversarial/Verifier round>
+- prior findings: <specific conclusions from the previous review round>
 - fix delta: <what was actually changed in this round relative to the previous one>
 - impact delta: <new callers/affected nodes relative to the previous round, or none>
 - validation delta: <new targeted validation relative to the previous round, or none>
@@ -108,16 +108,6 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 - result: <PASS | FAIL>
 - findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
-## Adversarial result (fill in only when `workflow_request` selects adversarial)
-- result: <PASS means "attempted to refute, refutation did not hold">
-- Provenance: <PASS>
-- Pattern fan-out: <PASS>
-- Engine semantics: <PASS>
-- Cross-round accumulation: <PASS>
-
-## Verifier result (fill in only when `workflow_request` selects verifier)
-- PASS
-
 ## Retrospective result (only added for suspected regressions, repeated fixes for the same issue, or on user request)
 - introduced_by: <commit sha that introduced the defect, or unknown - which searches were run>
 - classification: <regression | pre_existing | external>
@@ -158,7 +148,7 @@ workflow_request is empty: ## Impact surface is required, explaining why this ta
 - Items pending user decision
 
 ## Integration verification
-- Post-integration pre-review, affected test set, Reviewer and Verifier evidence
+- Post-integration pre-review, affected test set, and Reviewer evidence
 -->
 
 <!-- Add for worker tasks. Add the following five fields to frontmatter (file_ownership must be an inline array):

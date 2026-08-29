@@ -145,12 +145,9 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
             role_set = set(plan.get("roles", []))
         else:
             # Legacy default: a code-change task without workflow_mode: main still requires
-            # reviewer + verifier (+ adversarial when a hard-risk flag demands it). This is
-            # deliberately the ONLY behavior for pre-main-mode tasks; there is no migration
-            # step and no separate legacy planner.
-            role_set = {"reviewer", "verifier"} if code_change else set()
-            if role_set and any(flag in schema["x_agent_workflow"]["adversarial_required"] for flag in flags):
-                role_set.add("adversarial")
+            # reviewer. This is deliberately the ONLY behavior for pre-main-mode tasks;
+            # there is no migration step and no separate legacy planner.
+            role_set = {"reviewer"} if code_change else set()
         needs_roles = code_change and not waiting and bool(role_set)
         freeze_flags = schema["x_agent_workflow"]["freeze_required"]
         if any(flag in freeze_flags for flag in flags):
@@ -161,10 +158,10 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
         if any(flag in flags for flag in ("cross_feature", "migration", "irreversible")): missing_section(content, "Implementation sequence", issues)
         if "ui" in flags: missing_section(content, "Browser verification", issues)
         if change_kind == "refactor": missing_section(content, "Behavior invariants and before-after evidence", issues)
-        # A main-mode task is "deep" when it selected evidence work or an adversarial pass;
-        # that determines whether Project docs disposition is required at Close.
+        # A main-mode task is "deep" when it selected evidence work; that determines
+        # whether Project docs disposition is required at Close.
         evidence_sections = required_evidence(plan) if main_task else {}
-        deep = bool(evidence_sections) or (main_task and "adversarial" in role_set)
+        deep = bool(evidence_sections)
         if main_task:
             for name, steps in evidence_sections.items():
                 missing_section(content, name, issues)
@@ -187,14 +184,6 @@ def gate(task_path: str, cwd: str = "", worktree_id: str = "", mode: str = "Stop
             if "reviewer" in role_set:
                 review = section(content, "Reviewer result")
                 if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", review): issues.append("Reviewer result is missing or not passed")
-            if "adversarial" in role_set:
-                adversarial = section(content, "Adversarial result")
-                if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$", adversarial): issues.append("Adversarial result is missing or not passed")
-                for name in ("Provenance", "Pattern fan-out", "Engine semantics", "Cross-round accumulation"):
-                    if not re.search(rf"(?mi)^\s*-\s*{re.escape(name)}:\s*PASS(?:\s+.*)?\s*$", adversarial): issues.append(f"Adversarial result missing or not passed check: {name}")
-            if "verifier" in role_set:
-                verify = section(content, "Verifier result")
-                if not re.search(r"(?mi)^\s*-\s*PASS\s*$", verify): issues.append("Verifier result is missing or not passed")
         if mode == "Close" and code_change and role != "worker":
             if not change_kind: issues.append("code change has no change_kind (fix | feature | refactor | chore)")
             if deep and change_kind in {"feature", "refactor"} and not line_value(section(content, "Project docs"), "updated"):

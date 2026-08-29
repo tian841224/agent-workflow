@@ -8,12 +8,26 @@ from typing import Any
 
 from .git_guard import decision
 from .protocol import read_json_stdin, write_stderr
-from .role_guard import WRITE_TOOL_NAMES, tool_name
 
+WRITE_TOOL_NAMES = frozenset({
+    "apply_patch", "delete_file", "edit", "edit_file", "multi_edit", "notebookedit",
+    "rename_file", "write", "write_file",
+})
 PATH_KEYS = (
     "file_path", "FilePath", "notebook_path", "NotebookPath",
     "path", "Path", "target_file", "TargetFile",
 )
+
+
+def tool_name(payload: dict[str, Any]) -> str:
+    for key in ("tool_name", "toolName", "tool"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            return value.casefold().replace("-", "_")
+    call = payload.get("toolCall")
+    if isinstance(call, dict) and isinstance(call.get("name"), str):
+        return str(call["name"]).casefold().replace("-", "_")
+    return ""
 
 
 def is_write_tool(name: str) -> bool:
