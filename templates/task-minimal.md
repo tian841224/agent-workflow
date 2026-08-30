@@ -13,6 +13,7 @@ impact_effect: <none | local_behavior | shared_behavior | schema | data | contra
 impact_confidence: <high | medium | low>
 complexity_hint: []
 workflow_request: []
+model_profile: <cheap_read; only with task_type: read_only>
 workflow_facts:
 created_at: <ISO-8601>
 updated_at: <ISO-8601>

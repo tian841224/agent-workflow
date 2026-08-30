@@ -13,6 +13,7 @@ impact_effect: <none | local_behavior | shared_behavior | schema | data | contra
 impact_confidence: <high | medium | low>
 complexity_hint: []
 workflow_request: []
+model_profile: <cheap_read; only with task_type: read_only>
 workflow_facts: <JSON object of declared facts; only affects which steps are selected within each capability already chosen in workflow_request, does not affect whether a capability itself is selected>
 created_at: <ISO-8601>
 updated_at: <ISO-8601>

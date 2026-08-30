@@ -48,3 +48,7 @@ All three platforms receive JSON stdin via `AGENT_WORKFLOW_<PLATFORM>_DISPATCH_C
 Platform command name mapping is as follows: `AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND`, `AGENT_WORKFLOW_CLAUDE_DISPATCH_COMMAND`, `AGENT_WORKFLOW_ANTIGRAVITY_DISPATCH_COMMAND`. When unset or acknowledgement validation fails, `Start` does not pretend to succeed — it cleans up any worker worktrees already created and reports an error.
 
 The adapter must use the platform's native mechanism to create a worktree-bound agent; sharing the main working directory does not satisfy this contract. Each platform must complete real dual-worker acceptance testing before it can be marked as supporting automatic parallelism.
+
+## Read-only profiles
+
+Read-only inspection tasks declare `task_type: read_only` and `model_profile: cheap_read`, then use `orchestrate --action Read --platform <Codex|Claude> --goal <text> [--read-path <path>]` or the installed reader agent. `Read` does not create a worktree or collect patches. The installer resolves the provider-neutral profile into platform-specific agent configuration: Codex maps it to `gpt-5.6-luna` with a read-only sandbox; Claude maps it to the `haiku` model alias with only read tools. The profile is for inspection only and must not be used for implementation workers.

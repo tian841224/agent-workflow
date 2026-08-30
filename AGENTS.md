@@ -6,6 +6,8 @@
 
 實際修改「目標專案」application source code logic、且達到 workflow 觸發條件時才建立 task、載入 workflow skill；純 test code 修改仍執行相關測試但 bypass workflow；設定、文件、註解、script、除錯、review、規劃、問答與翻譯等非程式碼任務一律 bypass，不建立 task、不啟動角色。判斷細節與 Standard／Elevated 分流見 workflow skill。
 
+單純讀取、檢查或解釋任務可使用 `task_type: read_only` 與 `model_profile: cheap_read`；Codex／Claude 應選用已安裝的 read-only reader agent，不啟動 implementation worker。
+
 ## 硬護欄
 
 - 不自行 commit、push、rebase、merge 或執行破壞性 Git 操作。
