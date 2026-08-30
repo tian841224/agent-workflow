@@ -21,6 +21,7 @@
     "agent_workflow/learn.py",
     "agent_workflow/memory_context.py",
     "agent_workflow/orchestrate.py",
+    "agent_workflow/agent_profiles.py",
     "agent_workflow/pre_review.py",
     "agent_workflow/project_doc.py",
     "agent_workflow/retro.py",
@@ -36,6 +37,7 @@
     "runtime/README.md",
     "AGENTS.md",
     "agents/worker.md",
+    "agents/reader.md",
     "skills/distill/SKILL.md",
     "skills/operational-verification/SKILL.md",
     "skills/workflow/SKILL.md",
@@ -65,6 +67,7 @@
     "claude": [
       "CLAUDE.md#managed-block",
       "agents/agent-workflow-worker.md",
+      "agents/agent-workflow-reader.md",
       "skills/workflow/",
       "skills/codebase-design/",
       "skills/diagnosing-bugs/",
@@ -78,6 +81,7 @@
     ],
     "codex": [
       "AGENTS.md#managed-block",
+      "agents/agent-workflow-reader.toml",
       "skills/workflow/",
       "skills/codebase-design/",
       "skills/diagnosing-bugs/",

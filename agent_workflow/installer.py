@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from .codex_hook_trust import untrusted
+from .agent_profiles import resolve
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -120,18 +121,24 @@ def _managed_entrypoint(source: Path, canonical: Path, destinations: list[Path],
 
 def _write_agents(canonical, selected, claude, codex, antigravity, runtime_root, python_executable, dry_run):
     managed=[]
-    for name in ("worker",):
+    for name in ("worker", "reader"):
         source=canonical/"agents"/(name+".md")
+        if not source.is_file() and (ROOT / ".agents" / "agents" / (name + ".md")).is_file():
+            source = ROOT / ".agents" / "agents" / (name + ".md")
         if not source.is_file(): raise RuntimeError(f"canonical agent is missing: {source}")
         raw=source.read_text(encoding="utf-8-sig"); body=re.sub(r"(?s)^---.*?---\s*", "", raw).strip(); match=re.search(r"(?m)^description:\s*(.+)$",raw); desc=(match.group(1).strip() if match else f"{name} agent").replace('"','\\"')
         targets=[]
         if "Claude" in selected:
             claude_raw = re.sub(r"(?m)^name:\s*.+$", f"name: agent-workflow-{name}", raw)
+            if name == "reader":
+                claude_raw = re.sub(r"(?m)^description:\s*.+$", "description: Read-only repository inspection agent using the cheapest Claude model.", claude_raw)
+                claude_raw = claude_raw.replace("---\n", "---\nmodel: haiku\ntools: Read, Glob, Grep\n", 1)
             targets.append((claude/"agents"/f"agent-workflow-{name}.md", claude_raw))
         if "Antigravity" in selected: targets.append((antigravity/"config"/"agents"/f"agent-workflow-{name}"/"agent.md",re.sub(r"(?m)^name:\s*.+$",f"name: agent-workflow-{name}",raw)))
         if "Codex" in selected:
             sandbox_mode = "workspace-write" if name == "worker" else "read-only"
-            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v5 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
+            model = f'\nmodel = "{resolve("Codex", "cheap_read")["model"]}"' if name == "reader" else ""
+            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v5 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"{model}\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
         for target,text in targets:
             if not dry_run: _write(target,text)
             managed.append({"path":str(target),"sha256":hashlib.sha256(text.encode("utf-8")).hexdigest(),"kind":"canonical-agent-adapter"})
@@ -289,6 +296,8 @@ def _prune_stale(previous: dict[str, str], files: list[dict[str, str]], managed_
     removed: list[str] = []
     for path_str in sorted(set(previous) - current_paths):
         path = Path(path_str)
+        if not any(path == root or root in path.parents for root in managed_roots):
+            continue
         expected = previous[path_str]
         if not path.is_file() or not expected or _hash(path) != expected:
             continue
@@ -340,7 +349,7 @@ def install(args: argparse.Namespace) -> int:
         source = (ROOT / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (ROOT / relative)
         _copy(source, runtime / relative, files, args.dry_run, previous, force)
     # Canonical shared source lives once; platform copies are written from it during each install.
-    for relative in ("agents/worker.md",):
+    for relative in ("agents/worker.md", "agents/reader.md"):
         _copy(ROOT / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
     for source in (ROOT / ".agents" / "skills").rglob("*"):
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(ROOT / ".agents" / "skills"), files, args.dry_run, previous, force)

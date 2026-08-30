@@ -57,6 +57,10 @@ def test_installer():
             "command": f'"python" -u "{runtime_dir}\\agent_workflow.py" memory-context --platform Claude --event UserPromptSubmit'}]}]}}
         (claude_dir / "settings.json").write_text(json.dumps(stale), encoding="utf-8")
         assert call(ROOT/"install.py",*args).returncode==0; assert (b/"state/runtime/agent_workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow.py").is_file(); assert (b/"state/runtime/agent_workflow/workflow_plan.py").is_file(); assert (b/"state/runtime/schemas/workflow-policy.json").is_file(); assert (b/"codex/agents/agent-workflow-worker.toml").is_file()
+        reader_codex = (b/"codex/agents/agent-workflow-reader.toml").read_text(encoding="utf-8")
+        reader_claude = (b/"claude/agents/agent-workflow-reader.md").read_text(encoding="utf-8")
+        assert 'model = "gpt-5.6-luna"' in reader_codex and 'sandbox_mode = "read-only"' in reader_codex
+        assert "model: haiku" in reader_claude and "tools: Read, Glob, Grep" in reader_claude
         for target in (b/"claude/settings.json", b/"codex/hooks.json", b/"gemini/config/hooks.json"):
             hook_text=target.read_text(encoding="utf-8"); assert "memory-context" in hook_text
         after = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
@@ -256,10 +260,19 @@ def test_retro():
         finding = (Path(t) / "retro" / "findings" / f"{recorded['id']}.md").read_text(encoding="utf-8")
         assert "status: applied" in finding and "resolved_at:" in finding and 'resolution_note: "implemented"' in finding, finding
 def test_validate_and_profile():
-    from agent_workflow.validate_task import ownership_reason
+    from agent_workflow.validate_task import ownership_reason, validate_task
     assert ownership_reason("src/pricing/handler.py")==""
     assert ownership_reason("../escape.py")!=""
     assert ownership_reason("/abs/path.py")!=""
+    with tempfile.TemporaryDirectory() as t:
+        task = Path(t) / "task.md"
+        base = "---\nid: 20260830-120000-read-only\nproject_id: f08d833298cea361\nworktree_id: f6a3c01813179541\nstatus: in_progress\ncode_change: false\ntask_type: read_only\nmodel_profile: cheap_read\nrisk_flags: []\ncreated_at: 2026-08-30T12:00:00+08:00\nupdated_at: 2026-08-30T12:00:00+08:00\n---\n\n# Read\n"
+        task.write_text(base, encoding="utf-8")
+        assert validate_task(str(task))["valid"]
+        task.write_text(base.replace("model_profile: cheap_read", "model_profile: cheap_read\ncode_change: true", 1), encoding="utf-8")
+        assert not validate_task(str(task))["valid"]
+        task.write_text(base.replace("model_profile: cheap_read", "model_profile: cheap_read\nworkflow_request: [reviewer]", 1), encoding="utf-8")
+        assert not validate_task(str(task))["valid"]
 
 def test_step_matrix():
     from agent_workflow.workflow import manual_plan, suggested_capabilities
@@ -474,6 +487,31 @@ def test_parallel_orchestration():
         (repo / "dirty.py").write_text("changed after snapshot\n", encoding="utf-8")
         assert not snapshot_matches(repo, dirty_snapshot)
 
+def test_agent_profiles():
+    from agent_workflow.agent_profiles import request_fields
+    from agent_workflow.orchestrate import launch_reader
+    codex = request_fields("Codex", "cheap_read")
+    claude = request_fields("Claude", "cheap_read")
+    assert codex == {"agent_profile": "cheap_read", "model": "gpt-5.6-luna", "reasoning_effort": "none", "sandbox_mode": "read-only", "tools": ["read"]}
+    assert claude == {"agent_profile": "cheap_read", "model": "haiku", "sandbox_mode": "read-only", "tools": ["Read", "Glob", "Grep"]}
+    assert request_fields("Codex", "worker") == {}
+    try:
+        request_fields("Codex", "unknown")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown profiles must fail closed")
+    with tempfile.TemporaryDirectory() as t:
+        dispatcher = Path(t) / "reader_dispatcher.py"
+        dispatcher.write_text("import json,sys\nr=json.load(sys.stdin)\nassert r['read_only'] and r['agent_profile']=='cheap_read'\nprint(json.dumps({'accepted': True, 'dispatch_id': 'reader-1'}))\n", encoding="utf-8")
+        previous = os.environ.get("AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND")
+        os.environ["AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND"] = f'"{PY}" "{dispatcher}"'
+        try:
+            assert launch_reader("Codex", "inspect source", "agent_workflow/") == {"accepted": True, "dispatch_id": "reader-1", "agent_profile": "cheap_read"}
+        finally:
+            if previous is None: os.environ.pop("AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND", None)
+            else: os.environ["AGENT_WORKFLOW_CODEX_DISPATCH_COMMAND"] = previous
+
 def test_register_native():
     # The host-native path (e.g. Claude Code's Agent tool with isolation: "worktree") creates
     # worker worktrees and runs them itself -- orchestrate.py never calls Init or launch() for
@@ -540,7 +578,7 @@ def test_register_native():
 def test_pre_review(): assert subprocess.run(["git","-C",str(ROOT),"diff","--check"],stdout=subprocess.PIPE,stderr=subprocess.PIPE).returncode==0
 def test_orchestrate(): assert cli("orchestrate","--help").returncode==0
 def test_runtime(): assert cli("runtime-check","--help").returncode==0
-SUITES={"contract":test_contract,"posix_wrapper":test_posix_wrapper,"hot_path_imports":test_hot_path_imports,"hook":test_hooks,"installer":test_installer,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"memory_quota":test_memory_quota_and_pollution,"project_doc":test_project_doc,"project_doc_decision_glossary":test_project_doc_decision_and_glossary,"project_doc_structure_flow":test_project_doc_structure_and_flow,"retro":test_retro,"validate_task":test_validate_and_profile,"step_matrix":test_step_matrix,"workflow_gate":test_workflow_gate,"legacy_compat":test_legacy_compat,"parallel_orchestration":test_parallel_orchestration,"register_native":test_register_native,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
+SUITES={"contract":test_contract,"posix_wrapper":test_posix_wrapper,"hot_path_imports":test_hot_path_imports,"hook":test_hooks,"installer":test_installer,"agent_profiles":test_agent_profiles,"knowledge":test_knowledge,"shared_memory":test_shared_memory,"memory_quota":test_memory_quota_and_pollution,"project_doc":test_project_doc,"project_doc_decision_glossary":test_project_doc_decision_and_glossary,"project_doc_structure_flow":test_project_doc_structure_and_flow,"retro":test_retro,"validate_task":test_validate_and_profile,"step_matrix":test_step_matrix,"workflow_gate":test_workflow_gate,"legacy_compat":test_legacy_compat,"parallel_orchestration":test_parallel_orchestration,"register_native":test_register_native,"pre_review":test_pre_review,"orchestrate":test_orchestrate,"runtime":test_runtime}
 def _seed_entry(state, project, topic, content):
     result = cli("learn", "--action", "Capture", "--state-root", state, "--project-id", project,
                  "--kind", "correction", "--topic", topic, "--content", content)

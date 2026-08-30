@@ -17,6 +17,7 @@ from typing import Any
 from .frontmatter import frontmatter
 from .project_resolver import resolve_project
 from .split_plan import eligible
+from .agent_profiles import request_fields
 
 PLATFORMS = {"Codex", "Claude", "Antigravity"}
 
@@ -52,6 +53,28 @@ def launch(platform: str, request: dict[str, Any]) -> dict[str, Any]:
     if str(reply.get("parent_task_id", "")) != str(request["parent_task_id"]):
         return {"accepted": False, "error": "dispatcher acknowledgement has a different parent_task_id"}
     return {"accepted": True, "dispatch_id": str(reply.get("dispatch_id", "")), "worker_root": expected_root}
+
+
+def launch_reader(platform: str, goal: str, path: str = "") -> dict[str, Any]:
+    """Launch a read-only profile without creating an implementation worktree."""
+    request = {"goal": goal, "path": path, "read_only": True}
+    request.update(request_fields(platform, "cheap_read"))
+    command = _dispatch_command(platform)
+    if not command:
+        return {"accepted": False, "error": f"{platform} dispatcher is not configured"}
+    try:
+        result = subprocess.run(command, input=json.dumps(request, ensure_ascii=False).encode("utf-8"), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, check=False, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"accepted": False, "error": f"{platform} dispatcher failed: {exc}"}
+    if result.returncode:
+        return {"accepted": False, "error": result.stderr.decode("utf-8", "replace").strip() or "dispatcher rejected launch"}
+    try:
+        reply = json.loads(result.stdout.decode("utf-8", "replace"))
+    except json.JSONDecodeError:
+        return {"accepted": False, "error": "dispatcher did not return JSON"}
+    if not isinstance(reply, dict) or reply.get("accepted") is not True:
+        return {"accepted": False, "error": str(reply.get("error", "dispatcher rejected launch")) if isinstance(reply, dict) else "dispatcher rejected launch"}
+    return {"accepted": True, "dispatch_id": str(reply.get("dispatch_id", "")), "agent_profile": "cheap_read"}
 
 
 def stamp() -> str: return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -217,6 +240,8 @@ def assess(args: argparse.Namespace) -> None:
 
 def init(args: argparse.Namespace) -> None:
     result, task, coordinator, directory = context(args)
+    if str(frontmatter(task.read_text(encoding="utf-8")).get("task_type", "")).casefold() == "read_only":
+        raise RuntimeError("read_only tasks must use the installed reader agent, not implementation orchestration")
     if (directory / "orchestration.json").exists(): raise RuntimeError("orchestration already exists")
     outcome = assess_repository(result["root"], json.loads(Path(args.plan_path).read_text(encoding="utf-8")), args.platform); write(directory / "parallel-assessment.json", outcome)
     if not outcome["eligible"]:
@@ -359,13 +384,21 @@ def status(args: argparse.Namespace) -> None:
     _, _, _, record, _ = record_for(args); print(json.dumps(record, ensure_ascii=False, indent=2))
 
 
+def read(args: argparse.Namespace) -> None:
+    result = launch_reader(args.platform, args.goal, args.read_path)
+    if not result.get("accepted"):
+        raise RuntimeError(result.get("error", "reader dispatch rejected"))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(); parser.add_argument("--action", required=True, choices=("Assess", "Init", "Start", "RegisterNative", "WorkerReady", "WorkerFailed", "Collect", "Integrate", "Apply", "Cleanup", "Status")); parser.add_argument("--path", default="."); parser.add_argument("--state-root", default=str(Path.home() / ".agent-workflow")); parser.add_argument("--plan-path", default=""); parser.add_argument("--platform", default="Codex"); parser.add_argument("--worker-id", default=""); parser.add_argument("--worker-root", default=""); parser.add_argument("--reason", default=""); parser.add_argument("--local-check", action="append", default=[]); parser.add_argument("--workers-path", default=""); parser.add_argument("--base-commit", default=""); args = parser.parse_args(argv)
+    parser = argparse.ArgumentParser(); parser.add_argument("--action", required=True, choices=("Assess", "Init", "Start", "Read", "RegisterNative", "WorkerReady", "WorkerFailed", "Collect", "Integrate", "Apply", "Cleanup", "Status")); parser.add_argument("--path", default="."); parser.add_argument("--state-root", default=str(Path.home() / ".agent-workflow")); parser.add_argument("--plan-path", default=""); parser.add_argument("--platform", default="Codex"); parser.add_argument("--goal", default=""); parser.add_argument("--read-path", default=""); parser.add_argument("--worker-id", default=""); parser.add_argument("--worker-root", default=""); parser.add_argument("--reason", default=""); parser.add_argument("--local-check", action="append", default=[]); parser.add_argument("--workers-path", default=""); parser.add_argument("--base-commit", default=""); args = parser.parse_args(argv)
+    if args.action == "Read" and not args.goal: parser.error("--goal is required")
     if args.action in {"Assess", "Init", "Start"} and not args.plan_path: parser.error("--plan-path is required")
     if args.action == "RegisterNative" and (not args.workers_path or not args.base_commit): parser.error("--workers-path and --base-commit are required")
     if args.action == "WorkerReady" and (not args.worker_id or not args.worker_root): parser.error("--worker-id and --worker-root are required")
     if args.action == "WorkerFailed" and not args.worker_id: parser.error("--worker-id is required")
-    {"Assess": assess, "Init": init, "Start": start, "RegisterNative": register_native, "WorkerReady": worker_ready, "WorkerFailed": worker_failed, "Collect": collect, "Integrate": integrate, "Apply": apply, "Cleanup": cleanup, "Status": status}[args.action](args)
+    {"Assess": assess, "Init": init, "Start": start, "Read": read, "RegisterNative": register_native, "WorkerReady": worker_ready, "WorkerFailed": worker_failed, "Collect": collect, "Integrate": integrate, "Apply": apply, "Cleanup": cleanup, "Status": status}[args.action](args)
     return 0
 
 
