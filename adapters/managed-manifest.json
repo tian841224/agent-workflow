@@ -16,7 +16,9 @@
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證"},
     "localization-tw": {"required": false, "description": "正體中文（臺灣）用語、語氣與標點"},
     "archify": {"required": false, "description": "建立可驗證、可互動的架構與流程圖"},
-    "design-and-refine": {"required": false, "description": "探索、比較與收斂 UI 設計方向"}
+    "design-and-refine": {"required": false, "description": "探索、比較與收斂 UI 設計方向"},
+    "adhd-comms": {"required": false, "description": "採取 Action-first 與高掃讀性溝通，結論先行、分點陳述、低認知負擔"},
+    "humanizer": {"required": false, "description": "消除 AI 腔調與公式化套話，讓文字讀起來自然真實，保留事實與作者聲音"}
   },
   "runtime": [
     "adapters/managed-manifest.json",
@@ -73,6 +75,8 @@
     "skills/tdd/SKILL.md",
     "skills/archify/SKILL.md",
     "skills/design-and-refine/SKILL.md",
+    "skills/adhd-comms/SKILL.md",
+    "skills/humanizer/SKILL.md",
     "templates/task.md",
     "templates/task-minimal.md",
     "schemas/project.schema.json",
@@ -103,7 +107,9 @@
       "skills/tdd/",
       "skills/clean-comments/",
       "skills/archify/",
-      "skills/design-and-refine/"
+      "skills/design-and-refine/",
+      "skills/adhd-comms/",
+      "skills/humanizer/"
     ],
     "codex": [
       "AGENTS.md#managed-block",
@@ -123,6 +129,8 @@
       "skills/clean-comments/",
       "skills/archify/",
       "skills/design-and-refine/",
+      "skills/adhd-comms/",
+      "skills/humanizer/",
       "rules/agent-workflow.rules"
     ],
     "antigravity": [
@@ -143,6 +151,8 @@
       "config/skills/localization-tw/",
       "config/skills/archify/",
       "config/skills/design-and-refine/",
+      "config/skills/adhd-comms/",
+      "config/skills/humanizer/",
       "config/global_workflows/agent-workflow.md"
     ]
   }

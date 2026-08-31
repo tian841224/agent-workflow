@@ -178,6 +178,8 @@ PLATFORM_COPIED_SKILLS = (
     "localization-tw",
     "archify",
     "design-and-refine",
+    "adhd-comms",
+    "humanizer",
 )
 
 
