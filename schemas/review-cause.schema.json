@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/review-cause.schema.json",
+  "title": "Why a review round found a blocker: which input was missing, not which gate missed it",
+  "type": "object",
+  "required": ["id", "created_at", "task_id", "round", "cause", "evidence", "status"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "project_id": { "type": ["string", "null"], "pattern": "^[a-f0-9]{16}$" },
+    "task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
+    "round": { "type": "integer", "minimum": 2 },
+    "cause": {
+      "enum": ["doc_gap", "prompt_gap", "convention_gap", "context_miss", "logic_error"]
+    },
+    "paths": { "type": "array", "items": { "type": "string" } },
+    "evidence": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["open", "applied", "rejected"] },
+    "resolved_at": { "type": ["string", "null"], "format": "date-time" },
+    "resolution_note": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false,
+  "x_agent_workflow": {
+    "escalate_threshold": 3,
+    "remedy_routing": {
+      "doc_gap": "project_doc",
+      "prompt_gap": "task_spec",
+      "convention_gap": "skill",
+      "context_miss": "skill",
+      "logic_error": "none"
+    },
+    "cause_meaning": {
+      "doc_gap": "no project doc covers the changed path, or the doc that covers it is out of date",
+      "prompt_gap": "the task's goal, scope or completion criteria never stated the requirement that was missed",
+      "convention_gap": "the project does hold this convention but it is not written down anywhere",
+      "context_miss": "the doc and the rule both existed and were not read, or were read and misunderstood",
+      "logic_error": "a plain coding mistake, unrelated to the quality of the inputs"
+    }
+  }
+}

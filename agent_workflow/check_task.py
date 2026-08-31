@@ -16,9 +16,8 @@ def check(task_path,mode="Coordinator",state_root=None):
         for name in ("Parent task","File ownership","Impact surface","Execution path and regression evidence"):
             body=section(raw,name)
             if not body or re.match(r"^<.*>$",body):issues.append(f"missing or empty section: {name}")
-        review=section(raw,"Reviewer result"); verify=section(raw,"Verifier result")
+        review=section(raw,"Reviewer result")
         if not re.search(r"(?mi)^\s*-\s*result:\s*PASS\s*$",review):issues.append("Reviewer result is missing or not passed")
-        if not re.search(r"(?mi)^\s*-\s*PASS\s*$",verify):issues.append("Verifier result is missing or not passed")
         if state_root and data.get("parent_task_id") and data.get("project_id"):
             parent=Path(state_root)/"projects"/data["project_id"] / "tasks" / data["parent_task_id"] / "task.md"
             if not parent.is_file():issues.append(f"parent_task_id '{data['parent_task_id']}' does not resolve to a task")

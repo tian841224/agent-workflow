@@ -12,12 +12,12 @@ if SOURCE_ROOT not in sys.path:
     sys.path.insert(0, SOURCE_ROOT)
 
 # command -> agent_workflow submodule name. Each submodule exposes main(argv).
-# Import is deferred to dispatch time so a hook invocation (git-guard,
-# role-guard, memory-context) only pays for the module it actually runs.
+# Import is deferred to dispatch time so a hook invocation (git-guard, skill-guard,
+# memory-context) only pays for the module it actually runs.
 COMMANDS = {
     "git-guard": "git_guard",
-    "role-guard": "role_guard",
     "skill-guard": "skill_guard",
+    "skill-draft": "skill_draft",
     "project-resolver": "project_resolver",
     "task-gate": "task_gate",
     "validate-task": "validate_task",
@@ -31,6 +31,7 @@ COMMANDS = {
     "pre-review": "pre_review",
     "project-doc": "project_doc",
     "retro": "retro",
+    "review-cause": "review_cause",
     "runtime-check": "runtime_check",
     "split-plan": "split_plan",
     "waive-roles": "waive_roles",

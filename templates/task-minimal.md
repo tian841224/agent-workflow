@@ -13,6 +13,7 @@ impact_effect: <none | local_behavior | shared_behavior | schema | data | contra
 impact_confidence: <high | medium | low>
 complexity_hint: []
 workflow_request: []
+model_profile: <cheap_read; only with task_type: read_only>
 workflow_facts:
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
@@ -55,21 +56,12 @@ frozen_at:
 ## Reviewer result
 
 - result: <PASS | FAIL>
-- findings: <none or concise findings>
-<!-- Only list dimensions actually checked (one line each, e.g. `- Security: PASS`).
-Pick from: Architecture consistency, Code quality and conventions, Data consistency,
-Security, Risk and compatibility, Performance, Flow and impact completeness,
-Failure modes and observability. Skip anything not checked -- no need to report N/A. -->
-
-## Verifier result
-
-- result: <PASS | FAIL>
-- evidence: <real entrypoint and relevant verification>
+- findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
 <!--
-Keep only the role sections actually in workflow_request: that list is the complete and
-only source of truth for which roles must run, and the gate checks nothing else. A task
-may legitimately request verifier alone, or adversarial + verifier without reviewer.
+Keep the Reviewer result section only when workflow_request selects reviewer: that list is
+the complete and only source of truth, and the gate checks nothing else. A task may
+legitimately request evidence capabilities alone, with no reviewer.
 
 workflow_facts is declared by the agent; it decides which steps appear inside an
 already-selected evidence capability and can produce deterministic capability suggestions

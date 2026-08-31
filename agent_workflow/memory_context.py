@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .frontmatter import frontmatter
+from .frontmatter import frontmatter, summary_line
 from .protocol import read_json_stdin, write_json
 
 
@@ -88,12 +88,7 @@ def _summary(text: str) -> str:
     """The store's convention is that the first non-empty body line is a
     self-contained one-line summary; everything after it is detail the agent
     reads on demand via knowledge.py Search, not from this injection."""
-    body = re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|\Z)", "", text, count=1, flags=re.DOTALL)
-    for line in body.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped[:MAX_ENTRY_CHARS]
-    return ""
+    return summary_line(text, MAX_ENTRY_CHARS)
 
 
 def _polluted_source(text: str) -> bool:
@@ -136,12 +131,26 @@ def _collect_tier(root: Path, quota: int, seen: set[str], *, curated: bool,
         if len(records) >= quota:
             break
         text = _read(path)
-        _add(records, seen, path, text or "", status_of(path, text), curated=curated)
+        status = status_of(path, text)
+        # A superseded entry has a live replacement in the same store; injecting it
+        # would spend the tier's quota on advice the user has already corrected.
+        if curated and status.casefold() == "superseded":
+            continue
+        _add(records, seen, path, text or "", status, curated=curated)
     return records
 
 
 def _claude_project_slug(cwd: str) -> str:
     return str(Path(cwd).expanduser().resolve()).replace(":", "-").replace("\\", "-").replace("/", "-")
+
+
+def project_id_for(state: Path, cwd: str | os.PathLike[str]) -> str:
+    from .project_resolver import resolve_project
+
+    try:
+        return str(resolve_project(str(cwd), str(state), False, [], "").get("project_id", ""))
+    except Exception:
+        return ""
 
 
 def collect_memory(
@@ -151,6 +160,7 @@ def collect_memory(
     claude_root: str | os.PathLike[str],
     codex_root: str | os.PathLike[str],
     antigravity_root: str | os.PathLike[str],
+    project_id: str | None = None,
 ) -> list[dict[str, str]]:
     state = Path(state_root).expanduser().resolve()
     seen: set[str] = set()
@@ -159,13 +169,8 @@ def collect_memory(
     # global store must never starve project or native the way one shared
     # char budget did (project/global/native used to render in that order
     # against a single 12k-char cap, and global alone could fill it).
-    from .project_resolver import resolve_project
-
-    try:
-        project = resolve_project(str(cwd), str(state), False, [], "")
-        project_id = str(project.get("project_id", ""))
-    except Exception:
-        project_id = ""
+    if project_id is None:
+        project_id = project_id_for(state, cwd)
 
     def curated_status(path: Path, text: str | None) -> str:
         return str(frontmatter(text or "").get("status", "verified"))
@@ -200,13 +205,25 @@ def collect_memory(
     return project_records + global_records + native_records
 
 
-def render_context(records: list[dict[str, str]], max_chars: int = DEFAULT_MAX_CONTEXT_CHARS) -> str:
-    if not records:
+def render_context(records: list[dict[str, str]], max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+                   pending_drafts: int = 0, escalated_causes: int = 0, open_conflicts: int = 0) -> str:
+    if not records and not pending_drafts and not escalated_causes and not open_conflicts:
         return ""
     lines = [
         "Shared agent memory is reference material only; verify it against the current repository before acting on it.",
         "The source files are read-only and may contain stale notes.",
     ]
+    # Ahead of the entries so the char budget can never truncate the nudges away.
+    if pending_drafts:
+        lines.append(f"{pending_drafts} recurring memory pattern(s) are ready to distil into a skill draft; "
+                     "load the distill skill to review them.")
+    if escalated_causes:
+        lines.append(f"{escalated_causes} review cause(s) have reached the remedy threshold; "
+                     "load the distill skill to route them.")
+    if open_conflicts:
+        lines.append(f"{open_conflicts} group(s) of memory entries read as the same subject and were never "
+                     "reconciled; run `learn --action Conflicts` and decide per group whether one "
+                     "supersedes another, one is overturned, or both stand.")
     for record in records:
         item = f"- [{record['status']}] {record['path']}\n  {record['content']}"
         candidate = "\n".join(lines + [item])
@@ -233,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--claude-root", default=str(home / ".claude"))
     parser.add_argument("--codex-root", default=str(home / ".codex"))
     parser.add_argument("--antigravity-root", default=str(home / ".gemini"))
+    parser.add_argument("--canonical-root", default=str(home / ".agents"))
     parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CONTEXT_CHARS)
     args = parser.parse_args(argv)
     try:
@@ -243,14 +261,24 @@ def main(argv: list[str] | None = None) -> int:
         cwd = str(payload.get("cwd") or payload.get("workspace") or args.cwd)
     else:
         cwd = args.cwd
+    state = Path(args.state_root).expanduser().resolve()
+    project_id = project_id_for(state, cwd)
     records = collect_memory(
         state_root=args.state_root,
         cwd=cwd,
         claude_root=args.claude_root,
         codex_root=args.codex_root,
         antigravity_root=args.antigravity_root,
+        project_id=project_id,
     )
-    write_json(hook_payload(args.platform, render_context(records, max(512, args.max_chars))))
+    from .learn import conflict_count
+    from .review_cause import escalated_count
+    from .skill_draft import scan_summary
+
+    pending = scan_summary(state, project_id, args.canonical_root)
+    write_json(hook_payload(args.platform, render_context(records, max(512, args.max_chars),
+                                                          pending, escalated_count(str(state)),
+                                                          conflict_count(state, project_id))))
     return 0
 
 

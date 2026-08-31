@@ -13,6 +13,7 @@ impact_effect: <none | local_behavior | shared_behavior | schema | data | contra
 impact_confidence: <high | medium | low>
 complexity_hint: []
 workflow_request: []
+model_profile: <cheap_read; only with task_type: read_only>
 workflow_facts: <JSON object of declared facts; only affects which steps are selected within each capability already chosen in workflow_request, does not affect whether a capability itself is selected>
 created_at: <ISO-8601>
 updated_at: <ISO-8601>
@@ -46,11 +47,12 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 ## Review round
 
 - round: 1
-<!-- The following four delta lines are only required for round >= 2; omit for round 1:
-- prior findings: <specific conclusions from the previous Reviewer/Adversarial/Verifier round>
+<!-- The following five lines are only required for round >= 2; omit for round 1:
+- prior findings: <specific conclusions from the previous review round>
 - fix delta: <what was actually changed in this round relative to the previous one>
 - impact delta: <new callers/affected nodes relative to the previous round, or none>
 - validation delta: <new targeted validation relative to the previous round, or none>
+- cause: <review-cause id from review-cause --action Record, or "none - reason">
 -->
 - unverified nodes: <fill "none" for non-Elevated tasks; for Elevated tasks fill "see Impact surface" to avoid duplicate recording below>
 
@@ -106,32 +108,15 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 
 ## Reviewer result (fill in only when `workflow_request` selects reviewer)
 - result: <PASS | FAIL>
-- Architecture consistency: <PASS>
-- Code quality and conventions: <PASS>
-- Data consistency: <PASS | N/A - reason>
-- Security: <PASS | N/A - reason>
-- Risk and compatibility: <PASS>
-- Performance: <PASS | N/A - reason>
-- Flow and impact completeness: <PASS>
-- Failure modes and observability: <PASS>
-
-## Adversarial result (fill in only when `workflow_request` selects adversarial)
-- result: <PASS means "attempted to refute, refutation did not hold">
-- Provenance: <PASS>
-- Pattern fan-out: <PASS>
-- Engine semantics: <PASS>
-- Cross-round accumulation: <PASS>
-
-## Verifier result (fill in only when `workflow_request` selects verifier)
-- PASS
+- findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
 ## Retrospective result (only added for suspected regressions, repeated fixes for the same issue, or on user request)
 - introduced_by: <commit sha that introduced the defect, or unknown - which searches were run>
 - classification: <regression | pre_existing | external>
-- miss_category: <required only when regression; see the eight categories in schemas/retro.schema.json>
+- miss_category: <required only when regression; a category from schemas/retro.schema.json, or "other" when none of them fits — then describe the actual gap in gap_evidence>
 - gap_evidence: <required only when regression: which section of which task, or which gate failed to catch it; include task id or path:line>
 - framework_change: <required only when regression: recorded:<retro-id>, or not_needed - reason>
-- summary: <the sixth line reported by retrospective.md, a one-line summary understandable on its own>
+- summary: <a one-line summary understandable on its own>
 - occurrences: <fill only when regression: the cumulative count of similar occurrences returned by retro --action Record>
 -->
 
@@ -165,7 +150,7 @@ workflow_request is empty: ## Impact surface is required, explaining why this ta
 - Items pending user decision
 
 ## Integration verification
-- Post-integration pre-review, affected test set, Reviewer and Verifier evidence
+- Post-integration pre-review, affected test set, and Reviewer evidence
 -->
 
 <!-- Add for worker tasks. Add the following five fields to frontmatter (file_ownership must be an inline array):

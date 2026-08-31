@@ -22,11 +22,6 @@
           },
           {
             "type": "command",
-            "command": "\"{{PYTHON_EXE}}\" -X utf8 -u \"{{RUNTIME_DIR}}\\agent_workflow.py\" role-guard --platform Claude",
-            "timeout": 15
-          },
-          {
-            "type": "command",
             "command": "\"{{PYTHON_EXE}}\" -X utf8 -u \"{{RUNTIME_DIR}}\\agent_workflow.py\" skill-guard --platform Claude",
             "timeout": 15
           }

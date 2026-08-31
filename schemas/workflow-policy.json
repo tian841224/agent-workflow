@@ -2,8 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/workflow-policy.json",
   "version": 4,
-  "scope_rank": {"file": 1, "module": 2, "multi_module": 3, "cross_project": 4},
-  "effect_rank": {"none": 0, "schema": 1, "local_behavior": 2, "shared_behavior": 3, "contract": 4, "data": 5, "destructive": 6},
+  "scope_rank": {
+    "file": 1,
+    "module": 2,
+    "multi_module": 3,
+    "cross_project": 4
+  },
+  "effect_rank": {
+    "none": 0,
+    "schema": 1,
+    "local_behavior": 2,
+    "shared_behavior": 3,
+    "contract": 4,
+    "data": 5,
+    "destructive": 6
+  },
   "capabilities": [
     {
       "name": "impact_discovery",
@@ -11,9 +24,39 @@
       "section": "Impact discovery",
       "order_after": [],
       "steps": [
-        {"id": "ID1", "title": "列出變更入口、分析覆蓋度與限制", "when": [[{"always": true}]]},
-        {"id": "ID2", "title": "人工盤點 consumer、共享狀態與外部契約", "when": [[{"always": true}]]},
-        {"id": "ID3", "title": "確認可升級的 impact scope／effect 與殘餘 unknown", "when": [[{"always": true}]]}
+        {
+          "id": "ID1",
+          "title": "列出變更入口、分析覆蓋度與限制",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "ID2",
+          "title": "人工盤點 consumer、共享狀態與外部契約",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "ID3",
+          "title": "確認可升級的 impact scope／effect 與殘餘 unknown",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        }
       ]
     },
     {
@@ -22,39 +65,292 @@
       "section": "Schema compatibility",
       "order_after": [],
       "steps": [
-        {"id": "SC1", "title": "列出每個 DDL statement 與操作類別", "when": [[{"always": true}]]},
-        {"id": "SC2", "title": "逐條分類 additive / mutating / destructive", "when": [[{"always": true}]]},
-        {"id": "SC3", "title": "滾動部署相容性：新舊版程式併存時的讀寫", "when": [[{"not": {"fact": "has_consumer", "equals": [false]}}], [{"impact_scope_at_least": "module"}]]},
-        {"id": "SC4", "title": "索引／約束的鎖與唯一性衝突", "when": [[{"fact": "schema_constraint_change", "equals": [true]}]]},
-        {"id": "SC5", "title": "回滾可行性與逆轉後的舊資料狀態", "when": [[{"risk_flags": ["irreversible"]}], [{"not": {"fact": "schema_operation", "equals": ["none", "additive_nullable"]}}]]}
+        {
+          "id": "SC1",
+          "title": "列出每個 DDL statement 與操作類別",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "SC2",
+          "title": "逐條分類 additive / mutating / destructive",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "SC3",
+          "title": "滾動部署相容性：新舊版程式併存時的讀寫",
+          "when": [
+            [
+              {
+                "not": {
+                  "fact": "has_consumer",
+                  "equals": [
+                    false
+                  ]
+                }
+              }
+            ],
+            [
+              {
+                "impact_scope_at_least": "module"
+              }
+            ]
+          ]
+        },
+        {
+          "id": "SC4",
+          "title": "索引／約束的鎖與唯一性衝突",
+          "when": [
+            [
+              {
+                "fact": "schema_constraint_change",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "SC5",
+          "title": "回滾可行性與逆轉後的舊資料狀態",
+          "when": [
+            [
+              {
+                "risk_flags": [
+                  "irreversible"
+                ]
+              }
+            ],
+            [
+              {
+                "not": {
+                  "fact": "schema_operation",
+                  "equals": [
+                    "none",
+                    "additive_nullable"
+                  ]
+                }
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "migration_safety",
       "kind": "evidence",
       "section": "Migration safety",
-      "order_after": ["schema_compatibility"],
+      "order_after": [
+        "schema_compatibility"
+      ],
       "steps": [
-        {"id": "MS1", "title": "受影響資料量級與預期執行時間", "when": [[{"always": true}]]},
-        {"id": "MS2", "title": "鎖行為與線上影響（是否阻塞讀寫）", "when": [[{"impact_scope_at_least": "module"}], [{"risk_flags": ["migration"]}]]},
-        {"id": "MS3", "title": "冪等性與可重入（中斷後重跑）", "when": [[{"always": true}]]},
-        {"id": "MS4", "title": "分段／批次策略", "when": [[{"fact": "data_transform", "equals": [true]}]]},
-        {"id": "MS5", "title": "回滾腳本與回滾後資料狀態", "when": [[{"risk_flags": ["irreversible"]}], [{"fact": "destructive_operation", "equals": [true]}]]},
-        {"id": "MS6", "title": "一次性 Docker／SQL 環境實測", "when": [[{"risk_flags": ["migration"]}]]}
+        {
+          "id": "MS1",
+          "title": "受影響資料量級與預期執行時間",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "MS2",
+          "title": "鎖行為與線上影響（是否阻塞讀寫）",
+          "when": [
+            [
+              {
+                "impact_scope_at_least": "module"
+              }
+            ],
+            [
+              {
+                "risk_flags": [
+                  "migration"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "MS3",
+          "title": "冪等性與可重入（中斷後重跑）",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "MS4",
+          "title": "分段／批次策略",
+          "when": [
+            [
+              {
+                "fact": "data_transform",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "MS5",
+          "title": "回滾腳本與回滾後資料狀態",
+          "when": [
+            [
+              {
+                "risk_flags": [
+                  "irreversible"
+                ]
+              }
+            ],
+            [
+              {
+                "fact": "destructive_operation",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "MS6",
+          "title": "一次性 Docker／SQL 環境實測",
+          "when": [
+            [
+              {
+                "risk_flags": [
+                  "migration"
+                ]
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "data_impact",
       "kind": "evidence",
       "section": "Contract and data impact",
-      "order_after": ["schema_compatibility"],
+      "order_after": [
+        "schema_compatibility"
+      ],
       "steps": [
-        {"id": "DI1", "title": "受影響資料範圍（表、列、量級）", "when": [[{"always": true}]]},
-        {"id": "DI2", "title": "寫入路徑盤點：誰會寫這些欄位／表", "when": [[{"impact_effect": ["data", "destructive"]}], [{"risk_flags": ["data_write"]}]]},
-        {"id": "DI3", "title": "讀取路徑盤點與 NULL／預設值語意", "when": [[{"not": {"fact": "has_consumer", "equals": [false]}}]]},
-        {"id": "DI4", "title": "backfill／transform 正確性與既有髒資料", "when": [[{"fact": "data_transform", "equals": [true]}]]},
-        {"id": "DI5", "title": "不變式與對帳（總額、筆數、狀態機守恆）", "when": [[{"risk_flags": ["financial", "irreversible"]}]]},
-        {"id": "DI6", "title": "資料回復方案（備份點、可否重算）", "when": [[{"fact": "destructive_operation", "equals": [true]}], [{"risk_flags": ["irreversible"]}]]}
+        {
+          "id": "DI1",
+          "title": "受影響資料範圍（表、列、量級）",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "DI2",
+          "title": "寫入路徑盤點：producer 與所有 writers，schema 變更後逐一驗證輸出",
+          "when": [
+            [
+              {
+                "impact_effect": [
+                  "data",
+                  "destructive"
+                ]
+              }
+            ],
+            [
+              {
+                "risk_flags": [
+                  "data_write"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "DI3",
+          "title": "完整資料鏈：producer → storage → reader → index/schema，含 scope filter、metadata round trip 與 NULL／預設值語意",
+          "when": [
+            [
+              {
+                "not": {
+                  "fact": "has_consumer",
+                  "equals": [
+                    false
+                  ]
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "id": "DI4",
+          "title": "backfill／transform 正確性與既有髒資料",
+          "when": [
+            [
+              {
+                "fact": "data_transform",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "DI5",
+          "title": "不變式與對帳（總額、筆數、狀態機守恆）",
+          "when": [
+            [
+              {
+                "risk_flags": [
+                  "financial",
+                  "irreversible"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "DI6",
+          "title": "資料回復方案（備份點、可否重算）",
+          "when": [
+            [
+              {
+                "fact": "destructive_operation",
+                "equals": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "risk_flags": [
+                  "irreversible"
+                ]
+              }
+            ]
+          ]
+        }
       ]
     },
     {
@@ -63,116 +359,568 @@
       "section": "Contract and data impact",
       "order_after": [],
       "steps": [
-        {"id": "CR1", "title": "介面清單 diff：API／DTO／event／序列化欄位", "when": [[{"always": true}]]},
-        {"id": "CR2", "title": "逐項分類 additive / breaking", "when": [[{"always": true}]]},
-        {"id": "CR3", "title": "consumer 盤點（內部呼叫端、外部串接方）", "when": [[{"impact_scope_at_least": "multi_module"}], [{"impact_effect": ["contract"]}]]},
-        {"id": "CR4", "title": "版本化與過渡策略（雙寫、雙讀、deprecation）", "when": [[{"impact_effect": ["contract"]}], [{"risk_flags": ["contract"]}]]},
-        {"id": "CR5", "title": "跨專案協調需求與通知對象", "when": [[{"impact_scope": ["cross_project"]}]]}
+        {
+          "id": "CR1",
+          "title": "介面清單 diff：API／DTO／event／序列化欄位",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CR2",
+          "title": "逐項分類 additive / breaking",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CR3",
+          "title": "consumer 盤點（內部呼叫端、外部串接方）",
+          "when": [
+            [
+              {
+                "impact_scope_at_least": "multi_module"
+              }
+            ],
+            [
+              {
+                "impact_effect": [
+                  "contract"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CR4",
+          "title": "版本化與過渡策略（雙寫、雙讀、deprecation）",
+          "when": [
+            [
+              {
+                "impact_effect": [
+                  "contract"
+                ]
+              }
+            ],
+            [
+              {
+                "risk_flags": [
+                  "contract"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CR5",
+          "title": "跨專案協調需求與通知對象",
+          "when": [
+            [
+              {
+                "impact_scope": [
+                  "cross_project"
+                ]
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "execution_path_review",
       "kind": "evidence",
       "section": "Execution path and regression evidence",
-      "order_after": ["impact_discovery"],
+      "order_after": [
+        "impact_discovery"
+      ],
       "steps": [
-        {"id": "EP1", "title": "改動函式／模組的進入點盤點", "when": [[{"always": true}]]},
-        {"id": "EP2", "title": "呼叫鏈追蹤至模組邊界", "when": [[{"impact_scope_at_least": "module"}]]},
-        {"id": "EP3", "title": "並發與交易邊界是否被改變", "when": [[{"impact_effect_at_least": "shared_behavior"}]]},
-        {"id": "EP4", "title": "錯誤路徑與邊界輸入（失敗、逾時、空值、極值）", "when": [[{"change_kind": ["feature", "refactor"]}], [{"risk_flags": ["behavior_change"]}]]},
-        {"id": "EP5", "title": "跨模組／跨專案擴散清單", "when": [[{"impact_scope_at_least": "multi_module"}]]}
+        {
+          "id": "EP1",
+          "title": "改動函式／模組的進入點盤點",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "EP2",
+          "title": "呼叫鏈追蹤至模組邊界",
+          "when": [
+            [
+              {
+                "impact_scope_at_least": "module"
+              }
+            ]
+          ]
+        },
+        {
+          "id": "EP3",
+          "title": "並發與交易邊界是否被改變",
+          "when": [
+            [
+              {
+                "impact_effect_at_least": "shared_behavior"
+              }
+            ]
+          ]
+        },
+        {
+          "id": "EP4",
+          "title": "錯誤路徑與邊界輸入（失敗、逾時、空值、極值）",
+          "when": [
+            [
+              {
+                "change_kind": [
+                  "feature",
+                  "refactor"
+                ]
+              }
+            ],
+            [
+              {
+                "risk_flags": [
+                  "behavior_change"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "EP5",
+          "title": "跨模組／跨專案擴散清單",
+          "when": [
+            [
+              {
+                "impact_scope_at_least": "multi_module"
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "regression_validation",
       "kind": "evidence",
       "section": "Execution path and regression evidence",
-      "order_after": ["execution_path_review"],
+      "order_after": [
+        "execution_path_review"
+      ],
       "steps": [
-        {"id": "RV1", "title": "既有行為基準（before 的實際輸出／狀態）", "when": [[{"always": true}]]},
-        {"id": "RV2", "title": "受影響既有測試清單", "when": [[{"always": true}]]},
-        {"id": "RV3", "title": "執行受影響測試並記錄結果", "when": [[{"always": true}]]},
-        {"id": "RV4", "title": "before／after 對照證據", "when": [[{"change_kind": ["refactor"]}], [{"risk_flags": ["behavior_change"]}]]},
-        {"id": "RV5", "title": "未覆蓋缺口與其風險說明", "when": [[{"impact_scope_at_least": "multi_module"}], [{"change_kind": ["refactor"]}]]}
+        {
+          "id": "RV1",
+          "title": "既有行為基準（before 的實際輸出／狀態）",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "RV2",
+          "title": "受影響既有測試清單",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "RV3",
+          "title": "執行受影響測試並記錄結果；每個 CLI option 需有會改變輸出的 read-side regression test",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "RV4",
+          "title": "before／after 對照證據",
+          "when": [
+            [
+              {
+                "change_kind": [
+                  "refactor"
+                ]
+              }
+            ],
+            [
+              {
+                "risk_flags": [
+                  "behavior_change"
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "RV5",
+          "title": "未覆蓋缺口與其風險說明",
+          "when": [
+            [
+              {
+                "impact_scope_at_least": "multi_module"
+              }
+            ],
+            [
+              {
+                "change_kind": [
+                  "refactor"
+                ]
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "codebase_design",
       "kind": "evidence",
       "section": "Codebase design",
-      "order_after": ["impact_discovery"],
+      "order_after": [
+        "impact_discovery"
+      ],
       "suggest_when": [
-        [{"change_kind": ["feature", "refactor"]}],
-        [{"fact": "changes_module_interface", "equals": [true]}],
-        [{"fact": "introduces_adapter", "equals": [true]}],
-        [{"fact": "improves_testability", "equals": [true]}]
+        [
+          {
+            "change_kind": [
+              "feature",
+              "refactor"
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "changes_module_interface",
+            "equals": [
+              true
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "introduces_adapter",
+            "equals": [
+              true
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "improves_testability",
+            "equals": [
+              true
+            ]
+          }
+        ]
       ],
       "suggest_reason": "模組介面、seam、adapter 或 shared logic 可能需要設計檢查",
       "steps": [
-        {"id": "CD1", "title": "界定 module 的 interface、invariant、錯誤模式與 seam", "when": [[{"always": true}]]},
-        {"id": "CD2", "title": "以 depth 與 delete test 判斷模組是否真正集中複雜度", "when": [[{"change_kind": ["feature", "refactor"]}], [{"impact_scope_at_least": "module"}], [{"fact": "changes_module_interface", "equals": [true]}]]},
-        {"id": "CD3", "title": "確認 adapter 有實際變化需求，且依賴由外部傳入", "when": [[{"fact": "introduces_adapter", "equals": [true]}], [{"fact": "improves_testability", "equals": [true]}]]},
-        {"id": "CD4", "title": "確認測試透過相同 interface 驗證結果，而非依賴 implementation", "when": [[{"change_kind": ["feature", "refactor"]}], [{"fact": "improves_testability", "equals": [true]}]]}
+        {
+          "id": "CD1",
+          "title": "界定 module 的 interface、invariant、錯誤模式與 seam",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CD2",
+          "title": "以 depth 與 delete test 判斷模組是否真正集中複雜度",
+          "when": [
+            [
+              {
+                "change_kind": [
+                  "feature",
+                  "refactor"
+                ]
+              }
+            ],
+            [
+              {
+                "impact_scope_at_least": "module"
+              }
+            ],
+            [
+              {
+                "fact": "changes_module_interface",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CD3",
+          "title": "確認 adapter 有實際變化需求，且依賴由外部傳入",
+          "when": [
+            [
+              {
+                "fact": "introduces_adapter",
+                "equals": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "fact": "improves_testability",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "id": "CD4",
+          "title": "確認測試透過相同 interface 驗證結果，而非依賴 implementation",
+          "when": [
+            [
+              {
+                "change_kind": [
+                  "feature",
+                  "refactor"
+                ]
+              }
+            ],
+            [
+              {
+                "fact": "improves_testability",
+                "equals": [
+                  true
+                ]
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "bug_diagnosis",
       "kind": "evidence",
       "section": "Bug diagnosis",
-      "order_after": ["impact_discovery"],
+      "order_after": [
+        "impact_discovery"
+      ],
       "suggest_when": [
-        [{"change_kind": ["fix"]}],
-        [{"task_type": ["fix", "investigation"]}],
-        [{"fact": "debug_requested", "equals": [true]}],
-        [{"fact": "performance_anomaly", "equals": [true]}],
-        [{"fact": "flaky_failure", "equals": [true]}]
+        [
+          {
+            "change_kind": [
+              "fix"
+            ]
+          }
+        ],
+        [
+          {
+            "task_type": [
+              "fix",
+              "investigation"
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "debug_requested",
+            "equals": [
+              true
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "performance_anomaly",
+            "equals": [
+              true
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "flaky_failure",
+            "equals": [
+              true
+            ]
+          }
+        ]
       ],
       "suggest_reason": "任務涉及 bug、debug、效能異常或需要建立可重現的 feedback loop",
       "steps": [
-        {"id": "BD1", "title": "建立實際執行過、可重現且會捕捉症狀的 feedback loop", "when": [[{"always": true}]]},
-        {"id": "BD2", "title": "重現症狀並逐步最小化輸入、呼叫端、設定與資料", "when": [[{"always": true}]]},
-        {"id": "BD3", "title": "提出 3–5 個排序後且可證偽的根因假設", "when": [[{"always": true}]]},
-        {"id": "BD4", "title": "以單一變因的 probe 驗證假設，效能問題先建立 baseline", "when": [[{"always": true}]]},
-        {"id": "BD5", "title": "修復後重跑原始 repro、regression test，並清除 debug instrumentation", "when": [[{"always": true}]]}
+        {
+          "id": "BD1",
+          "title": "建立實際執行過、可重現且會捕捉症狀的 feedback loop",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "BD2",
+          "title": "重現症狀並逐步最小化輸入、呼叫端、設定與資料",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "BD3",
+          "title": "提出 3–5 個排序後且可證偽的根因假設",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "BD4",
+          "title": "以單一變因的 probe 驗證假設，效能問題先建立 baseline",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "BD5",
+          "title": "修復後重跑原始 repro、regression test，並清除 debug instrumentation",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "tdd",
       "kind": "evidence",
       "section": "TDD evidence",
-      "order_after": ["codebase_design", "bug_diagnosis"],
+      "order_after": [
+        "codebase_design",
+        "bug_diagnosis"
+      ],
       "suggest_when": [
-        [{"change_kind": ["feature", "fix"]}],
-        [{"risk_flags": ["behavior_change"]}],
-        [{"fact": "testable_behavior_change", "equals": [true]}]
+        [
+          {
+            "change_kind": [
+              "feature",
+              "fix"
+            ]
+          }
+        ],
+        [
+          {
+            "risk_flags": [
+              "behavior_change"
+            ]
+          }
+        ],
+        [
+          {
+            "fact": "testable_behavior_change",
+            "equals": [
+              true
+            ]
+          }
+        ]
       ],
       "suggest_reason": "任務可能修改可測試行為，需要 red → green → refactor 與 seam 證據",
       "steps": [
-        {"id": "TD1", "title": "Red：修改前測試確實捕捉目標行為並失敗", "when": [[{"always": true}]]},
-        {"id": "TD2", "title": "Green：以最小實作使測試通過，再保留可重現的驗證結果", "when": [[{"always": true}]]},
-        {"id": "TD3", "title": "確認測試透過公開 interface 或 real entrypoint 的 seam 驗證行為", "when": [[{"always": true}]]},
-        {"id": "TD4", "title": "記錄 refactor 階段、測試缺口與 mock／fake 的使用理由", "when": [[{"always": true}]]}
+        {
+          "id": "TD1",
+          "title": "Red：修改前測試確實捕捉目標行為並失敗",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "TD2",
+          "title": "Green：以最小實作使測試通過，再保留可重現的驗證結果",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "TD3",
+          "title": "確認測試透過公開 interface 或 real entrypoint 的 seam 驗證行為",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        },
+        {
+          "id": "TD4",
+          "title": "記錄 refactor 階段、測試缺口與 mock／fake 的使用理由",
+          "when": [
+            [
+              {
+                "always": true
+              }
+            ]
+          ]
+        }
       ]
     },
     {
       "name": "reviewer",
       "kind": "role",
       "section": "Reviewer result",
-      "order_after": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation"],
-      "steps": []
-    },
-    {
-      "name": "adversarial",
-      "kind": "role",
-      "section": "Adversarial result",
-      "order_after": ["reviewer"],
-      "steps": []
-    },
-    {
-      "name": "verifier",
-      "kind": "role",
-      "section": "Verifier result",
-      "order_after": ["adversarial"],
+      "order_after": [
+        "impact_discovery",
+        "codebase_design",
+        "bug_diagnosis",
+        "tdd",
+        "schema_compatibility",
+        "migration_safety",
+        "data_impact",
+        "contract_review",
+        "execution_path_review",
+        "regression_validation"
+      ],
       "steps": []
     }
   ]

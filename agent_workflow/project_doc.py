@@ -42,13 +42,13 @@ def run(action,doc="",repo_root=".",paths=None,doc_root="docs"):
     if key=="check":
         target=Path(doc); issues=[]
         if not target.is_file():return [{"path":str(target),"issues":["document does not exist"]}]
-        data=metadata(target.read_text(encoding="utf-8-sig")); allowed={"architecture","dataflow","module","api","decision","glossary"}
+        data=metadata(target.read_text(encoding="utf-8-sig")); allowed={"architecture","structure","dataflow","flow","module","api","decision","glossary"}
         if not data:issues.append("missing or invalid frontmatter")
         else:
             if data.get("doc_type") not in allowed:issues.append(f"unknown doc_type: {data.get('doc_type')}")
             covers=data.get("covers",[]); covers=[covers] if isinstance(covers,str) else covers
-            if data.get("doc_type") != "glossary" and not covers:issues.append("covers must not be empty")
-            required={"module":["Responsibility","Entrypoints","Flow","Shared state","Invariants and gotchas","Unverified"],"api":["Endpoint","Auth","Request","Response","Errors","Invariants and gotchas","Unverified"],"decision":["Context","Decision","Alternatives","Consequences"],"glossary":["Terms"]}.get(data.get("doc_type"),[])
+            if data.get("doc_type") not in {"architecture","structure","dataflow","glossary"} and not covers:issues.append("covers must not be empty")
+            required={"structure":["Layout","Placement rules","Unverified"],"flow":["Trigger","Steps","Failure modes","Unverified"],"module":["Responsibility","Entrypoints","Flow","Shared state","Invariants and gotchas","Unverified"],"api":["Endpoint","Auth","Request","Response","Errors","Invariants and gotchas","Unverified"],"decision":["Context","Decision","Alternatives","Consequences"],"glossary":["Terms"]}.get(data.get("doc_type"),[])
             for name in required:
                 m=re.search(rf"(?ms)^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)",data.get("body",""));
                 if not m or not m.group(1).strip() or re.match(r"^<.*>$",m.group(1).strip()):issues.append(f"missing section: {name}")

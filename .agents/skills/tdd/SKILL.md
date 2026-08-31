@@ -19,7 +19,7 @@ Before starting, read the project instructions, relevant project docs, and any `
 
 ## Test boundary (Seam)
 
-A seam is the public boundary where a test observes behavior — e.g. an HTTP endpoint, CLI command, public service method, or event entrypoint (full glossary in the [codebase-design skill](../codebase-design/SKILL.md)). Tests should prefer verifying outcomes through a seam that represents caller/user-facing behavior, rather than depending directly on private methods or internal collaborators.
+A seam is the public boundary where a test observes behavior — e.g. an HTTP endpoint, CLI command, public service method, or event entrypoint. Tests should prefer verifying outcomes through a seam that represents caller/user-facing behavior, rather than depending directly on private methods or internal collaborators. When which seam to guard is itself in question, read [codebase-design](../codebase-design/SKILL.md) for the full glossary and seam criteria.
 
 If the primary public interface, key execution path, or acceptance responsibility is not yet clear, confirm with the user which seam to guard; if the interface and completion criteria are already clear, there's no need to ask for every single test.
 
@@ -53,4 +53,4 @@ Iterate in vertical slices: pick one seam at a time, add one behavior, make the 
 
 Use mocks or fakes only at external system boundaries — e.g. third-party APIs, email, time, randomness, the filesystem, or a database that can't be safely operated on in tests. Prefer real implementations for your own classes, modules, and internal collaborators, so tests don't end up just verifying mock setup.
 
-When a mock is needed, dependencies should be passed in through an explicit interface or dependency injection, rather than having a function construct a hard-to-replace client on its own; use a clear, specific interface for each external operation instead of one generic mock with many conditional branches — a mock should return a single, concrete data shape. Prefer isolated real resources when available, while still following the Verifier's constraints on one-off test resources.
+When a mock is needed, use a clear, specific interface for each external operation instead of one generic mock with many conditional branches — a mock should return a single, concrete data shape. Prefer isolated real resources when available, using only one-off, cleanly disposable Docker/SQL resources — never mount or mutate existing containers, databases, or volumes.

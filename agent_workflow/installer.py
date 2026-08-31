@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from .codex_hook_trust import untrusted
+from .agent_profiles import resolve
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -118,32 +119,26 @@ def _managed_entrypoint(source: Path, canonical: Path, destinations: list[Path],
     _write(canonical, content)
     for destination in destinations: _write(destination, content)
 
-def _claude_readonly_hooks(raw, name, runtime_root, python_executable):
-    if name == "worker":
-        return raw
-    command = f'"{python_executable}" -X utf8 -u "{runtime_root / "agent_workflow.py"}" role-guard --platform Claude --role {name}'
-    hook = "hooks:\n  PreToolUse:\n    - matcher: \"*\"\n      hooks:\n        - type: command\n          command: " + json.dumps(command) + "\n          timeout: 15"
-    marker = re.search(r"(?ms)^---\s*\n(.*?)\n---\s*\n", raw)
-    if not marker:
-        raise RuntimeError(f"canonical agent is missing frontmatter: {name}")
-    frontmatter = marker.group(1).rstrip() + "\n" + hook
-    return "---\n" + frontmatter + "\n---\n" + raw[marker.end():]
-
-
 def _write_agents(canonical, selected, claude, codex, antigravity, runtime_root, python_executable, dry_run):
     managed=[]
-    for name in ("reviewer","adversarial","verifier","retrospective","worker"):
+    for name in ("worker", "reader"):
         source=canonical/"agents"/(name+".md")
+        if not source.is_file() and (ROOT / ".agents" / "agents" / (name + ".md")).is_file():
+            source = ROOT / ".agents" / "agents" / (name + ".md")
         if not source.is_file(): raise RuntimeError(f"canonical agent is missing: {source}")
         raw=source.read_text(encoding="utf-8-sig"); body=re.sub(r"(?s)^---.*?---\s*", "", raw).strip(); match=re.search(r"(?m)^description:\s*(.+)$",raw); desc=(match.group(1).strip() if match else f"{name} agent").replace('"','\\"')
         targets=[]
         if "Claude" in selected:
             claude_raw = re.sub(r"(?m)^name:\s*.+$", f"name: agent-workflow-{name}", raw)
-            targets.append((claude/"agents"/f"agent-workflow-{name}.md", _claude_readonly_hooks(claude_raw, name, runtime_root, python_executable)))
+            if name == "reader":
+                claude_raw = re.sub(r"(?m)^description:\s*.+$", "description: Read-only repository inspection agent using the cheapest Claude model.", claude_raw)
+                claude_raw = claude_raw.replace("---\n", "---\nmodel: haiku\ntools: Read, Glob, Grep\n", 1)
+            targets.append((claude/"agents"/f"agent-workflow-{name}.md", claude_raw))
         if "Antigravity" in selected: targets.append((antigravity/"config"/"agents"/f"agent-workflow-{name}"/"agent.md",re.sub(r"(?m)^name:\s*.+$",f"name: agent-workflow-{name}",raw)))
         if "Codex" in selected:
             sandbox_mode = "workspace-write" if name == "worker" else "read-only"
-            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v5 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
+            model = f'\nmodel = "{resolve("Codex", "cheap_read")["model"]}"' if name == "reader" else ""
+            targets.append((codex/"agents"/f"agent-workflow-{name}.toml",f'# agent-workflow v5 managed agent\nname = "agent-workflow-{name}"\ndescription = "{desc}"{model}\nsandbox_mode = "{sandbox_mode}"\ndeveloper_instructions = \'\'\'\n{body}\n\'\'\'\n'))
         for target,text in targets:
             if not dry_run: _write(target,text)
             managed.append({"path":str(target),"sha256":hashlib.sha256(text.encode("utf-8")).hexdigest(),"kind":"canonical-agent-adapter"})
@@ -174,24 +169,34 @@ PLATFORM_COPIED_SKILLS = (
     "codebase-design",
     "diagnosing-bugs",
     "planning",
+    "project-docs",
     "push-back",
     "learn",
+    "distill",
+    "operational-verification",
     "tdd",
     "localization-tw",
-    "eli5",
     "archify",
     "design-and-refine",
 )
 
 
-def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
-    # Skills outside the copied set are shared read-only from canonical/skills via a
+def _linkable_skills(sources):
+    found = {}
+    for root in sources:
+        if not root.is_dir(): continue
+        for path in sorted(root.iterdir()):
+            if path.is_dir() and path.name not in PLATFORM_COPIED_SKILLS: found.setdefault(path.name, path)
+    return found
+
+
+def _ensure_shared_skill_links(sources, claude, selected, dry_run):
+    # Skills outside the copied set are shared read-only from their source directory via a
     # junction/symlink; link every one so a newly added skill is picked up without a
     # manual per-skill step, and remove a link whose source skill no longer exists so
     # a removed skill does not linger forever in the platform's skills directory.
     if "Claude" not in selected: return
-    skills_root = canonical / "skills"
-    current = {p.name for p in skills_root.iterdir() if p.is_dir() and p.name not in PLATFORM_COPIED_SKILLS} if skills_root.is_dir() else set()
+    current = _linkable_skills(sources)
     claude_skills = claude / "skills"
     if not dry_run and claude_skills.is_dir():
         for target in sorted(claude_skills.iterdir()):
@@ -200,13 +205,40 @@ def _ensure_shared_skill_links(canonical, claude, selected, dry_run):
                 continue  # a real directory might be user content; never touch it
             if target.name not in current:
                 target.unlink()
-    if dry_run or not skills_root.is_dir(): return
-    for name in sorted(current):
+    if dry_run: return
+    for name, source in sorted(current.items()):
         target = claude_skills / name
         is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
         if target.is_symlink() or is_reparse or target.exists(): continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        _link_skill_dir(skills_root / name, target)
+        _link_skill_dir(source, target)
+
+
+def ensure_platform_skill_visibility(state_skills: Path | str, targets: dict[str, str]) -> list[str]:
+    """Expose promoted state skills to each installed platform; returns the paths written.
+
+    Called by skill-draft Promote so an approved skill is usable immediately rather
+    than only after the next install.
+    """
+    if not Path(state_skills).is_dir(): return []
+    touched = []
+    for skill in sorted(Path(state_skills).iterdir()):
+        if not (skill / "SKILL.md").is_file(): continue
+        claude = targets.get("Claude")
+        if claude:
+            target = Path(claude) / "skills" / skill.name
+            is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
+            if not (target.exists() or target.is_symlink() or is_reparse):
+                target.parent.mkdir(parents=True, exist_ok=True); _link_skill_dir(skill, target); touched.append(str(target))
+        for platform, parts in (("Codex", ("skills",)), ("Antigravity", ("config", "skills"))):
+            root = targets.get(platform)
+            if not root: continue
+            target = Path(root).joinpath(*parts, skill.name)
+            if target.exists() or target.is_symlink():
+                is_reparse = getattr(os.path, "isjunction", lambda value: False)(target)
+                target.unlink() if (target.is_symlink() or is_reparse) else shutil.rmtree(target)
+            target.parent.mkdir(parents=True, exist_ok=True); shutil.copytree(skill, target); touched.append(str(target))
+    return touched
 
 
 def _skill_catalog(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -258,7 +290,7 @@ def _resolve_skills(args: argparse.Namespace, manifest: dict[str, Any], previous
     return requested_names | required
 
 
-def _install_platform_files(selected, selected_skills, canonical, claude, codex, antigravity, dry_run):
+def _install_platform_files(selected, selected_skills, canonical, claude, codex, antigravity, state, dry_run):
     managed=[]
     for skill in selected_skills:
         source=canonical/"skills"/skill
@@ -274,6 +306,13 @@ def _install_platform_files(selected, selected_skills, canonical, claude, codex,
                 if file.is_file():
                     destination = target / file.relative_to(source)
                     managed.append({"path":str(destination),"sha256":_hash(file),"kind":"platform-skill"})
+    # Promoted skills live in the state root and are never in the manifest, so they are
+    # linked from here as a second source rather than copied like the managed set.
+    _ensure_shared_skill_links([canonical / "skills", state / "skills"], claude, selected, dry_run)
+    if not dry_run:
+        ensure_platform_skill_visibility(state / "skills", {name: str(root) for name, root in
+                                                            (("Claude", claude), ("Codex", codex), ("Antigravity", antigravity))
+                                                            if name in selected and name != "Claude"})
     return managed
 
 
@@ -322,6 +361,8 @@ def _prune_stale(previous: dict[str, str], files: list[dict[str, str]], managed_
     removed: list[str] = []
     for path_str in sorted(set(previous) - current_paths):
         path = Path(path_str)
+        if not any(path == root or root in path.parents for root in managed_roots):
+            continue
         expected = previous[path_str]
         if not path.is_file() or not expected or _hash(path) != expected:
             continue
@@ -381,19 +422,14 @@ def install(args: argparse.Namespace) -> int:
         source = (source_root / ".agents" / relative) if relative.startswith(("agents/", "skills/")) else (source_root / relative)
         _copy(source, runtime / relative, files, args.dry_run, previous, force)
     # Canonical shared source lives once; platform copies are written from it during each install.
-    for relative in ("agents/reviewer.md", "agents/adversarial.md", "agents/verifier.md", "agents/retrospective.md", "agents/worker.md", "agents/reviewer-code-smells.md"):
+    for relative in ("agents/worker.md", "agents/reader.md"):
         _copy(source_root / ".agents" / relative, canonical / relative, files, args.dry_run, previous, force)
-    # reviewer.md's relative link to reviewer-code-smells.md only resolves for Claude,
-    # whose deployed agent file keeps the same directory shape as canonical/agents/.
-    if "Claude" in selected:
-        _copy(source_root / ".agents" / "agents" / "reviewer-code-smells.md", claude / "agents" / "reviewer-code-smells.md", files, args.dry_run, previous, force)
     source_skills = source_root / ".agents" / "skills"
     for source in source_skills.rglob("*"):
         if source.is_file(): _copy(source, canonical / "skills" / source.relative_to(source_skills), files, args.dry_run, previous, force)
     python_executable = Path(sys.executable).resolve()
     files.extend(_write_agents(canonical, selected, claude, codex, antigravity, runtime, python_executable, args.dry_run))
-    files.extend(_install_platform_files(selected, selected_skills, canonical, claude, codex, antigravity, args.dry_run))
-    _remove_stale_skill_links(claude, selected, args.dry_run)
+    files.extend(_install_platform_files(selected, selected_skills, canonical, claude, codex, antigravity, state, args.dry_run))
     entry_targets = []
     if "Claude" in selected: entry_targets.append(claude / "CLAUDE.md")
     if "Codex" in selected: entry_targets.append(codex / "AGENTS.md")
@@ -416,7 +452,10 @@ def install(args: argparse.Namespace) -> int:
         print(f"[install] {verb} {len(stale)} file(s) no longer in the manifest:")
         for path in stale: print(f"  - {path}")
     if not args.dry_run:
-        _json(state_file, {"schema_version": 5, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT), "selected_skills": sorted(selected_skills), "files": files})
+        _json(state_file, {"schema_version": 5, "installed_at": datetime.now(timezone.utc).isoformat(), "source": str(ROOT),
+                           "targets": {name: str(root) for name, root in (("Claude", claude), ("Codex", codex), ("Antigravity", antigravity)) if name in selected},
+                           "selected_skills": sorted(selected_skills),
+                           "files": files})
     _backup_legacy(args,args.dry_run)
     print(f"agent-workflow v5 {args.action} complete for {target}.")
     return 0

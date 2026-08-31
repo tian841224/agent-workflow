@@ -41,15 +41,11 @@
 
 Skill 也採條件式主動載入：`codebase_design` 用於介面與 seam 設計，`bug_diagnosis` 用於重現與根因驗證，`tdd` 用於 red → green → refactor 與測試 seam；架構規劃或需求不明時先載入 `planning`，使用者已選定的方案可能增加抽象或複雜度時先載入 `push-back`，高風險且不可逆的未決取捨才載入 `grill-me`。這些 skill 不會自動套用到所有任務，主對話會依場景把需要的 capability 寫入 `workflow_request`。
 
-### 角色化品質檢查
+### Review 與角色化品質檢查
 
-專案提供獨立的 Reviewer、Adversarial 與 Verifier 角色，依任務需求選擇性啟用：
+Review（檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境，並從 real entrypoint 確認完成條件）由主對話依 workflow skill 第 6 節直接執行，不再啟動獨立角色；需要對抗式複查或額外驗證時，把要推翻的假設或要測試的情境直接寫進 Review 指令。
 
-- Reviewer：檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境。
-- Adversarial：從反向角度檢查實作假設，以及資料、契約、遷移與不可逆操作風險。
-- Verifier：執行適合的測試或驗證，確認實作是否符合完成條件。
-
-這些角色不是固定套用在每個任務上，而是根據任務的風險、影響範圍與完成條件適度啟用。
+專案僅保留 Worker 為可寫入的原生開發角色，用於平行開發時處理隔離 worktree 中的子任務。
 
 ### 平行開發
 
@@ -60,6 +56,10 @@ Skill 也採條件式主動載入：`codebase_design` 用於介面與 seam 設�
 Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的 session 或 prompt 載入相關脈絡。
 
 自動學習只保存可重複使用的決策、修正與經驗，不保存整段對話；各平台原生記憶維持只讀。
+
+同一類結論反覆出現時，runtime 會把它標為可提煉的模式；agent 依 `distill` skill 寫成 skill 草稿暫存在 `skill-drafts/`，只有使用者明確核准才會 Promote 成生效的 skill。
+
+Review 有打回時，該輪要記錄一次歸因：當初缺的是文件、任務描述、明文規範，還是有規範但沒讀到。同一種原因累積達門檻後，`distill` skill 依原因分派對應補救——缺文件就補文件、缺規範就寫 skill、任務描述不足就改 task 模板，補救一律需使用者核准。
 
 ### 跨平台記憶讀取
 
@@ -73,14 +73,14 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 
 | Skill | 用途與適用時機 |
 | --- | --- |
-| [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由主對話依實際觀察到的 impact 與 risk 決定是否建立 task、寫入 `workflow_request` 啟用哪些 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
-| [`eli5`](.agents/skills/eli5/SKILL.md) | 依指定的年齡、職務或背景，用適合對方程度的方式解釋主題、程式碼、概念或錯誤。 |
+| [`workflow`](.agents/skills/workflow/SKILL.md) | 修改 application source code logic 時，由主對話依實際觀察到的 impact 與 risk 決定是否建立 task、寫入 `workflow_request` 啟用哪些 capability；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍執行相關測試，但 bypass workflow；文件、設定、script、除錯分析與規劃等 non-code task 也直接 bypass。 |
 | [`archify`](.agents/skills/archify/SKILL.md) | 將架構、workflow、sequence、data-flow 與 lifecycle 需求轉成可驗證、可互動的 standalone HTML 圖表；來源：[tt-a1i/archify](https://github.com/tt-a1i/archify)。 |
 | [`design-and-refine`](.agents/skills/design-and-refine/SKILL.md) | 透過設計訪談、五種 UI 變體、互動回饋與實作計畫，協助探索與收斂元件或頁面的設計方向；來源：[0xdesign/design-plugin](https://github.com/0xdesign/design-plugin)。 |
 | [`tdd`](.agents/skills/tdd/SKILL.md) | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；選取 `tdd` capability 時由 workflow 主動載入並在 task 記錄 TDD evidence。 |
 | [`planning`](.agents/skills/planning/SKILL.md) | 進行架構設計、功能規劃、重構策略、技術方案比較或需求不明時，先釐清目標、限制與完成條件。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 需求籠統、決策未明，或使用者要求壓力測試計畫與假設時，逐一檢查高風險未決分支。 |
 | [`push-back`](.agents/skills/push-back/SKILL.md) | 使用者選定實作或設計方向後，若涉及新增 abstraction、interface、adapter、wrapper 或 cross-layer seam，先檢查是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度。 |
+| [`project-docs`](.agents/skills/project-docs/SKILL.md) | 修改 application source code 前載入；先查出涵蓋本次路徑的 `docs/` 文件並讀過再動手，改完後依查詢結果建立缺少的文件或更新已失準的內容。定義 architecture／structure／dataflow／flow／module／api／decision／glossary 的佈局與必要區塊。 |
 | [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
 | [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 修改 application source code logic 前載入；若涉及註解，聚焦於目的、合約與非顯而易見的原因，避免贅述實作細節。test code 與其他 non-code task 不適用。 |
 | [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／seam／adapter 等共用詞彙；選取 `codebase_design` capability 時主動載入。 |
@@ -89,6 +89,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 產生或翻譯正體中文（臺灣）內容時，統一術語、語氣與標點，避免中國用語與簡體直譯。 |
 | [`learn`](.agents/skills/learn/SKILL.md) | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |
+| [`distill`](.agents/skills/distill/SKILL.md) | 記憶中同一類結論反覆出現時，提煉成待審的 skill 草稿；Promote 需要使用者明確核准。 |
 
 ### 設計原則與邊界
 
@@ -97,7 +98,6 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 - 角色預設為唯讀；只有 Worker 是允許寫入的開發角色。
 - 不自行 commit、push、rebase、merge 或執行破壞性 Git 操作。
 - 保留使用者既有修改，只處理需求直接涵蓋的範圍。
-- Verifier 若需要 Docker／SQL，只使用一次性且可清理的驗證資源。
 - README 是專案導覽，不取代 workflow skill、risk flags 與 orchestration 文件中的完整操作規則。
 
 ## 三、專案架構、安裝與資料夾結構
@@ -135,6 +135,9 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 └─ .agent-workflow/           agent-workflow runtime 與使用者資料
    ├─ runtime/                已安裝的 Python runtime 與 CLI
    ├─ knowledge/              跨專案與專案共用的 knowledge
+   ├─ skill-drafts/           待審的 skill 草稿與提煉狀態（不會被 agent 載入）
+   ├─ review-causes/          review 打回的歸因紀錄與累積狀態
+   ├─ skills/                 已核准的 skill，散佈到各平台
    ├─ projects/               專案識別資料與 task 狀態
    │  └─ <project-id>/
    │     └─ tasks/
@@ -150,7 +153,7 @@ Runtime 可以讀取 shared knowledge 與安全的原生文字記憶，在新的
 | 元件 | 責任 |
 | --- | --- |
 | `.agents/skills/` | 共用 skills、workflow policy、風險與平行編排規則 |
-| `.agents/agents/` | Reviewer、Adversarial、Verifier、Retrospective 與 Worker 等角色 |
+| `.agents/agents/` | Worker 角色（平行開發子任務）；Review 與回歸歸因改由主對話直接執行 |
 | `agent_workflow/` | workflow 選取評估、installer、guard、task、knowledge 與驗證邏輯 |
 | `adapters/` | 各 AI 平台的設定與 hooks |
 | `schemas/` | task、workflow、knowledge、project 與 retro 的資料契約 |

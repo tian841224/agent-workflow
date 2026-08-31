@@ -9,7 +9,7 @@
 | Flag | 定義（什麼情況標記） | 對應要求 |
 |---|---|---|
 | `behavior_change` | 使用者可觀察到的行為或輸出會改變 | 補完整驗收條目（Acceptance cases） |
-| `ui` | 修改畫面、互動或前端行為 | Verifier 使用平台原生 browser 實際驗證 |
+| `ui` | 修改畫面、互動或前端行為 | Review 使用平台原生 browser 實際驗證 |
 | `data_write` | 會寫入或修改持久化資料 | 檢查交易、一致性、並發、冪等與回滾 |
 | `contract` | 修改對外 API、介面或函式簽章 | freeze-required；補 Contract and data impact |
 | `schema` | 修改資料結構（DB schema、訊息格式、設定檔結構） | freeze-required；補 Contract and data impact |
@@ -20,9 +20,9 @@
 | `irreversible` | 改動無法簡單回滾（例如刪除資料、發送外部通知） | freeze-required；補 Implementation sequence |
 | `unclear_requirements` | 需求本身不明確，需先與使用者釐清才能動工 | freeze-required |
 
-## Adversarial 複查與 Mutation check 觸發
+## 對抗式複查與 Mutation check 觸發
 
-`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是主對話考慮 Adversarial 的重要訊號，但不會強制觸發角色。新 task 由主對話在 `workflow_request` 選定角色；Adversarial 可以在沒有 Reviewer 的組合中單獨執行。舊 task 沒有 `workflow_mode: main` 時才沿用 legacy 的保守觸發。
+`financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是主對話在 Review 指令裡加入對抗式複查（推翻資料溯源、底層語意或同型擴散假設）的重要訊號，不會另外觸發獨立角色。
 
 表格右欄的 freeze-required 與額外段落是**單向宣告**：flag 一旦填上就生效，沒有事後解除機制——判斷錯了就編輯 task 拿掉該 flag（連同對應段落一併移除），而不是靠某種證據去抑制它。`financial`／`data_write` 命中時另需 mutation check；觸發集合以 `schemas/task.schema.json` 的 `x_agent_workflow` 為權威來源。
 

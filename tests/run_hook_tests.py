@@ -40,7 +40,7 @@ def test_skill_guard() -> None:
     claude_hit = run_skill_guard("Edit", ".agents/skills/foo/SKILL.md", "Claude")
     assert '"ask"' in claude_hit and "writing-for-agents" in claude_hit
 
-    codex_hit = run_skill_guard("Write", ".agents/agents/reviewer.md", "Codex")
+    codex_hit = run_skill_guard("Write", ".agents/agents/worker.md", "Codex")
     assert '"deny"' in codex_hit and "writing-for-agents" in codex_hit
 
     assert not run_skill_guard("Edit", "README.md", "Claude")

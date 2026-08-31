@@ -74,7 +74,7 @@ def validate_task(task_path: str, schema_path: str | None = None) -> dict[str, A
     kind = str(data.get("change_kind", ""))
     if kind and not _ci(kind, properties["change_kind"]["enum"]):
         errors.append(f"invalid change_kind: {kind}")
-    for name in ("task_type", "impact_scope", "impact_effect", "impact_confidence", "workflow_profile", "workflow_mode"):
+    for name in ("task_type", "model_profile", "impact_scope", "impact_effect", "impact_confidence", "workflow_profile", "workflow_mode"):
         value = str(data.get(name, ""))
         allowed = properties.get(name, {}).get("enum", [])
         if value and not _ci(value, allowed):
@@ -108,6 +108,13 @@ def validate_task(task_path: str, schema_path: str | None = None) -> dict[str, A
     code_change: bool | None = data.get("code_change") if isinstance(data.get("code_change"), bool) else None
     if "code_change" in data and code_change is None:
         errors.append("code_change must be true or false")
+    if str(data.get("task_type", "")).casefold() == "read_only":
+        if code_change is not False:
+            errors.append("read_only task requires code_change: false")
+        if str(data.get("model_profile", "")).casefold() != "cheap_read":
+            errors.append("read_only task requires model_profile: cheap_read")
+        if data.get("workflow_request"):
+            errors.append("read_only task must not select workflow capabilities")
     flags = data.get("risk_flags")
     if not isinstance(flags, list):
         flags = []
