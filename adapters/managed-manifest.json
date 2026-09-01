@@ -19,6 +19,7 @@
     "archify": {"required": false, "description": "建立可驗證、可互動的架構與流程圖"},
     "design-and-refine": {"required": false, "description": "探索、比較與收斂 UI 設計方向"},
     "adhd-comms": {"required": false, "description": "採取 Action-first 與高掃讀性溝通"},
-    "humanizer": {"required": false, "description": "消除 AI 腔調與公式化套話"}
+    "humanizer": {"required": false, "description": "消除 AI 腔調與公式化套話"},
+    "hallmark": {"required": false, "description": "去除 AI 樣板感的頁面設計、稽核與重新設計"}
   }
 }

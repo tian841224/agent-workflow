@@ -16,3 +16,4 @@ docs/
 !docs/
 docs/*
 !docs/architecture.md
+dist/

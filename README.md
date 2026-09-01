@@ -2,13 +2,15 @@
 
 ## 安裝
 
-Clone 後直接執行：
+Clone 後執行：
 
 ```text
+npm install
+npm run build
 npm run setup
 ```
 
-這會啟動互動式安裝：required skills 一律安裝，optional skills 由使用者選取。
+`dist/agent-workflow.mjs` 是 `npm run build` 產生的 ESM bundle，不會進版控，`npm run setup` 依賴這個檔案存在才能執行安裝。`npm run setup` 會啟動互動式安裝：required skills 一律安裝，optional skills 由使用者選取。
 公開 npm package 則使用：
 
 ```text
@@ -112,6 +114,7 @@ npx --yes @tian/agent-workflow@latest
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 共用 | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`humanizer`](.agents/skills/humanizer/SKILL.md) | 選擇性 | 消除 AI 腔調與公式化套話，讓文字讀起來自然真實，保留事實與作者聲音。 |
 | [`adhd-comms`](.agents/skills/adhd-comms/SKILL.md) | 選擇性 | 採取 Action-first 與高掃讀性溝通，結論先行、分點陳述、低認知負擔。 |
+| [`hallmark`](.agents/skills/hallmark/SKILL.md) | 選擇性 | 去除 AI 樣板感的頁面設計、稽核與重新設計，涵蓋新頁面、重設計與從網址或截圖萃取設計；來源：[nutlope/hallmark](https://github.com/nutlope/hallmark)。 |
 
 ### 設計原則與硬護欄
 
