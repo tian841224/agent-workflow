@@ -23,7 +23,7 @@
     "workflow_request": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "enum": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer"] }
+      "items": { "type": "string", "minLength": 1 }
     },
     "workflow_profile": { "enum": ["direct", "light", "standard", "elevated"] },
     "workflow_mode": { "enum": ["main", "legacy"] },
@@ -40,6 +40,7 @@
     "stop_reason": { "type": "string", "minLength": 1 },
     "independence": { "enum": ["native", "degraded"] },
     "roles_waived": { "type": "string", "minLength": 1 },
+    "trello_card": { "type": "string", "minLength": 1 },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "file_ownership": {
@@ -53,8 +54,6 @@
   },
   "additionalProperties": false,
   "x_agent_workflow": {
-    "workflow_capabilities": ["impact_discovery", "codebase_design", "bug_diagnosis", "tdd", "schema_compatibility", "migration_safety", "data_impact", "contract_review", "execution_path_review", "regression_validation", "reviewer"],
-    "workflow_sections": ["Impact discovery", "Codebase design", "Bug diagnosis", "TDD evidence", "Schema compatibility", "Migration safety", "Contract and data impact", "Execution path and regression evidence"],
     "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
     "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
     "mutation_check_required": ["financial", "data_write"]
