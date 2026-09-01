@@ -7,8 +7,8 @@ tests/fixtures/
 .tmp-c/
 __pycache__/
 *.pyc
+node_modules/
 bench/env/
 bench/results/
 bench/results-v3/
 bench/worktrees/
-docs/

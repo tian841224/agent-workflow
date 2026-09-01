@@ -1,13 +1,13 @@
-# Python runtime contract
+# Node runtime contract
 
-The repository contains Python source only. Python 3.11 or newer is installed
-by the user and is validated by `install.py` before hooks are registered.
+Node.js 20 or newer is the only runtime. `dist/agent-workflow.mjs` is a
+self-contained ESM bundle copied to the user state root during Install and
+Repair.
 
-`install.cmd` resolves `py -3` first and `python` second, then records the
-resolved `sys.executable` in generated hook commands. Run Repair after moving or
-upgrading Python. Every entrypoint uses `-X utf8 -u`; hook stdout is UTF-8 JSON
-only, diagnostics go to stderr, and child processes have explicit timeouts.
+Managed state records the exact Node executable and bundle SHA-256. Hooks invoke
+that executable and copied bundle, with no dependency on Python, `node_modules`,
+npx cache, or the source checkout.
 
-The managed `SessionStart` adapters call `memory-context` for all three
-platforms. It reads the shared curated store plus safe text-only native memory
-sources, emits bounded reference context, and never writes back to native files.
+Install state, task state, and orchestration state are independent versioned JSON
+contracts. Verify checks runtime hashes, source synchronization, selected skills,
+managed entrypoints, hooks, and the Codex trust boundary.

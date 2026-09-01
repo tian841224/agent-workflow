@@ -1,20 +1,4 @@
-#!/bin/sh
-# POSIX entrypoint for the portable agent-workflow Python runtime.
-# Windows uses agent_workflow.cmd instead. Named with a hyphen (not the
-# agent_workflow.py convention) because a bare `agent_workflow` would collide
-# with the agent_workflow/ package directory sitting right next to it.
+#!/usr/bin/env sh
 set -eu
-
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-export PYTHONUTF8=1
-export PYTHONIOENCODING=utf-8
-
-if command -v python3 >/dev/null 2>&1; then
-  exec python3 -X utf8 -u "$DIR/agent_workflow.py" "$@"
-fi
-if command -v python >/dev/null 2>&1; then
-  exec python -X utf8 -u "$DIR/agent_workflow.py" "$@"
-fi
-
-echo "Python 3.11+ was not found. Install Python 3, ensure python3 (or python) is on PATH, then run this command again." >&2
-exit 1
+exec node "$DIR/dist/agent-workflow.mjs" "$@"
