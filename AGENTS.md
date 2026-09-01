@@ -24,5 +24,6 @@
 - 修改 application source code 前，依 `project-docs` skill 查出涵蓋本次路徑的文件並讀過再動手；改完後依查詢結果建立缺少的文件或更新已失準的內容。
 - 修改 application source code logic 前，一律載入 `clean-comments` skill；test code、文件、指令、設定、script、除錯、規劃及其他非程式邏輯工作不適用。
 - 修改 `.agents/` 下任何 agent 或 skill 文件時載入 `writing-for-agents` skill。
+- 修改 `.agents/`、`src/`、`adapters/` 或 `schemas/` 中的 agents、skills、hooks 或 workflow contract 前，先讀 `docs/architecture.md`。
 - 查看或分析前端頁面時優先以 DOM（如 read_page、get_page_text）解析與判斷；只有在 DOM 無法解析或依 DOM 判斷有誤時，才考慮改用畫面截圖（screenshot）輔助。
 - 新增專案 skill 時，先詢問使用者要列為必裝或選擇性，再更新 managed manifest；未獲確認前不得自行分類。

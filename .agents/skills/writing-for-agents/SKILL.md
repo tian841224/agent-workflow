@@ -7,6 +7,8 @@ description: Use when writing or editing any agent or skill document under .agen
 
 This skill is the shared set of criteria for writing `AGENTS.md`, `SKILL.md`, and role files (`.agents/agents/*.md`).
 
+涉及 agent 或 skill 的架構、contract 或跨平台 adapter 時，先讀 [architecture.md](../../../docs/architecture.md)。
+
 ## Context pointers
 
 A skill's `description`, a line in AGENTS.md — both are the same kind of object: a **context pointer**, which names an out-of-context piece of material in standing context and encodes "under what condition should this be read." What makes a trigger reliable is the **wording**, not the quality of the material itself. A necessary-but-weakly-worded pointer is a wording problem — fix the wording first; only fold the material into a standing file if you can't get the wording right.

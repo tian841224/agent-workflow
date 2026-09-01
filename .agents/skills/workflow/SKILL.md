@@ -6,6 +6,8 @@ description: 實際修改 application source code logic 時，由主對話依觀
 # agent-workflow
 Optional push-back skill applies only when a chosen design may violate conventions or add unnecessary complexity.
 
+修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
+
 ## 適用範圍
 
 實際修改「目標專案」的 application source code logic 時，由主對話根據觀察到的 impact 與 risk 判斷是否建立 task、選擇要跑的 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍應執行相關測試，但直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。判斷為 non-code 後若在處理過程中發現實際需要改 application source code 邏輯（原判斷有誤），不得沿用原 task 補角色：另建 `code_change: true` 的新 task 走完整流程，原 task 標記 `superseded` 並在其中註明轉出的新 task。
@@ -42,7 +44,7 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 
 Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式，並從 real entrypoint 確認完成條件與可觀察結果。命中 `financial`、`data_write`、`migration`、`irreversible`、`schema`、`contract` 時，在 §6 第一趟的指令裡明寫要推翻的資料溯源、底層語意或同型擴散假設。每列都是最終交付批次的典型組合，不是逐一實作階段的 pipeline。
 
-`workflow-plan` 會輸出 `suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`workflow_request` 是主對話寫入的完整 capability 清單（例如 `[reviewer]`）；runtime 只驗證這份最終清單的執行結果，不新增或抑制其中任何一項。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
+`workflow-plan` 會輸出 `suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`workflow_request` 是主對話寫入的完整 capability 清單（例如 `[reviewer]`）；名稱 authority 是 `schemas/workflow-policy.json`，未知 capability 或無效 `workflow_facts` 直接回報 contract error。runtime 只驗證這份最終清單的執行結果，不新增或抑制其中任何一項。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 
 ## 1. 建立 Task
 

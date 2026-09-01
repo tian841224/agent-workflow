@@ -1,5 +1,22 @@
 # agent-workflow
 
+## 安裝
+
+Clone 後直接執行：
+
+```text
+npm run setup
+```
+
+這會啟動互動式安裝：required skills 一律安裝，optional skills 由使用者選取。
+公開 npm package 則使用：
+
+```text
+npx --yes @tian/agent-workflow@latest
+```
+
+`npx --yes .` 不可作為 clone 入口，因為 npm 不會從 current-project local directory package spec 選取其自身 bin。
+
 跨 Claude Code、Codex 與 Antigravity 的 AI 開發工作流框架。
 
 ## 一、專案介紹
@@ -25,7 +42,7 @@
 | v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
 | v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
 | v4 | 依情境載入流程、canonical `.agents`、TDD、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
-| v5 | Python runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
+| v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
 | v6 | 在 v5 架構基礎上，以「同 prompt、有無 skill／角色提示」的 A/B 比較作為去留依據，只保留驗證後仍有效的最小提示 | skill／角色清單只增不減，缺乏依據判斷提示內容是否真的提升輸出品質，導致 token 與執行時間持續墊高 |
 
 ## 二、功能介紹
@@ -43,7 +60,9 @@
 3. **非程式碼任務**：設定、文件、註解、script、除錯、review、規劃、問答與翻譯等任務一律 bypass，不建立 task、不啟動角色。
 4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務，使用 `task_type: read_only` 與 `model_profile: cheap_read`；Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
 
-流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把最終要跑的角色與檢查完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。可透過 `agent_workflow.py workflow-plan` 查看候選與理由。
+流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把最終要跑的角色與檢查完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。可透過 `agent-workflow workflow-plan` 查看候選與理由。
+
+`workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
 ### Review 與角色化品質檢查
 
@@ -115,7 +134,7 @@
                                │
                     ~/.agent-workflow/runtime
                                │
-        agent_workflow.py（經 agent_workflow.cmd／agent-workflow 呼叫）
+        dist/agent-workflow.mjs（經 agent_workflow.cmd／agent-workflow 呼叫）
                                │
         ┌───────────────────────┼────────────────────────┐
         │                       │                        │
@@ -137,7 +156,7 @@
 ├─ .codex/                    Codex 的 agent、skills、rules 與 hooks
 ├─ .gemini/                   Antigravity 的 agent、skills 與 hooks
 └─ .agent-workflow/           agent-workflow runtime 與使用者資料
-   ├─ runtime/                已安裝的 Python runtime 與 CLI
+   ├─ runtime/                已安裝的 Node runtime contract
    ├─ knowledge/              跨專案與專案共用的 knowledge
    ├─ skill-drafts/           待審的 skill 草稿與提煉狀態（不會被 agent 載入）
    ├─ review-causes/          review 打回的歸因紀錄與累積狀態
@@ -152,17 +171,19 @@
 
 不同 AI 工具的原生設定由 installer 依平台建立，並透過 adapter 連結到 `.agents` 的 canonical source。未指定的平台不會建立或修改對應的 agent 資料夾。
 
+agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](docs/architecture.md)。
+
 ### 主要元件分工
 
 | 元件 | 責任 |
 | --- | --- |
 | `.agents/skills/` | 共用 skills、workflow policy、風險與平行編排規則 |
 | `.agents/agents/` | 角色定義（Worker 處理隔離子任務；Reader 處理唯讀分析） |
-| `agent_workflow/` | workflow 選取評估、installer、guard、task、knowledge、learn、distill 與驗證邏輯 |
+| `src/` | workflow 選取評估、installer、guard、task、knowledge、learn、distill 與驗證邏輯 |
 | `adapters/` | 各 AI 平台的設定、manifest 與 hooks |
 | `schemas/` | task、workflow、knowledge、project、retro、review-cause 等資料契約 |
 | `templates/` | Standard、Minimal 與其他 task 範本 |
-| `runtime/` | Python runtime contract 與執行限制 |
+| `runtime/` | Node runtime contract 與執行限制 |
 | `tests/` | runtime、installer、hook、task、knowledge、orchestrate 與 migration 完整驗證 |
 
 ## 四、安裝方法
@@ -170,8 +191,7 @@
 ### 安裝需求
 
 - Windows
-- Python 3.11 以上
-- 可使用 `py.exe` 或 `python.exe`
+- Node.js 20 以上
 
 ### 安裝
 
@@ -201,11 +221,15 @@ install.cmd --target-agent All --skills all
 
 新增 skill 時，先確認要列為必裝或選擇性，再在 `adapters/managed-manifest.json` 的 `skills` catalog 登錄名稱、說明與 `required` 設定。
 
+版本欄位分工如下：product version 是 CLI 顯示的 `v6`；`adapters/managed-manifest.json` 的 `schema_version` 是 manifest 格式版本；`.agent-workflow/managed-runtime.json` 的 `schema_version` 是 installed state 格式版本。三者獨立演進，不再以同一個數字代稱。
+
 ### 檢查安裝狀態
 
 ```bat
 install.cmd --action Verify
 ```
+
+`Verify` 會檢查 managed-state 與 manifest、bundle SHA-256、repo source 與 runtime 同步、三平台 required／selected skills、managed entrypoint、hooks 與 Codex hook trust。輸出包含 `valid`、`node`、`runtime_root` 與 `errors`；任一缺失、hash drift、source 自指或 hook 未信任都會回傳非零狀態。
 
 如果需要重新同步或修復已安裝的檔案：
 
@@ -220,3 +244,9 @@ install.cmd --action Uninstall --target-agent All
 ```
 
 移除安裝時，只會移除仍由本專案管理且未被使用者修改的 managed files，不會刪除既有的 knowledge、projects、tasks 或 imports 資料。
+
+### v6 breaking changes
+
+- task lifecycle 的機械狀態由 `task.json` 保存；coordinator completion 與 worker roster 檢查由 `task-gate` 的 Stop／Close 路徑統一處理。
+- `workflow-plan` 遇到未知 capability 或損壞 facts 時改為非零結束。
+- `Verify` 從入口存在檢查提升為完整 runtime integrity contract。
