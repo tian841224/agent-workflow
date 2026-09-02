@@ -64,6 +64,42 @@ test("skill drafts write the documented draft file and promote its contents", ()
   assert.equal(readFileSync(join(state, "skills", "example-rule", "SKILL.md"), "utf8"), readFileSync(draftPath, "utf8"));
 });
 
+test("memory review prompts once per week and records the user's decision", () => {
+  const root = join(tmpdir(), `agent-workflow-memory-review-${process.pid}-${Date.now()}`);
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const prompt = run(["memory-review", "--action", "Prompt", "--state-root", root]);
+  assert.equal(prompt.status, 0, prompt.stderr);
+  assert.equal(JSON.parse(prompt.stdout).prompted, true);
+  const repeated = run(["memory-review", "--action", "Prompt", "--state-root", root]);
+  assert.equal(JSON.parse(repeated.stdout).prompted, false);
+  const decision = run(["memory-review", "--action", "Decision", "--decision", "yes", "--state-root", root]);
+  assert.equal(decision.status, 0, decision.stderr);
+  assert.match(decision.stdout, /run npm run memory-review/);
+  const reviewed = run(["memory-review", "--action", "Reviewed", "--state-root", root]);
+  assert.equal(reviewed.status, 0, reviewed.stderr);
+  assert.equal(JSON.parse(reviewed.stdout).due, false);
+});
+
+test("close-task reports the weekly memory review question when due", () => {
+  const root = join(tmpdir(), `agent-workflow-close-memory-review-${process.pid}-${Date.now()}`);
+  const task = join(root, "task");
+  const stateRoot = join(root, "state");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.json"), JSON.stringify({
+    schema_version: 1,
+    id: "close-memory-review",
+    intent: "Verify task completion prompt",
+    lifecycle: { status: "in_progress", transitions: [{ at: new Date().toISOString(), action: "create", from: "new", to: "in_progress", actor: "test" }] },
+    evidence: []
+  }));
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "close-task", "--task-path", join(task, "task.json"), "--state-root", stateRoot], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+  assert.equal(output.memory_review.due, true);
+  assert.equal(output.memory_review.prompted, true);
+  assert.match(output.memory_review.question, /記憶檢視/);
+});
+
 test("project-resolver reproduces the legacy project_id formula for a git repo with a remote", () => {
   const root = join(tmpdir(), `agent-workflow-project-id-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });

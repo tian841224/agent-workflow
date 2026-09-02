@@ -82,6 +82,10 @@ npx --yes @tian/agent-workflow@latest
 - **模式提煉**：同一類結論反覆出現時，runtime 會把它標為可提煉的模式；agent 依 `distill` skill 寫成 skill 草稿暫存在 `skill-drafts/`。草稿只有在使用者於對話中明確同意時才執行 Promote 成生效的 skill。
 - **Review 歸因與補救**：Review 有打回並修正後，開下一輪前記錄一次歸因（缺文件、任務描述不足、缺規範或有規範未讀）。累積達門檻的補救措施（補文件、改 task 模板、寫 skill）一律需使用者明確同意。
 
+### 每週記憶檢視
+
+每次 `close-task` 成功結束任務時，runtime 會檢查是否已超過七天；到期才在輸出中詢問使用者是否執行記憶檢視，同一週不會重複詢問。使用者同意後執行 `npm run memory-review`，完成後標記 `memory-review --action Reviewed`。結果只提供證據與建議目的地，不會自動建立、Promote 或 Reject；由使用者決定後續處理。詳細流程見 [`docs/weekly-memory-review.md`](docs/weekly-memory-review.md)。
+
 ### 跨平台記憶讀取
 
 專案支援 Claude Code、Codex 與 Antigravity 之間的記憶脈絡讀取。各平台啟動新的 session 或收到新的 prompt 時，由 managed `SessionStart` hook 自動從共用 knowledge 與各平台可讀取的原生文字記憶中篩選相關資訊，提供給 AI 參考。

@@ -7,13 +7,14 @@ import { orchestrate } from "./orchestration.js";
 import { fingerprint, preReview, projectResolver, workflowPlan } from "./misc.js";
 import { retro, reviewCause, splitPlan } from "./records.js";
 import { learn, skillDraft } from "./learning.js";
+import { memoryReview } from "./memory-review.js";
 import { projectDoc } from "./project-doc.js";
 
 const commands = [
   "install", "repair", "verify", "uninstall", "migrate-state",
   "git-guard", "skill-guard", "memory-context",
   "workflow-plan", "task-gate", "close-task",
-  "learn", "knowledge", "skill-draft", "retro", "review-cause",
+  "learn", "knowledge", "skill-draft", "memory-review", "retro", "review-cause",
   "project-resolver", "project-doc", "pre-review",
   "orchestrate", "split-plan", "worktree-fingerprint"
 ];
@@ -74,7 +75,8 @@ async function main(): Promise<void> {
   else if (command === "skill-draft") process.exitCode = skillDraft(parsed.values);
   else if (command === "project-doc") process.exitCode = projectDoc(parsed.values);
   else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")));
-  else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"));
+  else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"));
+  else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
   else if (["freeze", "pause", "block", "supersede", "waive"].includes(command)) {
     const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "freeze" | "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"));
     process.stdout.write(`${JSON.stringify(state)}\n`);

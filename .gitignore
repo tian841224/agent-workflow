@@ -16,4 +16,6 @@ docs/
 !docs/
 docs/*
 !docs/architecture.md
+!docs/weekly-memory-review.md
+!docs/release-verification.md
 dist/

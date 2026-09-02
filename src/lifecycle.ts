@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { JsonObject, now, output, readJson, writeJson } from "./core.js";
+import { memoryReviewPrompt } from "./memory-review.js";
 
 type Transition = "create" | "freeze" | "pause" | "block" | "supersede" | "waive" | "close";
 const allowed: Record<string, string[]> = {
@@ -35,4 +36,4 @@ export function taskGate(value: string): number {
     output({ valid: errors.length === 0, task: taskPath(value), status: life.status, errors }); return errors.length ? 1 : 0;
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
 }
-export function closeTask(value: string, actor: string, confirmation: string): number { if (taskGate(value)) return 1; transitionTask(value, "close", actor, confirmation); output({ valid: true, closed: taskPath(value) }); return 0; }
+export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string): number { if (taskGate(value)) return 1; transitionTask(value, "close", actor, confirmation); output({ valid: true, closed: taskPath(value), memory_review: memoryReviewPrompt(stateRootValue) }); return 0; }
