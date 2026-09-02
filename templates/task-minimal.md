@@ -44,6 +44,10 @@ frozen_at:
 - [ ] <observable result>
 - [ ] <relevant regression or acceptance case>
 
+## Project docs
+
+- updated: <doc paths created or updated by project-doc's post-change sync step, comma-separated; if the sync step found no doc needed changing, fill "none - reason">
+
 ## Validation results
 
 - pre-review: <PASS | FAIL | SKIP + reason>
@@ -70,4 +74,10 @@ already-selected evidence capability and can produce deterministic capability su
 Use templates/task.md when workflow_request includes an evidence capability (their step
 lines live there), or for coordinator/worker tasks.
 Add Retrospective result only for a suspected regression, repeated fix, or user request.
+
+Project docs' "updated:" line is required on every code-changing task, not just Elevated ones —
+whether to read or write a doc stays a judgment call (see the project-docs skill's Lookup and
+sync steps), but the outcome of that judgment must be recorded here so it is never silently
+skipped. Elevated tasks additionally record "read:" (see templates/task.md) because they already
+do a reverse-search-driven Impact surface; Standard tasks do not repeat that here.
 -->

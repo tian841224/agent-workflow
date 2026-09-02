@@ -86,7 +86,7 @@ Elevated task 另有建立前與實作前規則見 [elevated.md](elevated.md)（
 - 架構設計、feature planning、refactor 策略或 `unclear_requirements` 時先載入 [planning skill](../planning/SKILL.md)；使用者已選定方案且涉及新增 abstraction、interface、adapter、wrapper、cross-layer seam 或可疑複雜度時先載入 [push-back skill](../push-back/SKILL.md)，在實作前完成取捨檢查。
 - 若本次新增或修改程式碼註解，依已載入的 [clean-comments skill](../clean-comments/SKILL.md) 執行：函式註解只講對外合約、流程註解就近解釋 Why，不堆內部步驟流水帳。
 - 發現新 hard-risk flag 時先更新 task；若需凍結則停手取得使用者確認。
-- 動手前先跑一次 `project-doc --action Lookup`，在跑 pre-review 之前依查詢結果處理受影響文件（原料是 `Impact surface` 與 `Execution path`）：命中且事實仍成立記 no-op、已失準就更新、`uncovered` 就建立。判斷細節與 `## Project docs` 的 `read:`／`updated:` 填法見 [project-docs skill](../project-docs/SKILL.md)。
+- 動手前先跑一次 `project-doc --action Lookup`，在跑 pre-review 之前依查詢結果處理受影響文件（原料是 `Impact surface` 與 `Execution path`）：命中且事實仍成立記 no-op、已失準就更新、`uncovered` 就建立。是否要讀、要不要動文件仍是判斷題，但判斷完的結果一律寫進 `## Project docs` 的 `updated:`（Elevated 另加 `read:`）——**這行 Standard task 也要填，不因為用 `task-minimal.md` 就省略**，沒有文件變動時寫具體原因而非留空。判斷細節見 [project-docs skill](../project-docs/SKILL.md)。
 
 ## 5. Pre-review
 

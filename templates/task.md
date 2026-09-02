@@ -92,10 +92,11 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 ## User confirmation
 -->
 
-<!-- Add for Elevated code tasks (Project docs' "read" and Impact surface must be filled in before touching code):
+<!-- Add for Elevated code tasks ("read" and Impact surface must be filled in before touching code;
+"updated" alone is also required on every Standard task via templates/task-minimal.md):
 ## Project docs
 - read: <doc paths matched and read via project-doc --action Lookup, comma-separated; if the project has no docs yet, fill "none - reason">
-- updated: <doc paths updated or confirmed in this task, comma-separated; if none, fill "none - reason" (close-task.py checks this line when change_kind is feature/refactor, or when risk_flags hits behavior_change/contract/schema/cross_feature)>
+- updated: <doc paths created or updated by the post-change sync step, comma-separated; if the sync step found no doc needed changing, fill "none - reason">
 
 ## Impact surface
 - Callers: <reverse-search command and hit count; hits needing judgment listed individually as path:line>

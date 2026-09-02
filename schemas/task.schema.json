@@ -40,7 +40,6 @@
     "stop_reason": { "type": "string", "minLength": 1 },
     "independence": { "enum": ["native", "degraded"] },
     "roles_waived": { "type": "string", "minLength": 1 },
-    "trello_card": { "type": "string", "minLength": 1 },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "file_ownership": {

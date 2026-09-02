@@ -56,6 +56,29 @@ export function stableId(value: string): string {
   return sha256(value).slice(0, 16);
 }
 
+export type ProjectIdentity = { projectId: string; worktreeId: string; root: string };
+
+// Matches the pre-Node project_id formula exactly (git-common-dir + remote + root-commit
+// fingerprint) so existing ~/.agent-workflow/projects/<id> directories keep resolving.
+export function projectIdentity(path: string): ProjectIdentity {
+  const resolvedPath = resolve(path);
+  const probe = git(resolvedPath, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"]);
+  const lines = probe.stdout.split(/\r?\n/);
+  if (probe.status !== 0 || (lines[0] || "").trim().toLowerCase() !== "true") {
+    return { projectId: stableId(`${normal(resolvedPath)}||`), worktreeId: stableId(normal(resolvedPath)), root: resolvedPath };
+  }
+  const root = resolve(lines[1].trim());
+  const commonRaw = lines[2].trim();
+  const commonDir = isAbsolute(commonRaw) ? resolve(commonRaw) : resolve(root, commonRaw);
+  const remoteResult = git(resolvedPath, ["config", "--get", "remote.origin.url"]);
+  const remote = remoteResult.status === 0 ? (remoteResult.stdout.split(/\r?\n/)[0] || "").trim().toLowerCase() : "";
+  const rootsResult = git(resolvedPath, ["rev-list", "--max-parents=0", "HEAD"]);
+  const fingerprint = rootsResult.status === 0
+    ? [...new Set(rootsResult.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))].sort().join(",").toLowerCase()
+    : "";
+  return { projectId: stableId(`${normal(commonDir)}|${remote}|${fingerprint}`), worktreeId: stableId(normal(root)), root };
+}
+
 export function normal(path: string): string {
   return resolve(path).replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
 }

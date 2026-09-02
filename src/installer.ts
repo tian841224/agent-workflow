@@ -88,19 +88,32 @@ async function selectSkills(value: Record<string, JsonObject>, options: InstallO
   return [...new Set([...names, ...requiredSkills(value)])].sort();
 }
 function removeOwnHooks(value: Json, marker: string): Json {
-  if (Array.isArray(value)) return value.map((item) => removeOwnHooks(item, marker)).filter((item) => JSON.stringify(item).toLowerCase().indexOf(marker.toLowerCase()) < 0);
+  // JSON.stringify escapes each path backslash as two characters, so a raw Windows marker
+  // never matches; compare both sides with backslashes collapsed to forward slashes instead.
+  const needle = marker.replaceAll("\\", "/").toLowerCase();
+  if (Array.isArray(value)) return value.map((item) => removeOwnHooks(item, marker)).filter((item) => JSON.stringify(item).replaceAll("\\\\", "/").toLowerCase().indexOf(needle) < 0);
   if (!value || typeof value !== "object") return value;
   const record = value as JsonObject;
   const result: JsonObject = {};
   for (const [key, item] of Object.entries(record)) if (!key.startsWith("agent-workflow-")) result[key] = removeOwnHooks(item, marker);
   return result;
 }
+function mergeHookEvents(current: JsonObject, replaced: JsonObject): JsonObject {
+  const merged: JsonObject = { ...current };
+  for (const [event, groups] of Object.entries(replaced)) {
+    const existingGroups = Array.isArray(current[event]) ? current[event] as Json[] : [];
+    merged[event] = [...existingGroups, ...(Array.isArray(groups) ? groups : [])];
+  }
+  return merged;
+}
 function mergeHook(fragment: JsonObject, destination: string, runtime: string, node: string, dryRun: boolean, topLevel: boolean): void {
   const replaced = JSON.parse(JSON.stringify(fragment).replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\")).replaceAll("{{NODE_EXE}}", node.replaceAll("\\", "\\\\"))) as JsonObject;
   let current: JsonObject = {};
   if (existsSync(destination)) current = readJson(destination);
   current = removeOwnHooks(current, runtime) as JsonObject;
-  const merged = topLevel ? { ...current, ...replaced } : { ...current, hooks: { ...((current.hooks || {}) as JsonObject), ...((replaced.hooks || {}) as JsonObject) } };
+  // Per-event array append (not a shallow key overwrite) so a platform's own hooks on the same
+  // event (e.g. a user Stop hook) survive alongside the managed ones instead of being replaced.
+  const merged = topLevel ? { ...current, ...replaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (replaced.hooks || {}) as JsonObject) };
   if (!dryRun) writeJson(destination, merged);
 }
 function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean): void {

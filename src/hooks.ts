@@ -29,7 +29,10 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   const call = object(payload.toolCall); const input = object(payload.tool_input); const tool = (text(payload.tool_name) || text(payload.toolName) || text(payload.tool) || text(call.name)).toLowerCase().replaceAll("-", "_");
   const command = text(object(call.args).CommandLine) || text(object(call.args).command) || text(input.command) || text(object(payload.input).command);
   const found = paths(payload); const shellMutation = /(?:>|>>|\b(?:set-content|add-content|out-file|new-item|remove-item|copy-item|move-item|tee|sed\s+-i|perl\s+-pi|cp|mv|rm|del|erase)\b)/i.test(command);
-  const mutation = writeTools.has(tool) || /(write|edit|delete|rename)/.test(tool) || shellMutation;
+  const fileMutation = writeTools.has(tool) || /(write|edit|delete|rename)/.test(tool) || shellMutation;
+  // MCP 連接器的 target 是遠端資源而非檔案路徑，永遠正規化不出 path；名稱含 write 的連接器
+  // 若套用本 guard 會被永久 fail-closed，故僅在它確實帶了路徑參數時才納入檔案 mutation 判斷
+  const mutation = fileMutation && (!tool.startsWith("mcp__") || found.length > 0);
   const cwd = text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
   return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0 || !!command, sessionId: text(payload.session_id) || text(payload.sessionId) || undefined };
 }

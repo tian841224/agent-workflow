@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -49,6 +50,67 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
   assert.ok(!existsSync(join(task, "task.md")));
 });
 
+test("skill drafts write the documented draft file and promote its contents", () => {
+  const root = join(tmpdir(), `agent-workflow-skill-draft-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const drafted = run(["skill-draft", "--action", "Draft", "--name", "example-rule", "--description", "Use when the example rule applies.", "--content", "# Example rule\n\nFollow the rule.", "--state-root", state]);
+  assert.equal(drafted.status, 0, drafted.stderr);
+  const draftPath = join(state, "skill-drafts", "example-rule", "SKILL.md");
+  assert.equal(JSON.parse(drafted.stdout).path, draftPath);
+  assert.match(readFileSync(draftPath, "utf8"), /Follow the rule\./);
+  const promoted = run(["skill-draft", "--action", "Promote", "--name", "example-rule", "--approved-by-user", "--state-root", state]);
+  assert.equal(promoted.status, 0, promoted.stderr);
+  assert.equal(readFileSync(join(state, "skills", "example-rule", "SKILL.md"), "utf8"), readFileSync(draftPath, "utf8"));
+});
+
+test("project-resolver reproduces the legacy project_id formula for a git repo with a remote", () => {
+  const root = join(tmpdir(), `agent-workflow-project-id-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const git = (args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  git(["init", "-q"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "test"]);
+  git(["remote", "add", "origin", "http://example.com/Repo.git"]);
+  writeFileSync(join(root, "file.txt"), "x");
+  git(["add", "file.txt"]);
+  git(["commit", "-q", "-m", "init"]);
+  const rootCommit = spawnSync("git", ["-C", root, "rev-list", "--max-parents=0", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const expected = crypto.createHash("sha256").update(`${root.replaceAll("\\", "/").toLowerCase()}/.git|http://example.com/repo.git|${rootCommit}`).digest("hex").slice(0, 16);
+  const resolved = JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "project-resolver", "--path", root, "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8" }).stdout);
+  assert.equal(resolved.project_id, expected);
+});
+
+test("repeated repairs do not duplicate a platform's own managed hooks (Windows backslash paths)", () => {
+  const root = join(tmpdir(), `agent-workflow-repair-dedupe-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const claudeTarget = join(root, "claude");
+  const targets = ["--claude-target", claudeTarget, "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  const preToolUse = JSON.stringify(JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks.PreToolUse);
+  assert.equal((preToolUse.match(/git-guard --platform Claude/g) || []).length, 1);
+});
+
+test("repair keeps a platform's own Stop hook alongside managed hooks", () => {
+  const root = join(tmpdir(), `agent-workflow-stop-merge-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const claudeTarget = join(root, "claude");
+  const targets = ["--claude-target", claudeTarget, "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  const settingsPath = join(claudeTarget, "settings.json");
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  settings.hooks.Stop = [...(settings.hooks.Stop || []), { hooks: [{ type: "agent", prompt: "user's own stop hook" }] }];
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  const stopHooks = JSON.stringify(JSON.parse(readFileSync(settingsPath, "utf8")).hooks.Stop);
+  assert.match(stopHooks, /user's own stop hook/);
+  assert.match(stopHooks, /git-guard|skill-guard|memory-context/);
+});
+
 test("hook policy rejects an unlocatable mutation and orchestration rejects duplicate apply", () => {
   const root = join(tmpdir(), `agent-workflow-guard-${process.pid}-${Date.now()}`);
   const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Codex"], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ tool_name: "write_file", tool_input: {} }) });
@@ -57,4 +119,27 @@ test("hook policy rejects an unlocatable mutation and orchestration rejects dupl
   const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", action, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8" });
   for (const action of ["Init", "WorkerReady", "Integrate", "Apply"]) assert.equal(run(action).status, 0, action);
   assert.notEqual(run("Apply").status, 0);
+});
+
+test("MCP connector write tools are not denied as unlocatable file mutations", () => {
+  // 連接器工具名含 write 會命中檔案 mutation 偵測，但它的 target 是遠端資源、沒有檔案路徑，
+  // 遠端連接器沒有本機檔案路徑，不能套用檔案 mutation 的定位規則
+  const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Claude"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify({ tool_name: "mcp__connector__writeCard", tool_input: { cardId: "remote-card", desc: "x" } }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.doesNotMatch(guarded.stdout, /denied fail-closed/);
+});
+
+test("MCP tools carrying a .agents path still require the writing-for-agents proof", () => {
+  // 放行沒有檔案路徑的連接器工具，不得削弱 .agents 寫入保護
+  const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Claude"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify({ tool_name: "mcp__fs__write_file", tool_input: { file_path: join(".agents", "skills", "x", "SKILL.md") } }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.match(guarded.stdout, /skill-guard/);
 });

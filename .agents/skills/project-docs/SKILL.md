@@ -154,10 +154,10 @@ $pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\agent_workflow.cmd'
 
 以下只在走 workflow task 時適用；bypass workflow 的 code change 只做上面的「同步流程」。
 
-Elevated task 的 `## Project docs` 兩個欄位都是「列路徑，或 `none - <理由>`」；理由不得是 placeholder，路徑不存在一律修正。
+`## Project docs` 的 `updated:` 是否要建立或更新文件，一律由 agent 自行判斷；`task-minimal.md`（Standard）與 `task.md`（Elevated）都內建這一行，**判斷結果要不要動文件，跟這行有沒有填是兩件事**——沒有文件要動就寫 `none - <具體理由>`，理由不得是 placeholder。Elevated task 另有 `- read:`，填動手前 Lookup 命中並讀過的文件路徑，路徑不存在一律修正；Standard task 不重複這行。
 
-- `- read:`：填動手前 Lookup 命中並讀過的文件路徑。
-- `- updated:`：填本次建立或更新的文件路徑；全部命中且內容仍準確時填 `none - 已存在且準確`。**觸發的是「處理」不是「重寫」**——為了填欄位重寫既有文件只會產出沒有資訊量的內容。
+- `- read:`（僅 Elevated）：填動手前 Lookup 命中並讀過的文件路徑。
+- `- updated:`（Standard／Elevated 皆有）：填本次建立或更新的文件路徑；全部命中且內容仍準確時填 `none - 已存在且準確`。**觸發的是「處理」不是「重寫」**——為了填欄位重寫既有文件只會產出沒有資訊量的內容。
 
 從 task 既有欄位收割，不是新探索：
 
