@@ -76,3 +76,36 @@ test("a waiver recorded against one requirements_hash does not satisfy the same 
   const regated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(regated.errors.some((error) => error.includes("role.reviewer")));
 });
+
+test("workflow-plan and task-gate compute the same requirements_hash for the same task.json", () => {
+  const root = join(tmpdir(), `agent-workflow-gate-hash-parity-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Hash parity\n\n## Goal\n\nVerify requirements_hash matches across commands.\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ workflow_request: ["reviewer"], impact_scope: "file" })));
+  const run = (args) => JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" }).stdout);
+  const plan = run(["workflow-plan", "--task-path", path]);
+  const gated = run(["task-gate", "--task-path", path]);
+  assert.equal(plan.requirements_hash, gated.compiled.requirements_hash);
+});
+
+test("concurrent transitions against the same task.json never lose an update (lock contention integrity)", async () => {
+  const root = join(tmpdir(), `agent-workflow-lock-contention-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask()));
+  const { spawn } = await import("node:child_process");
+  const runAsync = (args) => new Promise((resolvePromise) => {
+    const child = spawn(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd() });
+    child.on("close", (code) => resolvePromise(code));
+  });
+  const attempts = 8;
+  const results = await Promise.all(Array.from({ length: attempts }, () => runAsync(["pause", "--task", path])));
+  // 每次呼叫都會經過 allowed-transition 檢查（in_progress -> paused 只成功一次），其餘因狀態不符而失敗，
+  // 但 state_revision 必須恰好只被真正成功的那次 mutateTask 呼叫遞增一次，藉此驗證 lock 沒有遺失更新
+  const succeeded = results.filter((code) => code === 0).length;
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(succeeded, 1);
+  assert.equal(state.state_revision, 2);
+  assert.equal(state.lifecycle.status, "paused");
+});

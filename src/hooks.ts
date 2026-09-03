@@ -36,7 +36,7 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   // 若套用本 guard 會被永久 fail-closed，故僅在它確實帶了路徑參數時才納入檔案 mutation 判斷
   const mutation = fileMutation && (!tool.startsWith("mcp__") || found.length > 0);
   const cwd = text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
-  return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0 || !!command, sessionId: text(payload.session_id) || text(payload.sessionId) || undefined };
+  return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0, sessionId: text(payload.session_id) || text(payload.sessionId) || undefined };
 }
 export function hookDecision(event: CanonicalHookEvent): HookDecision {
   if (event.mutation && !event.targetKnown) return { allow: false, reason: "hook-policy: mutation target cannot be normalized; denied fail-closed." };

@@ -2,9 +2,9 @@ import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import { JsonObject, mutateTask, now, output, projectIdentity, readJson, schemaPath, sha256, workspaceFingerprint } from "./core.js";
+import { JsonObject, mutateTask, now, output, projectIdentity, readJson, schemaPath, sha256, withFileLock, writeJson, workspaceFingerprint } from "./core.js";
 import { memoryReviewPrompt } from "./memory-review.js";
-import { compileWorkflowPlan, loadPolicy } from "./workflow-policy.js";
+import { compilePlanForTaskPath } from "./workflow-policy.js";
 
 type Transition = "create" | "pause" | "block" | "supersede" | "waive" | "close";
 const allowed: Record<string, string[]> = {
@@ -25,66 +25,80 @@ function schemaErrors(state: JsonObject): string[] {
 export function taskPath(value: string): string { return value.endsWith(".json") ? resolve(value) : join(resolve(value), "task.json"); }
 function task(value: string): JsonObject { const path = taskPath(value); if (!existsSync(path)) throw new Error(`task state is missing: ${path}`); return readJson(path); }
 function lifecycle(value: JsonObject): JsonObject { const current = value.lifecycle; if (!current || Array.isArray(current) || typeof current !== "object") throw new Error("task.json lifecycle is missing"); return current as JsonObject; }
+// Shared by transitionTask and closeTask so both write through the exact same transition logic.
+function applyTransition(state: JsonObject, path: string, action: Transition, actor: string, confirmation: string, requirementId: string): void {
+  const life = lifecycle(state); const from = String(life.status || "");
+  const target: Record<Transition, string> = { create: "in_progress", pause: "paused", block: "blocked", supersede: "superseded", waive: from, close: "closed" };
+  if (action !== "waive" && !(allowed[from] || []).includes(target[action])) throw new Error(`invalid TaskLifecycle transition: ${from} -> ${target[action]}`);
+  const transitions = Array.isArray(life.transitions) ? life.transitions : [];
+  transitions.push({ at: now(), action, from, to: target[action], actor, ...(action === "waive" ? { confirmed_by_user: confirmation } : {}) });
+  life.status = target[action]; life.transitions = transitions; state.lifecycle = life;
+  if (state.plan_revision === undefined) state.plan_revision = 1; // transitionTask never edits classification fields itself; a future command that does must bump this
+  if (action === "waive") {
+    const waivers = Array.isArray(state.waivers) ? state.waivers : [];
+    const plan = compilePlanForTaskPath(state, path);
+    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, ...(requirementId ? { requirement_id: requirementId } : {}), requirements_hash: plan.requirements_hash });
+    state.waivers = waivers;
+  }
+}
 export function transitionTask(value: string, action: Transition, actor = "cli", confirmation = "", requirementId = ""): JsonObject {
   const path = taskPath(value);
   if (!existsSync(path)) throw new Error(`task state is missing: ${path}`);
   if (action === "waive" && !confirmation) throw new Error("waiver requires explicit --confirmed-by-user");
-  return mutateTask<JsonObject>(path, (state) => {
-    const life = lifecycle(state); const from = String(life.status || "");
-    const target: Record<Transition, string> = { create: "in_progress", pause: "paused", block: "blocked", supersede: "superseded", waive: from, close: "closed" };
-    if (action !== "waive" && !(allowed[from] || []).includes(target[action])) throw new Error(`invalid TaskLifecycle transition: ${from} -> ${target[action]}`);
-    const transitions = Array.isArray(life.transitions) ? life.transitions : [];
-    transitions.push({ at: now(), action, from, to: target[action], actor, ...(action === "waive" ? { confirmed_by_user: confirmation } : {}) });
-    life.status = target[action]; life.transitions = transitions; state.lifecycle = life;
-    if (state.plan_revision === undefined) state.plan_revision = 1; // transitionTask never edits classification fields itself; a future command that does must bump this
-    if (action === "waive") {
-      const waivers = Array.isArray(state.waivers) ? state.waivers : [];
-      const policyPath = schemaPath("workflow-policy.json");
-      const taskMd = join(dirname(path), "task.md");
-      const plan = compileWorkflowPlan(state, loadPolicy(policyPath), {
-        taskMdSha256: existsSync(taskMd) ? sha256(readFileSync(taskMd)) : undefined,
-        policySha256: sha256(readFileSync(policyPath))
-      });
-      waivers.push({ at: now(), actor, confirmed_by_user: confirmation, ...(requirementId ? { requirement_id: requirementId } : {}), requirements_hash: plan.requirements_hash });
-      state.waivers = waivers;
+  return mutateTask<JsonObject>(path, (state) => applyTransition(state, path, action, actor, confirmation, requirementId));
+}
+type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[] };
+function evaluateTaskGate(state: JsonObject, path: string): GateResult {
+  const life = lifecycle(state);
+  const evidence = (Array.isArray(state.evidence) ? state.evidence : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
+  const errors: string[] = [...schemaErrors(state)];
+  if (life.status === "closed") errors.push("task is already closed");
+  const taskMd = join(dirname(path), "task.md");
+  const taskMdBuffer = existsSync(taskMd) ? readFileSync(taskMd) : null;
+  if (!taskMdBuffer || !taskMdBuffer.toString("utf8").trim()) errors.push("sibling task.md requires human intent (Goal/Scope/Completion criteria)");
+  if (evidence.some((item) => item.kind === "legacy-unverified")) errors.push("legacy-unverified evidence requires a new verification");
+  const riskFlags = Array.isArray(state.risk_flags) ? state.risk_flags.map(String) : [];
+  if (riskFlags.some((flag) => freezeRequired.has(flag))) {
+    const approval = state.intent_approval;
+    if (!approval || Array.isArray(approval) || typeof approval !== "object") errors.push("intent_approval is required for a freeze-required risk flag but is missing");
+    else if (!taskMdBuffer) errors.push("intent_approval cannot be verified: sibling task.md is missing");
+    else if (String((approval as JsonObject).intent_sha256 || "") !== sha256(taskMdBuffer)) errors.push("intent_approval.intent_sha256 is stale: task.md has changed since approval");
+  }
+  const waivers = (Array.isArray(state.waivers) ? state.waivers : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
+  let compiled: JsonObject = {};
+  try {
+    const plan = compilePlanForTaskPath(state, path);
+    compiled = { policy_version: plan.policy_version, requirements_hash: plan.requirements_hash, order: plan.order, required_evidence: plan.required_evidence };
+    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.requirements_hash || "") === plan.requirements_hash).map((item) => String(item.requirement_id || "")));
+    const workspaceSha = workspaceFingerprint(projectIdentity(dirname(path)).root);
+    for (const key of plan.required_evidence) {
+      const item = evidence.find((entry) => String(entry.id || entry.kind || "") === key && entry.verified === true);
+      if (!item) { if (!waived.has(key)) errors.push(`required evidence is not verified or waived: ${key}`); continue; }
+      if (key.startsWith("role.") && String(item.workspace_sha256 || "") !== workspaceSha && !waived.has(key)) errors.push(`role evidence is stale (workspace changed since review), re-review required: ${key}`);
     }
-  });
+  } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
+  return { valid: errors.length === 0, status: String(life.status), compiled, errors };
 }
 export function taskGate(value: string): number {
   try {
-    const path = taskPath(value); const state = task(path); const life = lifecycle(state);
-    const evidence = (Array.isArray(state.evidence) ? state.evidence : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
-    const errors: string[] = [...schemaErrors(state)];
-    if (life.status === "closed") errors.push("task is already closed");
-    const taskMd = join(dirname(path), "task.md");
-    const taskMdBuffer = existsSync(taskMd) ? readFileSync(taskMd) : null;
-    if (!taskMdBuffer || !taskMdBuffer.toString("utf8").trim()) errors.push("sibling task.md requires human intent (Goal/Scope/Completion criteria)");
-    if (evidence.some((item) => item.kind === "legacy-unverified")) errors.push("legacy-unverified evidence requires a new verification");
-    const riskFlags = Array.isArray(state.risk_flags) ? state.risk_flags.map(String) : [];
-    if (riskFlags.some((flag) => freezeRequired.has(flag))) {
-      const approval = state.intent_approval;
-      if (!approval || Array.isArray(approval) || typeof approval !== "object") errors.push("intent_approval is required for a freeze-required risk flag but is missing");
-      else if (!taskMdBuffer) errors.push("intent_approval cannot be verified: sibling task.md is missing");
-      else if (String((approval as JsonObject).intent_sha256 || "") !== sha256(taskMdBuffer)) errors.push("intent_approval.intent_sha256 is stale: task.md has changed since approval");
-    }
-    const waivers = (Array.isArray(state.waivers) ? state.waivers : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
-    let compiled: JsonObject = {};
-    try {
-      const policyPath = schemaPath("workflow-policy.json");
-      const plan = compileWorkflowPlan(state, loadPolicy(policyPath), {
-        taskMdSha256: taskMdBuffer ? sha256(taskMdBuffer) : undefined,
-        policySha256: sha256(readFileSync(policyPath))
-      });
-      compiled = { policy_version: plan.policy_version, requirements_hash: plan.requirements_hash, order: plan.order, required_evidence: plan.required_evidence };
-      const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.requirements_hash || "") === plan.requirements_hash).map((item) => String(item.requirement_id || "")));
-      const workspaceSha = workspaceFingerprint(projectIdentity(dirname(path)).root);
-      for (const key of plan.required_evidence) {
-        const item = evidence.find((entry) => String(entry.id || entry.kind || "") === key && entry.verified === true);
-        if (!item) { if (!waived.has(key)) errors.push(`required evidence is not verified or waived: ${key}`); continue; }
-        if (key.startsWith("role.") && String(item.workspace_sha256 || "") !== workspaceSha && !waived.has(key)) errors.push(`role evidence is stale (workspace changed since review), re-review required: ${key}`);
-      }
-    } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
-    output({ valid: errors.length === 0, task: path, status: life.status, compiled, errors }); return errors.length ? 1 : 0;
+    const path = taskPath(value); const state = task(path);
+    const gate = evaluateTaskGate(state, path);
+    output({ valid: gate.valid, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors });
+    return gate.valid ? 0 : 1;
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
 }
-export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string): number { if (taskGate(value)) return 1; transitionTask(value, "close", actor, confirmation); output({ valid: true, closed: taskPath(value), memory_review: memoryReviewPrompt(stateRootValue) }); return 0; }
+export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string): number {
+  const path = taskPath(value);
+  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  const outcome = withFileLock<{ code: number; body: JsonObject }>(`${path}.lock`, () => {
+    const state = readJson(path) as JsonObject;
+    const gate = evaluateTaskGate(state, path);
+    if (!gate.valid) return { code: 1, body: { valid: false, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors } as JsonObject };
+    applyTransition(state, path, "close", actor, confirmation, "");
+    state.state_revision = Number(state.state_revision || 0) + 1;
+    writeJson(path, state);
+    return { code: 0, body: { valid: true, closed: path, memory_review: memoryReviewPrompt(stateRootValue) } as JsonObject };
+  });
+  output(outcome.body);
+  return outcome.code;
+}

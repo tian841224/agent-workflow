@@ -1,5 +1,12 @@
-import { readFileSync } from "node:fs";
-import { canonicalJson, JsonObject, sha256 } from "./core.js";
+import { Ajv } from "ajv";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { canonicalJson, JsonObject, schemaPath, sha256 } from "./core.js";
+
+// workflow-policy.schema.json is draft-07 (no 2020-12 features needed here), so the default ajv
+// export already carries its meta-schema — unlike task.schema.json's Ajv2020 workaround in lifecycle.ts.
+const ajv = new Ajv({ allErrors: true, strict: false });
+const validatePolicySchema = ajv.compile(JSON.parse(readFileSync(schemaPath("workflow-policy.schema.json"), "utf8")) as JsonObject);
 
 export type WorkflowContext = {
   facts: JsonObject;
@@ -47,7 +54,9 @@ export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, r
   if (Array.isArray(condition.impact_effect)) return condition.impact_effect.map(String).includes(ctx.impact_effect) ? "match" : "no_match";
   if (Array.isArray(condition.impact_confidence)) return condition.impact_confidence.map(String).includes(ctx.impact_confidence) ? "match" : "no_match";
   if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope) ? "match" : "no_match";
-  return "no_match";
+  // Reachable only if a condition bypassed loadPolicy's schema validation (e.g. a hand-built
+  // policy object in a test) — schema-valid policies always match one of the branches above.
+  throw new Error(`workflow-policy: condition has no recognized operator: ${canonicalJson(condition)}`);
 }
 
 export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): MatchResult {
@@ -65,9 +74,35 @@ export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: Workflow
 
 export function loadPolicy(path: string): JsonObject {
   const policy = JSON.parse(readFileSync(path, "utf8")) as JsonObject;
-  if (!Array.isArray(policy.capabilities)) throw new Error("workflow-policy: capabilities must be an array");
-  if (!policy.scope_rank || typeof policy.scope_rank !== "object") throw new Error("workflow-policy: scope_rank is missing");
+  if (!validatePolicySchema(policy)) {
+    const errors = (validatePolicySchema.errors || []).map((error) => `workflow-policy${error.instancePath || ""} ${error.message}`.trim());
+    throw new Error(`workflow-policy schema invalid:\n${errors.join("\n")}`);
+  }
+  const capabilities = policy.capabilities as JsonObject[];
+  const names = capabilities.map((capability) => String(capability.name));
+  const duplicateNames = names.filter((name, index) => names.indexOf(name) !== index);
+  if (duplicateNames.length) throw new Error(`workflow-policy: duplicate capability name(s): ${[...new Set(duplicateNames)].join(", ")}`);
+  const nameSet = new Set(names);
+  for (const capability of capabilities) {
+    const after = Array.isArray(capability.order_after) ? capability.order_after.map(String) : [];
+    const unknown = after.filter((name) => !nameSet.has(name));
+    if (unknown.length) throw new Error(`workflow-policy: ${capability.name}.order_after references unknown capability: ${unknown.join(", ")}`);
+    const stepIds = (Array.isArray(capability.steps) ? capability.steps as JsonObject[] : []).map((step) => String(step.id));
+    const duplicateSteps = stepIds.filter((id, index) => stepIds.indexOf(id) !== index);
+    if (duplicateSteps.length) throw new Error(`workflow-policy: ${capability.name} has duplicate step id(s): ${[...new Set(duplicateSteps)].join(", ")}`);
+  }
   return policy;
+}
+
+// The one hash-relevant input set (policy + sibling task.md) every command must feed
+// compileWorkflowPlan identically, so task-gate / waive / workflow-plan never disagree on
+// requirements_hash for the same task.json on disk.
+export function compilePlanForTaskPath(task: JsonObject, taskJsonPath: string, policyPath = schemaPath("workflow-policy.json")): CompiledWorkflowPlan {
+  const taskMd = join(dirname(taskJsonPath), "task.md");
+  return compileWorkflowPlan(task, loadPolicy(policyPath), {
+    taskMdSha256: existsSync(taskMd) ? sha256(readFileSync(taskMd)) : undefined,
+    policySha256: sha256(readFileSync(policyPath))
+  });
 }
 
 export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): JsonObject[] {

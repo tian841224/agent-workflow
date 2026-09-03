@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-workflow.local/schemas/workflow-policy.schema.json",
+  "type": "object",
+  "required": ["version", "scope_rank", "capabilities"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "$id": { "type": "string" },
+    "version": { "type": "number" },
+    "scope_rank": { "type": "object", "additionalProperties": { "type": "number" }, "minProperties": 1 },
+    "effect_rank": { "type": "object", "additionalProperties": { "type": "number" } },
+    "capabilities": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/capability" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "required": ["name", "kind", "section", "steps"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["evidence", "role"] },
+        "section": { "type": "string", "minLength": 1 },
+        "order_after": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "require_when": { "$ref": "#/$defs/conditionGroups" },
+        "suggest_when": { "$ref": "#/$defs/conditionGroups" },
+        "suggest_reason": { "type": "string" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "title", "when"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "when": { "$ref": "#/$defs/conditionGroups" }
+      },
+      "additionalProperties": false
+    },
+    "conditionGroups": {
+      "type": "array",
+      "items": { "type": "array", "items": { "$ref": "#/$defs/condition" }, "minItems": 1 }
+    },
+    "condition": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["always"], "properties": { "always": { "const": true } }, "additionalProperties": false },
+        { "required": ["not"], "properties": { "not": { "$ref": "#/$defs/condition" } }, "additionalProperties": false },
+        { "required": ["fact", "equals"], "properties": { "fact": { "type": "string" }, "equals": { "type": "array" } }, "additionalProperties": false },
+        { "required": ["risk_flags"], "properties": { "risk_flags": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+        { "required": ["change_kind"], "properties": { "change_kind": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+        { "required": ["task_type"], "properties": { "task_type": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+        { "required": ["impact_scope"], "properties": { "impact_scope": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+        { "required": ["impact_effect"], "properties": { "impact_effect": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+        { "required": ["impact_confidence"], "properties": { "impact_confidence": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+        { "required": ["impact_scope_at_least"], "properties": { "impact_scope_at_least": { "type": "string" } }, "additionalProperties": false }
+      ]
+    }
+  }
+}

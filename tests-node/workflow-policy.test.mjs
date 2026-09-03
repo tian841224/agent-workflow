@@ -1,10 +1,50 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+
+function runPlan(task, policyPath) {
+  const root = join(tmpdir(), `agent-workflow-plan-schema-${process.pid}-${Date.now()}-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "task.json");
+  writeFileSync(path, JSON.stringify(task));
+  const args = ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path, ...(policyPath ? ["--policy-path", policyPath] : [])];
+  return spawnSync(process.execPath, args, { cwd: process.cwd(), encoding: "utf8" });
+}
+
+function withPolicy(mutate) {
+  const policy = JSON.parse(readFileSync("schemas/workflow-policy.json", "utf8"));
+  mutate(policy);
+  const root = join(tmpdir(), `agent-workflow-policy-${process.pid}-${Date.now()}-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "workflow-policy.json");
+  writeFileSync(path, JSON.stringify(policy));
+  return path;
+}
+
+test("loadPolicy rejects a policy with a duplicate capability name", () => {
+  const policyPath = withPolicy((policy) => { policy.capabilities.push({ ...policy.capabilities[0] }); });
+  const result = runPlan({ workflow_request: [], risk_flags: [], impact_scope: "file", impact_effect: "local_behavior", change_kind: "fix" }, policyPath);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /duplicate capability name/);
+});
+
+test("loadPolicy rejects an order_after reference to an unknown capability", () => {
+  const policyPath = withPolicy((policy) => { policy.capabilities[0].order_after = ["not_a_real_capability"]; });
+  const result = runPlan({ workflow_request: [], risk_flags: [], impact_scope: "file", impact_effect: "local_behavior", change_kind: "fix" }, policyPath);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /order_after references unknown capability/);
+});
+
+test("loadPolicy rejects a condition object with no recognized operator", () => {
+  const policyPath = withPolicy((policy) => { policy.capabilities[0].steps[0].when = [[{ made_up_operator: true }]]; });
+  const result = runPlan({ workflow_request: [], risk_flags: [], impact_scope: "file", impact_effect: "local_behavior", change_kind: "fix" }, policyPath);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /workflow-policy schema invalid/);
+});
 
 test("workflow-plan filters steps by impact_scope/impact_effect/change_kind and rejects an unknown capability", () => {
   const root = join(tmpdir(), `agent-workflow-plan-${process.pid}-${Date.now()}`);

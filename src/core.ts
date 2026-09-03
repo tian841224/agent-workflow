@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -195,17 +196,32 @@ export function canonicalJson(value: Json): string {
 
 // Lock dir create is atomic on NTFS and POSIX alike (mkdirSync throws EEXIST if held), so this
 // needs no extra dependency. Atomics.wait gives a real synchronous sleep between retries.
+// The lock dir carries an "owner" token file: a stale-timeout reclaim renames the whole dir aside
+// (atomic) before removing it, and release only unlinks the dir if its owner token still matches —
+// this stops a just-finished slow owner from deleting a newer claimant's lock (both were racing
+// unconditional rmSync of the same path before this).
 export function withFileLock<T>(lockPath: string, fn: () => T, staleMs = 5 * 60 * 1000): T {
+  const owner = randomUUID();
+  const ownerFile = join(lockPath, "owner");
   for (;;) {
-    try { mkdirSync(lockPath); break; }
+    try { mkdirSync(lockPath); writeFileSync(ownerFile, owner); break; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try { if (Date.now() - statSync(lockPath).mtimeMs > staleMs) rmSync(lockPath, { recursive: true, force: true }); }
-      catch { /* another process cleared or re-acquired it first */ }
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > staleMs) {
+          const stale = `${lockPath}.stale.${process.pid}.${Date.now()}`;
+          renameSync(lockPath, stale); // atomic hand-off: any late original owner now targets an orphaned path
+          rmSync(stale, { recursive: true, force: true });
+        }
+      } catch { /* another process cleared, reclaimed, or re-acquired it first */ }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 + Math.floor(Math.random() * 20));
     }
   }
-  try { return fn(); } finally { rmSync(lockPath, { recursive: true, force: true }); }
+  try { return fn(); }
+  finally {
+    try { if (readFileSync(ownerFile, "utf8") === owner) rmSync(lockPath, { recursive: true, force: true }); }
+    catch { /* lock was reclaimed as stale while we held it; nothing left of ours to remove */ }
+  }
 }
 
 // The one blessed read-modify-write for a shared JSON file: lock, read, mutate in place, bump

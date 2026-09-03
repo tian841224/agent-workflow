@@ -65,6 +65,16 @@ test("MCP tools carrying a .agents path still require the writing-for-agents pro
   assert.match(guarded.stdout, /skill-guard/);
 });
 
+test("skill-guard denies a shell delete/redirect command whose target path cannot be parsed out", () => {
+  const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Codex"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify({ tool_name: "bash", tool_input: { command: "rm .agents/skills/x/SKILL.md" } }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.match(guarded.stdout, /denied fail-closed/);
+});
+
 test("git-guard denies a git subcommand that is not on the read-only allowlist", () => {
   const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude"], {
     cwd: process.cwd(),
