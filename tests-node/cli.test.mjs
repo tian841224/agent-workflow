@@ -28,10 +28,13 @@ test("project-resolver reproduces the legacy project_id formula for a git repo w
   git(["add", "file.txt"]);
   git(["commit", "-q", "-m", "init"]);
   const rootCommit = spawnSync("git", ["-C", root, "rev-list", "--max-parents=0", "HEAD"], { encoding: "utf8" }).stdout.trim();
-  // git-common-dir's exact shape (relative vs absolute, path separator) is platform-dependent, so this
-  // asks git for it rather than assuming it is always "<root>/.git" — mirrors projectIdentity in core.ts.
+  // projectIdentity resolves commonDir against git's own --show-toplevel, not against the path this
+  // test happened to pass to `-C`. On Windows those two can differ in canonicalization (short vs
+  // long path form, drive letter case), so this must mirror the source and re-derive gitRoot from
+  // git itself rather than resolving commonRaw against the JS-side `root` variable.
+  const gitRoot = resolve(spawnSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).stdout.trim());
   const commonRaw = spawnSync("git", ["-C", root, "rev-parse", "--git-common-dir"], { encoding: "utf8" }).stdout.trim();
-  const commonDir = isAbsolute(commonRaw) ? resolve(commonRaw) : resolve(root, commonRaw);
+  const commonDir = isAbsolute(commonRaw) ? resolve(commonRaw) : resolve(gitRoot, commonRaw);
   const normalizedCommonDir = commonDir.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
   const expected = crypto.createHash("sha256").update(`${normalizedCommonDir}|http://example.com/repo.git|${rootCommit.toLowerCase()}`).digest("hex").slice(0, 16);
   const resolved = JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "project-resolver", "--path", root, "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8" }).stdout);

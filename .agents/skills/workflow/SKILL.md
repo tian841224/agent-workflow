@@ -8,11 +8,11 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
-task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`supersede`／`waive`／`close-task`；hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
 
 ## 適用範圍
 
-實際修改「目標專案」的 application source code logic 時，由主對話根據觀察到的 impact 與 risk 判斷是否建立 task、選擇要跑的 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍應執行相關測試，但直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。判斷為 non-code 後若在處理過程中發現實際需要改 application source code 邏輯（原判斷有誤），不得沿用原 task 補角色：另建 `code_change: true` 的新 task 走完整流程，原 task 標記 `superseded` 並在其中註明轉出的新 task。
+實際修改「目標專案」的 application source code logic 時，由主對話根據觀察到的 impact 與 risk 判斷是否建立 task、選擇要跑的 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍應執行相關測試，但直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。判斷為 non-code 後若在處理過程中發現實際需要改 application source code 邏輯（原判斷有誤），用 `task-write` 把同一個 task 的 `code_change` 改成 `true`：runtime 會在這次寫入時自動執行 worktree lease 檢查、dirty check 與 `base_commit` 綁定（見 `activateCodeTask`），之後依 §1 補齊 `workflow_mode: main` 與 `workflow_request` 走完整流程。`code_change` 只能單向從 `false` 轉為 `true`；已經是 `true` 的 task 不能再改回 `false`——發現整個 task 選錯方向、需要放棄現有 delivery 時才 `supersede` 並另建新 task。
 
 ### 流程層級
 
@@ -51,7 +51,7 @@ Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式�
 ## 1. 建立 Task
 
 1. Standard task 直接沿用已知的 task context；只有需要跨 worktree、coordinator／worker 或 legacy runtime gate 時才執行 `agent-workflow project-resolver -Ensure`。
-2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
+2. 若同一 worktree 已有一個 `in_progress` task，確認是續作，需要時用 `resume` 接回。不是續作時，`paused` 與 `blocked` 仍持續佔用該 worktree 的 code task lease（下一個 code task 無法在同一 worktree 建立），要讓另一個 code task 使用同一 worktree，須先對舊 task 執行 `close-task` 或 `supersede`；否則改用不同的 worktree。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則；project docs 讀寫時機另見 [project-docs skill](../project-docs/SKILL.md)。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同一目錄執行 `agent-workflow task-init --task-path <dir>`（stdin 傳初始欄位的 JSON，`id` 自動取目錄名）建立 `task.json`；預設 `status: in_progress`，欄位需符合 `schemas/task.schema.json`。
 5. 用 `task-write` 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`。`task_type` 是唯一的變更分類欄位，`code_change: true` 結案時必填。
@@ -146,7 +146,7 @@ subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制
 1. 對照 task 完成條件，填入 pre-review、其他實際指令、結果與未驗證限制。
 2. 對每個 evidence-capability step 執行 `evidence-record --requirement-id <capability.step> --summary <結論與依據>`；對 `workflow_request` 選中的角色（如 `reviewer`）執行 `review-record --role <name> --result pass|fail --summary <結論>`——`plan_hash`／`at`／`reviewed_base`／`reviewed_paths`／`reviewed_diff_sha256`／`delivery_hash` 一律由 runtime 現算現寫，不再手動跑 `worktree-fingerprint` 後拼進 patch。分類一改或審查範圍內的檔案再變動，gate 就要求重驗。coordinator／worker 或 legacy completion gate 另需 `independence` 狀態，見 [elevated.md](elevated.md)。
 3. Review 打回的歸因已在 §6b 每輪記錄。只有疑似 regression、同一問題反覆修正或使用者要求時，另由主對話做回歸歸因，結果寫入 `## Retrospective result`：查不到引入點就寫 `unknown` 並列出跑過的搜尋，framework change 需指名哪個檔案的哪一條規則要改成什麼。確認 regression 才執行 `agent-workflow retro --action Record`。
-4. Standard task 在完成條件、驗證與 Review 都完成後即可更新 `status: done`；coordinator／worker 或 Elevated task 才執行 `agent-workflow close-task` 重跑完整 legacy gate（見 [elevated.md](elevated.md)）。工作停在半途用 `paused`，缺外部條件用 `blocked`。
+4. Standard task 在完成條件、驗證與 Review 都完成後執行 `agent-workflow close-task` 把 `lifecycle.status` 轉為 `closed`（`lifecycle.status` 沒有 `done` 這個值，唯一的終態是 `closed`，且只能透過 `close-task` 寫入，不得直接編輯 task.json）；coordinator／worker 或 Elevated task 走同一個 `close-task`，另需重跑完整 legacy gate（見 [elevated.md](elevated.md)）。工作停在半途用 `paused`，缺外部條件用 `blocked`。
 5. 回報改了什麼、驗證證據、剩餘風險與可重現的複驗方式。
 6. Review 找到的 blocker 若屬於路徑或影響面的認知缺口，且同類修改下次仍會踩到（例如隱藏的第二個入口、共用 table 的另一個寫入者、某目錄完全沒有測試基礎設施），以 `knowledge --action Upsert --scope Project` 寫入，topic 用英文 kebab-case，第一行寫成可獨立理解的摘要並含具體 symbol 或路徑；單次筆誤或單點邏輯錯誤不寫。
 

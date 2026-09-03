@@ -17,4 +17,4 @@ This file only needs to be read for Elevated tasks, coordinator/worker, or tasks
 ## Completion
 
 - Fill in the Reviewer result with its own `reviewed_diff_sha256` and the `independence` status.
-- Run `agent-workflow close-task` to re-run the full legacy completion gate; the main agent must not decide completion criteria on its own and set `status: done` directly.
+- Run `agent-workflow close-task` to re-run the full legacy completion gate; the main agent must not decide completion criteria on its own and edit `lifecycle.status` directly (there is no `done` value — `closed` is the only terminal status, and only `close-task` may write it).

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -137,6 +137,44 @@ test("task-init refuses a second active code task in the same worktree", () => {
   assert.equal(run(["supersede", "--task", join(task1, "task.json")]).status, 0);
   const third = run(["task-init", "--task-path", join(task2, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
   assert.equal(third.status, 0, third.stderr);
+});
+
+test("concurrent task-init calls on the same worktree never let two code tasks both acquire the lease", async () => {
+  const root = join(tmpdir(), `agent-workflow-lease-race-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  const state = join(root, "state");
+  const { spawn } = await import("node:child_process");
+  const runAsync = (args, input) => new Promise((resolvePromise) => {
+    const child = spawn(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd() });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.on("close", (code) => resolvePromise({ code, stdout }));
+    child.stdin.write(input); child.stdin.end();
+  });
+  // Both tasks race to activate against the same worktree; activeLeaseConflict + writeLease must
+  // be atomic across them, or both can pass the conflict check before either lease write lands.
+  const attempts = 6;
+  const results = await Promise.all(Array.from({ length: attempts }, (_unused, index) => {
+    const task = join(root, `20260101-000000-race-${index}`); mkdirSync(task, { recursive: true });
+    return runAsync(
+      ["task-init", "--task-path", join(task, "task.json"), "--repo-root", repo, "--state-root", state],
+      JSON.stringify({ code_change: true, task_type: "fix" })
+    ).then((result) => ({ ...result, task }));
+  }));
+  const succeeded = results.filter((result) => result.code === 0);
+  assert.equal(succeeded.length, 1, JSON.stringify(results.map((result) => result.stdout)));
+  const activeTasks = results.filter((result) => {
+    const path = join(result.task, "task.json");
+    if (!existsSync(path)) return false;
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    return ["in_progress", "paused", "blocked"].includes(written.lifecycle?.status);
+  });
+  assert.equal(activeTasks.length, 1);
+  const lease = JSON.parse(readFileSync(join(state, "worktree-leases", `${JSON.parse(readFileSync(join(activeTasks[0].task, "task.json"), "utf8")).worktree_id}.json`), "utf8"));
+  assert.equal(lease.task_path, join(activeTasks[0].task, "task.json"));
 });
 
 test("task-init rejects a runtime-managed field and a patch that fails schema", () => {

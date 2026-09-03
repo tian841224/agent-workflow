@@ -206,20 +206,29 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       const taskId = basename(dirname(path));
       const codeChange = patch.code_change === true;
       const root = stateRoot(stateRootValue);
-      const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff) : undefined;
-      const stamp = now();
-      const state: JsonObject = {
-        schema_version: 4, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
-        code_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
-        lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
-        evidence: [], waivers: [],
-        ...(baseCommit ? { base_commit: baseCommit } : {}),
-        ...patch
+      // The conflict check and the lease write must be indivisible from every other task's
+      // create/activate, or two tasks racing on the same worktree can both pass
+      // activeLeaseConflict before either writes its lease. This lock is keyed by worktree, not
+      // by task.json path, so it actually serializes against a concurrent task in a different
+      // task.json (the outer `${path}.lock` above only serializes against itself).
+      const createTask = (): JsonObject => {
+        const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff) : undefined;
+        const stamp = now();
+        const state: JsonObject = {
+          schema_version: 4, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
+          code_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
+          lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
+          evidence: [], waivers: [],
+          ...(baseCommit ? { base_commit: baseCommit } : {}),
+          ...patch
+        };
+        const errors = schemaErrors(state);
+        if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
+        writeJson(path, state);
+        if (codeChange) writeLease(root, identity.worktreeId, taskId, path);
+        return state;
       };
-      const errors = schemaErrors(state);
-      if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
-      writeJson(path, state);
-      if (codeChange) writeLease(root, identity.worktreeId, taskId, path);
+      codeChange ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask) : createTask();
       output({ valid: true, task: path });
       return 0;
     } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
@@ -231,7 +240,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
-    if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / supersede / waive / close-task instead)`);
+    if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / resume / supersede / waive / close-task instead)`);
     const before = task(path);
     // Once a code task has a base_commit/lease/delivery semantics riding on it, dropping back to
     // false would leave those stale rather than meaningfully "undone" — supersede instead.
@@ -242,22 +251,29 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     const activating = patch.code_change === true && (before.code_change !== true || !String(before.base_commit || ""));
     const root = activating ? stateRoot(stateRootValue) : undefined;
     const identity = activating ? projectIdentity(repoRootValue) : undefined;
-    const baseCommit = root && identity ? activateCodeTask("task-write", String(before.id || ""), root, identity, repoRootValue, adoptCurrentDiff) : undefined;
-    const state = mutateJsonState<JsonObject>(path, (current) => {
-      const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
-      const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
-      for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
-      // Activation rebinds identity/base_commit here rather than trusting whatever task-init
-      // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
-      // created against the wrong one.
-      if (identity) { current.project_id = identity.projectId; current.worktree_id = identity.worktreeId; }
-      if (baseCommit) current.base_commit = baseCommit;
-      current.updated_at = now();
-      const errors = schemaErrors(current);
-      if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
-      if (beforePlanHash !== undefined && compilePlanForTaskPath(current, path).plan_hash !== beforePlanHash) current.plan_revision = Number(current.plan_revision || 0) + 1;
-    });
-    if (root && identity) writeLease(root, identity.worktreeId, String(before.id || ""), path);
+    // Same worktree-keyed lock as task-init: without it, two task-write calls activating
+    // different tasks against the same worktree can both pass the conflict check before either
+    // lease write lands, letting both end up "active" at once.
+    const applyWrite = (): JsonObject => {
+      const baseCommit = root && identity ? activateCodeTask("task-write", String(before.id || ""), root, identity, repoRootValue, adoptCurrentDiff) : undefined;
+      const state = mutateJsonState<JsonObject>(path, (current) => {
+        const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
+        const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
+        for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
+        // Activation rebinds identity/base_commit here rather than trusting whatever task-init
+        // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
+        // created against the wrong one.
+        if (identity) { current.project_id = identity.projectId; current.worktree_id = identity.worktreeId; }
+        if (baseCommit) current.base_commit = baseCommit;
+        current.updated_at = now();
+        const errors = schemaErrors(current);
+        if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
+        if (beforePlanHash !== undefined && compilePlanForTaskPath(current, path).plan_hash !== beforePlanHash) current.plan_revision = Number(current.plan_revision || 0) + 1;
+      });
+      if (root && identity) writeLease(root, identity.worktreeId, String(before.id || ""), path);
+      return state;
+    };
+    const state = root && identity ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, applyWrite) : applyWrite();
     output({ valid: true, task: path, state_revision: state.state_revision, plan_revision: state.plan_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
