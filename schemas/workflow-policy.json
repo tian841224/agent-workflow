@@ -1,21 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/workflow-policy.json",
-  "version": 4,
+  "version": 5,
   "scope_rank": {
     "file": 1,
     "module": 2,
     "multi_module": 3,
     "cross_project": 4
-  },
-  "effect_rank": {
-    "none": 0,
-    "schema": 1,
-    "local_behavior": 2,
-    "shared_behavior": 3,
-    "contract": 4,
-    "data": 5,
-    "destructive": 6
   },
   "capabilities": [
     {
@@ -23,6 +14,10 @@
       "kind": "evidence",
       "section": "Impact discovery",
       "order_after": [],
+      "require_when": [
+        [{ "impact_confidence": ["medium", "low"] }],
+        [{ "impact_scope_at_least": "multi_module" }]
+      ],
       "steps": [
         {
           "id": "ID1",
@@ -64,6 +59,9 @@
       "kind": "evidence",
       "section": "Schema compatibility",
       "order_after": [],
+      "require_when": [
+        [{ "risk_flags": ["schema", "migration"] }]
+      ],
       "steps": [
         {
           "id": "SC1",
@@ -154,6 +152,9 @@
       "section": "Migration safety",
       "order_after": [
         "schema_compatibility"
+      ],
+      "require_when": [
+        [{ "risk_flags": ["migration"] }]
       ],
       "steps": [
         {
@@ -252,6 +253,10 @@
       "section": "Contract and data impact",
       "order_after": [
         "schema_compatibility"
+      ],
+      "require_when": [
+        [{ "impact_effect": ["data", "destructive"] }],
+        [{ "risk_flags": ["data_write", "financial", "migration", "irreversible"] }]
       ],
       "steps": [
         {
@@ -358,6 +363,9 @@
       "kind": "evidence",
       "section": "Contract and data impact",
       "order_after": [],
+      "require_when": [
+        [{ "risk_flags": ["contract"] }]
+      ],
       "steps": [
         {
           "id": "CR1",
@@ -441,6 +449,11 @@
       "order_after": [
         "impact_discovery"
       ],
+      "require_when": [
+        [{ "impact_scope_at_least": "multi_module" }],
+        [{ "impact_effect": ["shared_behavior", "data", "destructive"] }],
+        [{ "risk_flags": ["cross_feature", "authorization"] }]
+      ],
       "steps": [
         {
           "id": "EP1",
@@ -470,7 +483,7 @@
           "when": [
             [
               {
-                "impact_effect_at_least": "shared_behavior"
+                "impact_effect": ["shared_behavior", "contract", "data", "destructive"]
               }
             ]
           ]
@@ -515,6 +528,11 @@
       "section": "Execution path and regression evidence",
       "order_after": [
         "execution_path_review"
+      ],
+      "require_when": [
+        [{ "change_kind": ["refactor"] }],
+        [{ "risk_flags": ["behavior_change", "financial", "authorization", "data_write", "contract", "schema", "migration", "irreversible"] }],
+        [{ "impact_scope_at_least": "multi_module" }]
       ],
       "steps": [
         {
@@ -920,6 +938,11 @@
         "contract_review",
         "execution_path_review",
         "regression_validation"
+      ],
+      "require_when": [
+        [{ "impact_scope_at_least": "multi_module" }],
+        [{ "impact_effect": ["shared_behavior", "data", "contract", "destructive"] }],
+        [{ "risk_flags": ["financial", "authorization", "cross_feature", "migration", "irreversible", "schema", "contract"] }]
       ],
       "steps": []
     }

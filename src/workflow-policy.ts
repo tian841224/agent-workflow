@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { JsonObject, sha256 } from "./core.js";
+import { canonicalJson, JsonObject, sha256 } from "./core.js";
 
 export type WorkflowContext = {
   facts: JsonObject;
@@ -8,6 +8,7 @@ export type WorkflowContext = {
   task_type: string;
   impact_scope: string;
   impact_effect: string;
+  impact_confidence: string;
 };
 
 function contextOf(task: JsonObject): WorkflowContext {
@@ -18,7 +19,8 @@ function contextOf(task: JsonObject): WorkflowContext {
     change_kind: String(task.change_kind || ""),
     task_type: String(task.task_type || ""),
     impact_scope: String(task.impact_scope || ""),
-    impact_effect: String(task.impact_effect || "")
+    impact_effect: String(task.impact_effect || ""),
+    impact_confidence: String(task.impact_confidence || "")
   };
 }
 
@@ -27,39 +29,50 @@ function rankAtLeast(current: string, threshold: string, ranks: JsonObject): boo
   return Number(ranks[current]) >= Number(ranks[threshold]);
 }
 
-export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): boolean {
-  if (condition.always === true) return true;
-  if (condition.not && typeof condition.not === "object" && !Array.isArray(condition.not)) return !evaluateCondition(condition.not as JsonObject, ctx, ranks);
+export type MatchResult = "match" | "no_match" | "unknown";
+const not = (result: MatchResult): MatchResult => result === "match" ? "no_match" : result === "no_match" ? "match" : "unknown";
+
+export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): MatchResult {
+  if (condition.always === true) return "match";
+  if (condition.not && typeof condition.not === "object" && !Array.isArray(condition.not)) return not(evaluateCondition(condition.not as JsonObject, ctx, ranks));
   if (typeof condition.fact === "string") {
+    if (!(condition.fact in ctx.facts)) return "unknown";
     const expected = Array.isArray(condition.equals) ? condition.equals.map(String) : [];
-    return expected.includes(String(ctx.facts[condition.fact]));
+    return expected.includes(String(ctx.facts[condition.fact])) ? "match" : "no_match";
   }
-  if (Array.isArray(condition.risk_flags)) return condition.risk_flags.map(String).some((flag) => ctx.risk_flags.includes(flag));
-  if (Array.isArray(condition.change_kind)) return condition.change_kind.map(String).includes(ctx.change_kind);
-  if (Array.isArray(condition.task_type)) return condition.task_type.map(String).includes(ctx.task_type);
-  if (Array.isArray(condition.impact_scope)) return condition.impact_scope.map(String).includes(ctx.impact_scope);
-  if (Array.isArray(condition.impact_effect)) return condition.impact_effect.map(String).includes(ctx.impact_effect);
-  if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope);
-  if (typeof condition.impact_effect_at_least === "string") return rankAtLeast(ctx.impact_effect, condition.impact_effect_at_least, ranks.effect);
-  return false;
+  if (Array.isArray(condition.risk_flags)) return condition.risk_flags.map(String).some((flag) => ctx.risk_flags.includes(flag)) ? "match" : "no_match";
+  if (Array.isArray(condition.change_kind)) return condition.change_kind.map(String).includes(ctx.change_kind) ? "match" : "no_match";
+  if (Array.isArray(condition.task_type)) return condition.task_type.map(String).includes(ctx.task_type) ? "match" : "no_match";
+  if (Array.isArray(condition.impact_scope)) return condition.impact_scope.map(String).includes(ctx.impact_scope) ? "match" : "no_match";
+  if (Array.isArray(condition.impact_effect)) return condition.impact_effect.map(String).includes(ctx.impact_effect) ? "match" : "no_match";
+  if (Array.isArray(condition.impact_confidence)) return condition.impact_confidence.map(String).includes(ctx.impact_confidence) ? "match" : "no_match";
+  if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope) ? "match" : "no_match";
+  return "no_match";
 }
 
-export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): boolean {
-  if (!Array.isArray(groups) || !groups.length) return true;
-  return groups.some((all) => all.every((condition) => evaluateCondition(condition, ctx, ranks)));
+export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): MatchResult {
+  if (!Array.isArray(groups) || !groups.length) return "match";
+  const groupResults = groups.map((all) => {
+    const results = all.map((condition) => evaluateCondition(condition, ctx, ranks));
+    if (results.includes("no_match")) return "no_match";
+    if (results.includes("unknown")) return "unknown";
+    return "match";
+  });
+  if (groupResults.includes("match")) return "match";
+  if (groupResults.includes("unknown")) return "unknown";
+  return "no_match";
 }
 
 export function loadPolicy(path: string): JsonObject {
   const policy = JSON.parse(readFileSync(path, "utf8")) as JsonObject;
   if (!Array.isArray(policy.capabilities)) throw new Error("workflow-policy: capabilities must be an array");
   if (!policy.scope_rank || typeof policy.scope_rank !== "object") throw new Error("workflow-policy: scope_rank is missing");
-  if (!policy.effect_rank || typeof policy.effect_rank !== "object") throw new Error("workflow-policy: effect_rank is missing");
   return policy;
 }
 
 export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): JsonObject[] {
   const steps = Array.isArray(capability.steps) ? capability.steps as JsonObject[] : [];
-  return steps.filter((step) => evaluateGroups(step.when as JsonObject[][] | undefined, ctx, ranks));
+  return steps.filter((step) => evaluateGroups(step.when as JsonObject[][] | undefined, ctx, ranks) !== "no_match");
 }
 
 export function orderCapabilities(requested: string[], capabilities: JsonObject[]): string[] {
@@ -80,34 +93,46 @@ export function orderCapabilities(requested: string[], capabilities: JsonObject[
 }
 
 export type CompiledWorkflowPlan = {
+  required: string[];
   suggested: JsonObject[];
   requested: string[];
+  effective: string[];
   order: string[];
   selected: JsonObject[];
   required_evidence: string[];
   policy_version: number;
+  policy_sha256?: string;
   requirements_hash: string;
 };
 
-export function compileWorkflowPlan(task: JsonObject, policy: JsonObject): CompiledWorkflowPlan {
+export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, options: { taskMdSha256?: string; policySha256?: string } = {}): CompiledWorkflowPlan {
   const capabilities = policy.capabilities as JsonObject[];
   const names = new Set(capabilities.map((capability) => String(capability.name)));
   const requested = Array.isArray(task.workflow_request) ? task.workflow_request.map(String) : [];
   const unknown = requested.filter((name) => !names.has(name));
   if (unknown.length) throw new Error(`workflow-plan: unknown capability: ${unknown.join(", ")}`);
   const ctx = contextOf(task);
-  const ranks = { scope: policy.scope_rank as JsonObject, effect: policy.effect_rank as JsonObject };
-  const order = orderCapabilities(requested, capabilities);
+  const ranks = { scope: policy.scope_rank as JsonObject, effect: (policy.effect_rank || {}) as JsonObject };
+  const required = capabilities.filter((capability) => Array.isArray(capability.require_when) && capability.require_when.length > 0 && evaluateGroups(capability.require_when as JsonObject[][], ctx, ranks) !== "no_match").map((capability) => String(capability.name));
+  const effective = [...new Set([...required, ...requested])];
+  const order = orderCapabilities(effective, capabilities);
   const selected = order.map((name) => capabilities.find((capability) => String(capability.name) === name)!).map((capability) => ({
     name: capability.name, kind: capability.kind, section: capability.section,
     steps: selectSteps(capability, ctx, ranks).map((step) => ({ id: step.id, title: step.title }))
   }));
   const required_evidence = [
-    ...selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => capability.steps.map((step) => String(step.id))),
-    ...selected.filter((capability) => capability.kind === "role").map((capability) => `${capability.name}:role`)
+    ...selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => capability.steps.map((step) => `${capability.name}.${String(step.id)}`)),
+    ...selected.filter((capability) => capability.kind === "role").map((capability) => `role.${capability.name}`)
   ];
-  const suggested = capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks)).map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
+  const suggested = capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match").map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
   const policy_version = Number(policy.version || 0);
-  const requirements_hash = sha256(JSON.stringify({ policy_version, requested: [...requested].sort(), risk_flags: [...ctx.risk_flags].sort(), facts: ctx.facts, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect }));
-  return { suggested, requested, order, selected, required_evidence, policy_version, requirements_hash };
+  const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => String(step.id))))].sort();
+  const requirements_hash = sha256(canonicalJson({
+    policy_version, policy_sha256: options.policySha256 ?? null, task_md_sha256: options.taskMdSha256 ?? null,
+    code_change: task.code_change ?? null, workflow_mode: task.workflow_mode ?? null,
+    task_type: ctx.task_type, change_kind: ctx.change_kind, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
+    risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
+    required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), selected_step_ids
+  }));
+  return { required, suggested, requested, effective, order, selected, required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), requirements_hash };
 }

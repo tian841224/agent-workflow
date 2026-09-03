@@ -8,7 +8,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
-task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task-state.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。
 
 ## 適用範圍
 
@@ -16,9 +16,9 @@ task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_ch
 
 ### 流程層級
 
-Workflow 沒有固定 pipeline，也沒有預設檔位。主對話依已知需求與程式脈絡，把這次要跑的 capability 完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。
+Workflow 沒有固定 pipeline，也沒有預設檔位。runtime 依 `risk_flags` 透過 `workflow-policy.json` 的 `require_when` 算出一組 `required` capability，這是不可省略的下限；主對話依已知需求與程式脈絡，在 `workflow_request` 裡疊加想額外執行的 capability，只能加、不能拿掉 `required` 命中的項目。單純不把某個 capability 寫進 `workflow_request` 並不會讓它從 gate 消失——`required` 由 risk flags 直接算出，要移除只能明確執行 `waive`（需 `--confirmed-by-user`），而這個 waiver 綁定當下的 `requirements_hash`，task 的分類一變（risk flags、`impact_scope`、`impact_effect` 等任何進到 hash 的欄位改變）就自動失效，需重新確認。
 
-**外層選取（跑哪些 capability）**：Planner 先依 task metadata 與 `workflow_facts` 產生 `suggested` 候選，主對話再確認、覆寫或補充，最後寫入 `workflow_request`。任何組合都合法——只跑 evidence capability 而沒有 `reviewer`、或一個都不跑（此時 `## Impact surface` 必填，說明為何判斷這個 task 不需要任何 capability），都是正常結果。候選建議不會自行改寫 `workflow_request`。
+**外層選取（跑哪些 capability）**：Planner 先依 task metadata 與 `workflow_facts` 產生 `suggested` 候選，主對話再確認、覆寫或補充，寫入 `workflow_request`；runtime 再把 `required` 與 `workflow_request` 合併成最終 `selected`。`required` 為空時任何組合都合法——只跑 evidence capability 而沒有 `reviewer`、或一個都不跑（此時 `## Impact surface` 必填，說明為何判斷這個 task 不需要任何 capability），都是正常結果；`required` 非空時，`selected` 至少涵蓋這些項目，`workflow_request` 只能疊加、不能覆寫。
 
 **交付批次與角色時機**：角色以一個 task 的最終可交付 diff 為單位選取與執行。任務拆成多個實作階段時，各階段只完成其局部測試與必要驗證；待所有階段整合、完成條件與完整 execution path 穩定後，才對整體變更集執行 Review。若某階段會獨立發布、不可逆地寫入外部系統，或其產物已成為後續階段不可回溯的前提，則將它視為獨立交付批次並在該批次完成前執行必要角色。finding 修正後依 §6b 做 delta-first 複查；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。
 
@@ -46,16 +46,16 @@ Evidence capability 只在影響確實擴散時才登場，一般 code change �
 
 Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式，並從 real entrypoint 確認完成條件與可觀察結果。命中 `financial`、`data_write`、`migration`、`irreversible`、`schema`、`contract` 時，在 §6 第一趟的指令裡明寫要推翻的資料溯源、底層語意或同型擴散假設。每列都是最終交付批次的典型組合，不是逐一實作階段的 pipeline。
 
-`workflow-plan` 會輸出 `suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`workflow_request` 是主對話寫入的完整 capability 清單（例如 `[reviewer]`）；名稱 authority 是 `schemas/workflow-policy.json`，未知 capability 或無效 `workflow_facts` 直接回報 contract error。runtime 只驗證這份最終清單的執行結果，不新增或抑制其中任何一項。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
+`workflow-plan` 會輸出 `suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`workflow_request` 是主對話寫入、疊加在 `required` 之上的 capability 清單（例如 `[reviewer]`）；名稱 authority 是 `schemas/workflow-policy.json`，未知 capability 或無效 `workflow_facts` 直接回報 contract error。runtime 驗證的是 `required` ∪ `workflow_request` 合併後的 `selected` 清單執行結果是否齊全。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 
 ## 1. 建立 Task
 
 1. Standard task 直接沿用已知的 task context；只有需要跨 worktree、coordinator／worker 或 legacy runtime gate 時才執行 `~/.agent-workflow/runtime/agent_workflow.cmd project-resolver -Ensure`。
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則；project docs 讀寫時機另見 [project-docs skill](../project-docs/SKILL.md)。
-4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同時在同一目錄建立 `task.json`（依 `schemas/task-state.schema.json`），`id` 用目錄名。
+4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同時在同一目錄建立 `task.json`（依 `schemas/task.schema.json`），`id` 用目錄名。
 5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
-6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `frozen_at` 先留空，取得使用者對目標、非目標與完成條件的確認後才填入；目前 freeze 主要由 task gate 與流程規範檢查，並非每次工具寫入都由 runtime 攔截。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
+6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `intent_approval` 先留空，取得使用者對目標、非目標與完成條件的確認後才寫入（見 [risk-flags.md](risk-flags.md)）；task-gate 憑 `intent_approval.intent_sha256` 是否等於當下 task.md 雜湊放行，並非每次工具寫入都由 runtime 攔截。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
 

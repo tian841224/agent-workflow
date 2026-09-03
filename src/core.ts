@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -185,4 +185,49 @@ export function schemaPath(name: string): string {
   const packageCandidate = join(bundleDirectory, "..", "schemas", name);
   if (existsSync(packageCandidate)) return packageCandidate;
   return join(bundleDirectory, "schemas", name);
+}
+
+export function canonicalJson(value: Json): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+// Lock dir create is atomic on NTFS and POSIX alike (mkdirSync throws EEXIST if held), so this
+// needs no extra dependency. Atomics.wait gives a real synchronous sleep between retries.
+export function withFileLock<T>(lockPath: string, fn: () => T, staleMs = 5 * 60 * 1000): T {
+  for (;;) {
+    try { mkdirSync(lockPath); break; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try { if (Date.now() - statSync(lockPath).mtimeMs > staleMs) rmSync(lockPath, { recursive: true, force: true }); }
+      catch { /* another process cleared or re-acquired it first */ }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 + Math.floor(Math.random() * 20));
+    }
+  }
+  try { return fn(); } finally { rmSync(lockPath, { recursive: true, force: true }); }
+}
+
+// The one blessed read-modify-write for a shared JSON file: lock, read, mutate in place, bump
+// revision, write. A mutex under one function beats optimistic CAS since every writer routes here.
+export function mutateTask<T extends JsonObject>(path: string, mutator: (state: T) => void): T {
+  return withFileLock(`${path}.lock`, () => {
+    const state = (existsSync(path) ? readJson(path) : {}) as T;
+    mutator(state);
+    (state as JsonObject).state_revision = Number((state as JsonObject).state_revision || 0) + 1;
+    writeJson(path, state);
+    return state;
+  });
+}
+
+export function workspaceFingerprint(cwd: string): string {
+  const head = git(cwd, ["rev-parse", "HEAD"]);
+  const diffSha = sha256(git(cwd, ["diff", "--binary", "HEAD"]).stdout);
+  const untracked = git(cwd, ["status", "--porcelain=v1", "--untracked-files=all"]).stdout
+    .split(/\r?\n/).filter((line) => line.startsWith("?? ")).map((line) => line.slice(3).trim()).sort();
+  const manifest = untracked.map((relPath) => {
+    try { return `${relPath}:${sha256(readFileSync(resolve(cwd, relPath)))}`; }
+    catch { return `${relPath}:missing`; }
+  }).join("\n");
+  return sha256(`${head.status === 0 ? head.stdout.trim() : ""}|${diffSha}|${manifest}`);
 }

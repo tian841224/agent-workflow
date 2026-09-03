@@ -17,7 +17,7 @@ const commands = [
   "learn", "knowledge", "skill-draft", "memory-review", "retro", "review-cause",
   "project-resolver", "project-doc", "pre-review",
   "orchestrate", "split-plan", "worktree-fingerprint",
-  "freeze", "pause", "block", "supersede", "waive"
+  "pause", "block", "supersede", "waive"
 ];
 
 function usage(): void {
@@ -79,8 +79,8 @@ async function main(): Promise<void> {
   else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")));
   else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"));
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
-  else if (["freeze", "pause", "block", "supersede", "waive"].includes(command)) {
-    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "freeze" | "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
+  else if (["pause", "block", "supersede", "waive"].includes(command)) {
+    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
     process.stdout.write(`${JSON.stringify(state)}\n`);
   }
   else {

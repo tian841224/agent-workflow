@@ -1,55 +1,72 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/task.schema.json",
+  "title": "agent-workflow task state (v3)",
   "type": "object",
-  "required": ["id", "project_id", "worktree_id", "status", "code_change", "risk_flags", "created_at", "updated_at"],
+  "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "risk_flags", "created_at", "updated_at", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
   "properties": {
+    "schema_version": { "const": 3 },
     "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
     "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
-    "status": { "enum": ["in_progress", "paused", "blocked", "done", "superseded"] },
+    "state_revision": { "type": "integer", "minimum": 1 },
+    "plan_revision": { "type": "integer", "minimum": 1 },
     "code_change": { "type": "boolean" },
+    "workflow_mode": { "enum": ["main", "legacy"] },
     "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
     "model_profile": { "enum": ["cheap_read"] },
     "change_kind": { "enum": ["fix", "feature", "refactor", "chore"] },
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
-    "complexity_hint": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "enum": ["multi_path", "shared_state", "external_boundary"] }
-    },
-    "workflow_request": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
-    },
-    "workflow_profile": { "enum": ["direct", "light", "standard", "elevated"] },
-    "workflow_mode": { "enum": ["main", "legacy"] },
-    "workflow_facts": { "type": "string", "minLength": 2 },
+    "complexity_hint": { "type": "array", "uniqueItems": true, "items": { "enum": ["multi_path", "shared_state", "external_boundary"] } },
+    "workflow_request": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "workflow_facts": { "type": "object" },
     "workflow_decision": { "type": "string", "minLength": 2 },
-    "risk_flags": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] }
-    },
-    "created_at": { "type": "string", "format": "date-time" },
-    "updated_at": { "type": "string", "format": "date-time" },
-    "frozen_at": { "type": ["string", "null"], "format": "date-time" },
-    "stop_reason": { "type": "string", "minLength": 1 },
+    "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] } },
     "independence": { "enum": ["native", "degraded"] },
     "roles_waived": { "type": "string", "minLength": 1 },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
-    "file_ownership": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "type": "string", "pattern": "^(?!\\./)[^\\\\,\\[\\]]+$" }
-    },
+    "file_ownership": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^(?!\\./)[^\\\\,\\[\\]]+$" } },
     "base_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
     "delivery_status": { "enum": ["pending", "applied", "merged", "rejected", "skipped"] },
-    "integration_status": { "enum": ["pending", "conflicted", "applied", "abandoned"] }
+    "integration_status": { "enum": ["pending", "conflicted", "applied", "abandoned"] },
+    "intent_approval": {
+      "type": ["object", "null"],
+      "required": ["intent_sha256", "confirmed_at", "confirmed_by_user"],
+      "properties": {
+        "intent_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "confirmed_at": { "type": "string", "format": "date-time" },
+        "confirmed_by_user": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["status", "transitions"],
+      "properties": {
+        "status": { "enum": ["in_progress", "paused", "blocked", "superseded", "closed"] },
+        "transitions": { "type": "array", "minItems": 1 },
+        "stop_reason": { "type": "string" }
+      }
+    },
+    "evidence": { "type": "array" },
+    "waivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": { "type": "string" },
+          "actor": { "type": "string" },
+          "confirmed_by_user": { "type": "string" },
+          "requirement_id": { "type": "string" },
+          "requirements_hash": { "type": "string" },
+          "stale": { "type": "boolean" }
+        }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
   },
   "additionalProperties": false,
   "x_agent_workflow": {

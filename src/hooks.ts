@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { Json, JsonObject, now, output, readJson, sha256, stateRoot, writeJson } from "./core.js";
+import { Json, JsonObject, normal, now, output, readJson, sha256, stateRoot, writeJson } from "./core.js";
 
 const SKILL_PROOF_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -43,14 +43,32 @@ export function hookDecision(event: CanonicalHookEvent): HookDecision {
   if (event.mutation && event.paths.some((path) => !path.trim())) return { allow: false, reason: "hook-policy: mutation target is invalid; denied fail-closed." };
   return { allow: true };
 }
-function readonlyGit(command: string): boolean { return /^\s*git(?:\s+-C\s+\S+)?\s+(?:status(?:\s+--(?:short|porcelain|branch))*|diff(?:\s+(?:--(?:binary|check|name-only|name-status)|HEAD(?:~\d+)?|[0-9a-f]{7,40}|--|\S+))*|log(?:\s+(?:--oneline|-n\s+\d+|HEAD(?:~\d+)?|--))*|rev-parse(?:\s+(?:HEAD|--is-inside-work-tree|--show-toplevel|--git-dir|--git-common-dir))*|ls-files(?:\s+(?:--others|--exclude-standard|-z|--))*)\s*$/i.test(command); }
+function parseGitInvocation(segment: string): { subcommand: string; args: string[] } | null {
+  const match = segment.match(/\bgit\b\s*(.*)$/i); if (!match) return null;
+  const cStripped = match[1].trim().match(/^-C\s+\S+\s*(.*)$/i);
+  const tokens = (cStripped ? cStripped[1] : match[1]).trim().split(/\s+/).filter(Boolean);
+  return { subcommand: (tokens[0] || "").toLowerCase(), args: tokens.slice(1) };
+}
+function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
+  if (["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"].includes(subcommand)) return true;
+  if (subcommand === "branch") return args.length === 0 || (args.length === 1 && args[0] === "--show-current");
+  if (subcommand === "remote") return args.length > 0 && ["-v", "get-url", "show"].includes(args[0]);
+  if (subcommand === "config") return args.length > 0 && ["--get", "--get-all", "--list"].includes(args[0]);
+  return false;
+}
 export function gitDecision(event: CanonicalHookEvent): HookDecision {
-  const command = event.command || ""; if (!/\bgit\b/i.test(command) || readonlyGit(command)) return { allow: true };
-  if (/\bgit\b[^;&|]*(?:reset\s+--hard|clean\s+-\w*f|branch\s+-D|checkout\s+--\s|restore(?![^;&|]*--staged)|stash\s+(?:drop|clear)|push[^;&|]*(?:--force|-f\b))/i.test(command)) return { allow: false, reason: "git-guard: destructive Git operation denied; ask the user to perform it explicitly." };
-  if (/\bgit\b[^;&|]*(?:commit|push|rebase|merge(?![^;&|]*--abort)|reset|cherry-pick|revert(?![^;&|]*--abort))/i.test(command)) return { allow: false, reason: "git-guard: Git write requires explicit user approval." };
+  const command = event.command || ""; if (!/\bgit\b/i.test(command)) return { allow: true };
+  for (const segment of command.split(/[;&|\n]+/).map((part) => part.trim()).filter((part) => /\bgit\b/i.test(part))) {
+    const parsed = parseGitInvocation(segment);
+    if (parsed && !gitSubcommandAllowed(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: 'git ${parsed.subcommand || segment.trim()}' is not on the read-only allowlist; ask the user to run it explicitly.` };
+  }
   return { allow: true };
 }
 function skillProofPath(root: string, platform: string, sessionId: string): string { return `${root}${sep}skill-guard${sep}${sha256(`${platform}:${sessionId}`)}.json`; }
+function agentsRootOf(resolvedPath: string): string | undefined {
+  const idx = resolvedPath.toLowerCase().lastIndexOf(`${sep}.agents${sep}`);
+  return idx === -1 ? undefined : resolvedPath.slice(0, idx + `${sep}.agents`.length);
+}
 export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   if (!event.mutation) return { allow: true };
   const cwd = event.cwd ? resolve(event.cwd) : ""; const targets = event.paths.map((path) => resolve(cwd || ".", path));
@@ -62,6 +80,8 @@ export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): Ho
   const record = readJson(proof);
   if (typeof record.expires_at !== "number" || Date.now() >= record.expires_at) return { allow: false, reason: "skill-guard: proof has expired; re-read .agents/skills/writing-for-agents/SKILL.md." };
   if (typeof record.skill_path !== "string" || !existsSync(record.skill_path) || sha256(readFileSync(record.skill_path)) !== record.skill_sha256) return { allow: false, reason: "skill-guard: writing-for-agents/SKILL.md has changed since it was read; re-read it before modifying .agents content." };
+  const targetRoots = targets.map(agentsRootOf).filter((path): path is string => !!path);
+  if (typeof record.agents_root === "string" && targetRoots.some((path) => normal(path) !== normal(record.agents_root as string))) return { allow: false, reason: "skill-guard: proof was read for a different .agents root; re-read writing-for-agents/SKILL.md for this repo." };
   return { allow: true };
 }
 export function runGuard(kind: "git" | "skill", platform: string, eventName: string, payload: JsonObject, root?: string): void {
@@ -72,7 +92,7 @@ export function recordSkillRead(platform: string, payload: JsonObject, root = st
   const event = normalizeHookEvent(platform, payload, "PostToolUse");
   const skillPath = event.paths.find((path) => /\.agents[\\/]skills[\\/]writing-for-agents[\\/]SKILL\.md$/i.test(path));
   if (!event.sessionId || !skillPath) return;
-  const resolvedSkillPath = resolve(skillPath); const agentsRoot = resolvedSkillPath.slice(0, resolvedSkillPath.toLowerCase().lastIndexOf(`${sep}.agents${sep}`) + `${sep}.agents`.length);
+  const resolvedSkillPath = resolve(skillPath); const agentsRoot = agentsRootOf(resolvedSkillPath) || "";
   writeJson(skillProofPath(root, platform, event.sessionId), { schema_version: 2, platform, session_id: event.sessionId, agents_root: agentsRoot, skill_path: resolvedSkillPath, skill_sha256: sha256(readFileSync(resolvedSkillPath)), read_at: now(), expires_at: Date.now() + SKILL_PROOF_TTL_MS });
 }
 export function clearSkillProof(platform: string, payload: JsonObject, root = stateRoot()): void {
