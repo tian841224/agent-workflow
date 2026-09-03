@@ -103,7 +103,7 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify diff-scoped role evidence.\n");
   const path = join(task, "task.json");
-  const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
+  const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
   const reviewedPaths = "reviewed.txt,unrelated.txt";
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask(classification)));

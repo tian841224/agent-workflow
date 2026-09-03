@@ -25,10 +25,10 @@ export const commandOptions: Record<string, string[]> = {
   "memory-context": ["platform", "state-root", "query", "cwd"],
   "workflow-plan": ["task-path", "policy-path"],
   "task-init": [...TASK_TARGET_OPTIONS, "actor", "state-root", "repo-root", "adopt-current-diff"],
-  "task-write": [...TASK_TARGET_OPTIONS, "state-root", "repo-root"],
+  "task-write": [...TASK_TARGET_OPTIONS, "state-root", "repo-root", "adopt-current-diff"],
   "task-gate": [...TASK_TARGET_OPTIONS, "repo-root"],
   "close-task": [...TASK_TARGET_OPTIONS, "actor", "confirmed-by-user", "state-root", "repo-root"],
-  pause: ["task", "actor"], block: ["task", "actor"], supersede: ["task", "actor"],
+  pause: ["task", "actor"], block: ["task", "actor"], resume: ["task", "actor"], supersede: ["task", "actor"],
   waive: ["task", "actor", "confirmed-by-user", "requirement-id"],
   "approve-intent": [...TASK_TARGET_OPTIONS, "confirmed-by", "as-user"],
   "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor"],
@@ -111,15 +111,15 @@ async function main(): Promise<void> {
   else if (command === "skill-draft") process.exitCode = skillDraft(parsed.values);
   else if (command === "project-doc") process.exitCode = projectDoc(parsed.values);
   else if (command === "task-init") { let patch = {}; try { patch = stdinJson(); } catch { patch = {}; } process.exitCode = taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), patch, option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff")); }
-  else if (command === "task-write") process.exitCode = taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "task-write") process.exitCode = taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
   else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "approve-intent") process.exitCode = approveIntent(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "confirmed-by"), flag(parsed.values, "as-user"));
   else if (command === "evidence-record") process.exitCode = evidenceRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"));
   else if (command === "review-record") process.exitCode = reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
-  else if (["pause", "block", "supersede", "waive"].includes(command)) {
-    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
+  else if (["pause", "block", "resume", "supersede", "waive"].includes(command)) {
+    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "resume" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
     process.stdout.write(`${JSON.stringify(state)}\n`);
   }
   else {

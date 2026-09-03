@@ -150,6 +150,11 @@ test("task-init rejects a runtime-managed field and a patch that fails schema", 
   const invalid = run(JSON.stringify({ code_change: "yes" }));
   assert.equal(invalid.valid, false);
   assert.match(invalid.errors[0], /fails schema/);
+  // base_commit is the delivery baseline activateCodeTask derives from HEAD; a patch must not be able
+  // to plant an arbitrary one and defeat that guarantee.
+  const spoofed = run(JSON.stringify({ base_commit: "1".repeat(40) }));
+  assert.equal(spoofed.valid, false);
+  assert.match(spoofed.errors[0], /runtime-managed/);
 });
 
 test("task-write merges fields through the lock, bumps plan_revision on a classification change, and rejects lifecycle edits", () => {
@@ -212,4 +217,85 @@ test("concurrent transitions against the same task.json never lose an update (lo
   assert.equal(succeeded, 1);
   assert.equal(state.state_revision, 2);
   assert.equal(state.lifecycle.status, "paused");
+});
+
+test("task-write activates a code task on false -> true: dirty tree is refused, --adopt-current-diff records base_commit", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-activate-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false })));
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  writeFileSync(join(repo, "file.txt"), "two"); // uncommitted change
+  const refused = run(["task-write", "--task-path", path, "--repo-root", repo], JSON.stringify({ code_change: true }));
+  assert.notEqual(refused.status, 0);
+  assert.match(JSON.parse(refused.stdout).errors[0], /uncommitted changes/);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).code_change, false);
+  const activated = run(["task-write", "--task-path", path, "--repo-root", repo, "--adopt-current-diff"], JSON.stringify({ code_change: true }));
+  assert.equal(activated.status, 0, activated.stderr);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.code_change, true);
+  assert.equal(state.base_commit, vcs(["rev-parse", "HEAD"]).stdout.trim());
+});
+
+test("task-write backfills base_commit for a legacy code task created without one", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-backfill-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask())); // code_change: true, no base_commit — an older-runtime task
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  writeFileSync(join(repo, "file.txt"), "two"); // uncommitted work in flight, same as this task's real delivery
+  const backfilled = run(["task-write", "--task-path", path, "--repo-root", repo, "--adopt-current-diff"], JSON.stringify({ code_change: true }));
+  assert.equal(backfilled.status, 0, backfilled.stderr);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.base_commit, vcs(["rev-parse", "HEAD"]).stdout.trim());
+});
+
+test("task-write refuses code_change true -> false", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-no-deactivate-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ base_commit: "0".repeat(40) })));
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ code_change: false }) });
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /cannot transition from true back to false/);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).code_change, true);
+});
+
+test("task-init binds project_id/worktree_id to the real repo, not the task's storage directory", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-identity-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  // The task directory lives entirely outside the repo, as it does in real usage.
+  const task = join(root, "state", "20260101-000000-identity-test"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const resolved = JSON.parse(run(["project-resolver", "--path", repo, "--state-root", join(root, "state")]).stdout);
+  const created = run(["task-init", "--task-path", path, "--repo-root", repo], JSON.stringify({ code_change: false }));
+  assert.equal(created.status, 0, created.stderr);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.project_id, resolved.project_id);
+});
+
+test("pause and block both resume back to in_progress", () => {
+  const root = join(tmpdir(), `agent-workflow-resume-${process.pid}-${Date.now()}`);
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  for (const [away, back] of [["pause", "resume"], ["block", "resume"]]) {
+    const task = join(root, away); mkdirSync(task, { recursive: true });
+    const path = join(task, "task.json");
+    writeFileSync(path, JSON.stringify(validTask()));
+    assert.equal(run([away, "--task", path]).status, 0);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).lifecycle.status, away === "pause" ? "paused" : "blocked");
+    assert.equal(run([back, "--task", path]).status, 0);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).lifecycle.status, "in_progress");
+  }
 });

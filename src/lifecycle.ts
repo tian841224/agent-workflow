@@ -2,12 +2,12 @@ import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
-import { changedPaths, deliveryHash, diffFingerprint, git, JsonObject, mutateJsonState, now, output, projectIdentity, readJson, schemaPath, stateRoot, withFileLock, writeJson } from "./core.js";
+import { changedPaths, deliveryHash, diffFingerprint, git, JsonObject, mutateJsonState, now, output, ProjectIdentity, projectIdentity, readJson, schemaPath, stateRoot, withFileLock, writeJson } from "./core.js";
 import { intentHash } from "./intent.js";
 import { memoryReviewPrompt } from "./memory-review.js";
 import { compilePlanForTaskPath } from "./workflow-policy.js";
 
-type Transition = "create" | "pause" | "block" | "supersede" | "waive" | "close";
+type Transition = "create" | "pause" | "block" | "resume" | "supersede" | "waive" | "close";
 const allowed: Record<string, string[]> = {
   create: ["in_progress"], in_progress: ["paused", "blocked", "superseded", "closed"], paused: ["in_progress", "blocked", "superseded"], blocked: ["in_progress", "paused", "superseded"], superseded: [], closed: []
 };
@@ -50,11 +50,24 @@ function activeLeaseConflict(root: string, worktreeId: string, excludeTaskId: st
 function writeLease(root: string, worktreeId: string, taskId: string, taskJsonPath: string): void {
   writeJson(worktreeLeasePath(root, worktreeId), { worktree_id: worktreeId, task_id: taskId, task_path: taskJsonPath, acquired_at: now() });
 }
+// Shared by task-init and task-write so a code task's activation — worktree lease, dirty check,
+// base_commit — is defined exactly once regardless of whether code_change starts true or flips
+// true partway through the task's life.
+function activateCodeTask(label: string, taskId: string, root: string, identity: ProjectIdentity, repoRootValue: string, adoptCurrentDiff: boolean): string {
+  const conflict = activeLeaseConflict(root, identity.worktreeId, taskId);
+  if (conflict) throw new Error(`${label}: worktree already has an active code task (${conflict.id}); close/supersede it first, or use a different worktree`);
+  const status = git(repoRootValue, ["status", "--porcelain", "--untracked-files=all"]);
+  if (status.status !== 0) throw new Error(`${label}: cannot read git status for ${repoRootValue}: ${status.stderr.trim()}`);
+  if (status.stdout.trim() && !adoptCurrentDiff) throw new Error(`${label}: worktree has uncommitted changes; commit/stash them first, or pass --adopt-current-diff to treat the current diff as this task's delivery`);
+  const head = git(repoRootValue, ["rev-parse", "HEAD"]);
+  if (head.status !== 0 || !head.stdout.trim()) throw new Error(`${label}: cannot resolve HEAD for base_commit in ${repoRootValue}: ${head.stderr.trim()}`);
+  return head.stdout.trim();
+}
 
 // Shared by transitionTask and closeTask so both write through the exact same transition logic.
 function applyTransition(state: JsonObject, path: string, action: Transition, actor: string, confirmation: string, requirementId: string): void {
   const life = lifecycle(state); const from = String(life.status || "");
-  const target: Record<Transition, string> = { create: "in_progress", pause: "paused", block: "blocked", supersede: "superseded", waive: from, close: "closed" };
+  const target: Record<Transition, string> = { create: "in_progress", pause: "paused", block: "blocked", resume: "in_progress", supersede: "superseded", waive: from, close: "closed" };
   if (action !== "waive" && !(allowed[from] || []).includes(target[action])) throw new Error(`invalid TaskLifecycle transition: ${from} -> ${target[action]}`);
   const transitions = Array.isArray(life.transitions) ? life.transitions : [];
   transitions.push({ at: now(), action, from, to: target[action], actor, ...(action === "waive" ? { confirmed_by_user: confirmation } : {}) });
@@ -139,6 +152,7 @@ function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string
   const taskMdBuffer = existsSync(taskMd) ? readFileSync(taskMd) : null;
   if (!taskMdBuffer || !taskMdBuffer.toString("utf8").trim()) errors.push("sibling task.md requires human intent (Goal/Scope/Completion criteria)");
   if (evidence.some((item) => item.kind === "legacy-unverified")) errors.push("legacy-unverified evidence requires a new verification");
+  if (state.code_change === true && !String(state.base_commit || "")) errors.push("code task has no base_commit; task delivery baseline is missing");
   const riskFlags = Array.isArray(state.risk_flags) ? state.risk_flags.map(String) : [];
   if (riskFlags.some((flag) => freezeRequired.has(flag))) {
     const approval = state.intent_approval;
@@ -177,7 +191,7 @@ export function taskGate(value: string, repoRoot = process.cwd()): number {
     return gate.valid ? 0 : 1;
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
 }
-const CREATE_MANAGED_KEYS = new Set(["schema_version", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers", "project_id", "worktree_id"]);
+const CREATE_MANAGED_KEYS = new Set(["schema_version", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers", "project_id", "worktree_id", "base_commit"]);
 export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
@@ -185,73 +199,65 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
     try {
       const blocked = Object.keys(patch).filter((key) => CREATE_MANAGED_KEYS.has(key));
       if (blocked.length) throw new Error(`task-init: field(s) are runtime-managed and cannot be set directly: ${blocked.join(", ")}`);
-      const identity = projectIdentity(dirname(path));
+      // Task identity always comes from the real repository being worked in (repoRootValue), never
+      // from the task directory itself — that directory normally lives in the state root, not the
+      // repo, so hashing it would produce a project_id/worktree_id no gate or lease could match.
+      const identity = projectIdentity(repoRootValue);
       const taskId = basename(dirname(path));
       const codeChange = patch.code_change === true;
       const root = stateRoot(stateRootValue);
-      // Leases are keyed by the actual repository being worked in (repoRootValue), not by
-      // identity.worktreeId — the task directory normally lives in the state root, not the repo (see
-      // evaluateTaskGate's comment above), so a lease keyed off the task's own path would never
-      // collide between two tasks pointed at the same real worktree.
-      const leaseWorktreeId = codeChange ? projectIdentity(repoRootValue).worktreeId : "";
-      let autoBaseCommit: string | undefined;
-      if (codeChange) {
-        const conflict = activeLeaseConflict(root, leaseWorktreeId, taskId);
-        if (conflict) throw new Error(`task-init: worktree already has an active code task (${conflict.id}); pause/block/close it first, or use a different worktree`);
-        const status = git(repoRootValue, ["status", "--porcelain"]);
-        if (status.status !== 0) throw new Error(`task-init: cannot read git status for ${repoRootValue}: ${status.stderr.trim()}`);
-        if (status.stdout.trim() && !adoptCurrentDiff) throw new Error("task-init: worktree has uncommitted changes; commit/stash them first, or pass --adopt-current-diff to treat the current diff as this task's delivery");
-        const head = git(repoRootValue, ["rev-parse", "HEAD"]);
-        if (head.status !== 0) throw new Error(`task-init: cannot resolve HEAD for base_commit in ${repoRootValue}: ${head.stderr.trim()}`);
-        autoBaseCommit = head.stdout.trim();
-      }
+      const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff) : undefined;
       const stamp = now();
       const state: JsonObject = {
         schema_version: 4, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
         code_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
         lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
         evidence: [], waivers: [],
-        ...(autoBaseCommit ? { base_commit: autoBaseCommit } : {}),
+        ...(baseCommit ? { base_commit: baseCommit } : {}),
         ...patch
       };
       const errors = schemaErrors(state);
       if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
       writeJson(path, state);
-      if (codeChange) writeLease(root, leaseWorktreeId, taskId, path);
+      if (codeChange) writeLease(root, identity.worktreeId, taskId, path);
       output({ valid: true, task: path });
       return 0;
     } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
 }
 const TASK_WRITABLE_FIELDS = new Set(["code_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision"]);
-export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd()): number {
+export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
     if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / supersede / waive / close-task instead)`);
-    let leaseRoot: string | undefined; let leaseWorktreeId = ""; let leaseTaskId = "";
-    if (patch.code_change === true) {
-      const before = task(path);
-      leaseTaskId = String(before.id || "");
-      if (before.code_change !== true) {
-        // Same repo-based key as task-init — see its comment on why identity.worktreeId is not used.
-        leaseWorktreeId = projectIdentity(repoRootValue).worktreeId;
-        leaseRoot = stateRoot(stateRootValue);
-        const conflict = activeLeaseConflict(leaseRoot, leaseWorktreeId, leaseTaskId);
-        if (conflict) throw new Error(`task-write: worktree already has an active code task (${conflict.id}); pause/block/close it first, or use a different worktree`);
-      }
-    }
+    const before = task(path);
+    // Once a code task has a base_commit/lease/delivery semantics riding on it, dropping back to
+    // false would leave those stale rather than meaningfully "undone" — supersede instead.
+    if (before.code_change === true && patch.code_change === false) throw new Error("task-write: code_change cannot transition from true back to false; supersede this task and create a new non-code task instead");
+    // Also re-runs activation for a task that is already code_change: true but predates base_commit
+    // tracking (created by an older runtime) — the gate now requires base_commit on every code task,
+    // and re-sending code_change: true is the only writable signal left to backfill one.
+    const activating = patch.code_change === true && (before.code_change !== true || !String(before.base_commit || ""));
+    const root = activating ? stateRoot(stateRootValue) : undefined;
+    const identity = activating ? projectIdentity(repoRootValue) : undefined;
+    const baseCommit = root && identity ? activateCodeTask("task-write", String(before.id || ""), root, identity, repoRootValue, adoptCurrentDiff) : undefined;
     const state = mutateJsonState<JsonObject>(path, (current) => {
       const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
       const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
       for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
+      // Activation rebinds identity/base_commit here rather than trusting whatever task-init
+      // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
+      // created against the wrong one.
+      if (identity) { current.project_id = identity.projectId; current.worktree_id = identity.worktreeId; }
+      if (baseCommit) current.base_commit = baseCommit;
       current.updated_at = now();
       const errors = schemaErrors(current);
       if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
       if (beforePlanHash !== undefined && compilePlanForTaskPath(current, path).plan_hash !== beforePlanHash) current.plan_revision = Number(current.plan_revision || 0) + 1;
     });
-    if (leaseRoot) writeLease(leaseRoot, leaseWorktreeId, leaseTaskId, path);
+    if (root && identity) writeLease(root, identity.worktreeId, String(before.id || ""), path);
     output({ valid: true, task: path, state_revision: state.state_revision, plan_revision: state.plan_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
@@ -320,8 +326,11 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
     const selectedRoles = new Set(plan.selected.filter((capability) => capability.kind === "role").map((capability) => `role.${String(capability.name)}`));
     if (!selectedRoles.has(roleKey)) throw new Error(`review-record: '${roleKey}' is not a selected role for this task; expected one of: ${[...selectedRoles].join(", ") || "(none)"}`);
     const repoRoot = projectIdentity(repoRootValue).root;
-    const base = String(state0.base_commit || "") || git(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
-    if (!base) throw new Error("review-record: cannot determine reviewed_base (no base_commit on the task and HEAD could not be resolved)");
+    // No HEAD fallback: a code task always gets base_commit from activation (task-init or
+    // task-write), so a missing one means activation was skipped or the state predates it, not
+    // something safe to paper over with the working tree's current HEAD.
+    const base = String(state0.base_commit || "");
+    if (!base) throw new Error("review-record: task has no base_commit; the code task was not correctly activated");
     const paths = changedPaths(repoRoot, base);
     if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
     const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
