@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type JsonObject = { [key: string]: Json };
@@ -175,4 +176,13 @@ export function option(values: Map<string, string | boolean | string[]>, name: s
 
 export function flag(values: Map<string, string | boolean | string[]>, name: string): boolean {
   return values.get(name) === true;
+}
+
+// Resolves a schemas/<name> path next to the running module: a package bundle keeps schemas/
+// beside dist/, while an installed bundle keeps it one directory up from the runtime module.
+export function schemaPath(name: string): string {
+  const bundleDirectory = dirname(fileURLToPath(import.meta.url));
+  const packageCandidate = join(bundleDirectory, "..", "schemas", name);
+  if (existsSync(packageCandidate)) return packageCandidate;
+  return join(bundleDirectory, "schemas", name);
 }

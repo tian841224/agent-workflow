@@ -1,6 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { Json, JsonObject, output, sha256, stateRoot, writeJson } from "./core.js";
+import { Json, JsonObject, now, output, readJson, sha256, stateRoot, writeJson } from "./core.js";
+
+const SKILL_PROOF_TTL_MS = 12 * 60 * 60 * 1000;
 
 export type CanonicalHookEvent = { platform: string; event: string; tool: string; cwd?: string; command?: string; paths: string[]; mutation: boolean; targetKnown: boolean; sessionId?: string };
 export type HookDecision = { allow: boolean; reason?: string; context?: string };
@@ -48,14 +50,18 @@ export function gitDecision(event: CanonicalHookEvent): HookDecision {
   if (/\bgit\b[^;&|]*(?:commit|push|rebase|merge(?![^;&|]*--abort)|reset|cherry-pick|revert(?![^;&|]*--abort))/i.test(command)) return { allow: false, reason: "git-guard: Git write requires explicit user approval." };
   return { allow: true };
 }
+function skillProofPath(root: string, platform: string, sessionId: string): string { return `${root}${sep}skill-guard${sep}${sha256(`${platform}:${sessionId}`)}.json`; }
 export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   if (!event.mutation) return { allow: true };
   const cwd = event.cwd ? resolve(event.cwd) : ""; const targets = event.paths.map((path) => resolve(cwd || ".", path));
   const touchesAgents = targets.some((path) => path.split(/[\\/]/).includes(".agents")) || /(?:^|[\\/])\.agents[\\/]/i.test(event.command || "");
   if (!touchesAgents) return { allow: true };
   if (!event.sessionId) return { allow: false, reason: "skill-guard: session proof is unavailable for a .agents mutation." };
-  const proof = `${root}${sep}skill-guard${sep}${sha256(`${event.platform}:${event.sessionId}`)}.json`;
+  const proof = skillProofPath(root, event.platform, event.sessionId);
   if (!existsSync(proof)) return { allow: false, reason: "skill-guard: load .agents/skills/writing-for-agents/SKILL.md before modifying .agents content." };
+  const record = readJson(proof);
+  if (typeof record.expires_at !== "number" || Date.now() >= record.expires_at) return { allow: false, reason: "skill-guard: proof has expired; re-read .agents/skills/writing-for-agents/SKILL.md." };
+  if (typeof record.skill_path !== "string" || !existsSync(record.skill_path) || sha256(readFileSync(record.skill_path)) !== record.skill_sha256) return { allow: false, reason: "skill-guard: writing-for-agents/SKILL.md has changed since it was read; re-read it before modifying .agents content." };
   return { allow: true };
 }
 export function runGuard(kind: "git" | "skill", platform: string, eventName: string, payload: JsonObject, root?: string): void {
@@ -64,6 +70,13 @@ export function runGuard(kind: "git" | "skill", platform: string, eventName: str
 }
 export function recordSkillRead(platform: string, payload: JsonObject, root = stateRoot()): void {
   const event = normalizeHookEvent(platform, payload, "PostToolUse");
-  if (!event.sessionId || !event.paths.some((path) => /\.agents[\\/]skills[\\/]writing-for-agents[\\/]SKILL\.md$/i.test(path))) return;
-  writeJson(`${root}${sep}skill-guard${sep}${sha256(`${platform}:${event.sessionId}`)}.json`, { schema_version: 1, created_at: Date.now(), platform, session_id: event.sessionId });
+  const skillPath = event.paths.find((path) => /\.agents[\\/]skills[\\/]writing-for-agents[\\/]SKILL\.md$/i.test(path));
+  if (!event.sessionId || !skillPath) return;
+  const resolvedSkillPath = resolve(skillPath); const agentsRoot = resolvedSkillPath.slice(0, resolvedSkillPath.toLowerCase().lastIndexOf(`${sep}.agents${sep}`) + `${sep}.agents`.length);
+  writeJson(skillProofPath(root, platform, event.sessionId), { schema_version: 2, platform, session_id: event.sessionId, agents_root: agentsRoot, skill_path: resolvedSkillPath, skill_sha256: sha256(readFileSync(resolvedSkillPath)), read_at: now(), expires_at: Date.now() + SKILL_PROOF_TTL_MS });
+}
+export function clearSkillProof(platform: string, payload: JsonObject, root = stateRoot()): void {
+  const event = normalizeHookEvent(platform, payload, "SessionEnd");
+  if (!event.sessionId) return;
+  rmSync(skillProofPath(root, platform, event.sessionId), { force: true });
 }

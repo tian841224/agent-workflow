@@ -45,4 +45,4 @@ Managed hook 對未知 mutation、缺少 session id、無法正規化的路徑�
 
 ## 安裝與遷移
 
-`install` 先建立不可覆寫的時間戳備份，再遷移舊 Python state。遷移可重跑；完成 Verify 前，不移除舊 managed command 或 runtime。舊 task frontmatter 轉為 `task.json`；原 `task.md` 收入備份，無法機械驗證的 evidence 標記為 `legacy-unverified`。managed state 記錄 package version、runtime hash、Node 路徑、platform targets 與 selected skills。Repair 從目前 repo checkout 取 source；只有已安裝 runtime 自我 repair 時才使用記錄 source。
+`install` 先建立不可覆寫的時間戳備份，再遷移舊 Python state。遷移可重跑；完成 Verify 前，不移除舊 managed command 或 runtime。舊 task frontmatter 轉為 `task.json`；`task.md` 就地去除 frontmatter、保留人的意圖內容而不刪除，原始完整檔案另收入備份，無法機械驗證的 evidence 標記為 `legacy-unverified`。managed state 記錄 package version、runtime hash、Node 路徑、platform targets 與 selected skills。Repair 從目前 repo checkout 取 source；只有已安裝 runtime 自我 repair 時才使用記錄 source。

@@ -46,8 +46,13 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
   const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "migrate-state", "--state-root", root], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).migrated, true);
-  assert.ok(existsSync(join(task, "task.json")));
-  assert.ok(!existsSync(join(task, "task.md")));
+  const migratedJson = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
+  assert.equal(migratedJson.schema_version, 2);
+  assert.equal(migratedJson.evidence[0].kind, "legacy-unverified");
+  assert.ok(existsSync(join(task, "task.md")));
+  const migratedMd = readFileSync(join(task, "task.md"), "utf8");
+  assert.doesNotMatch(migratedMd, /^---/);
+  assert.match(migratedMd, /legacy intent/);
 });
 
 test("skill drafts write the documented draft file and promote its contents", () => {
@@ -85,10 +90,10 @@ test("close-task reports the weekly memory review question when due", () => {
   const task = join(root, "task");
   const stateRoot = join(root, "state");
   mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Verify task completion prompt\n\n## Goal\n\nConfirm close-task reports the memory review question.\n");
   writeFileSync(join(task, "task.json"), JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     id: "close-memory-review",
-    intent: "Verify task completion prompt",
     lifecycle: { status: "in_progress", transitions: [{ at: new Date().toISOString(), action: "create", from: "new", to: "in_progress", actor: "test" }] },
     evidence: []
   }));
@@ -152,7 +157,7 @@ test("hook policy rejects an unlocatable mutation and orchestration rejects dupl
   const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Codex"], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ tool_name: "write_file", tool_input: {} }) });
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.match(guarded.stdout, /denied fail-closed/);
-  const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", action, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", action, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL: "1" } });
   for (const action of ["Init", "WorkerReady", "Integrate", "Apply"]) assert.equal(run(action).status, 0, action);
   assert.notEqual(run("Apply").status, 0);
 });
@@ -167,6 +172,61 @@ test("MCP connector write tools are not denied as unlocatable file mutations", (
   });
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.doesNotMatch(guarded.stdout, /denied fail-closed/);
+});
+
+test("workflow-plan filters steps by impact_scope/impact_effect/change_kind and rejects an unknown capability", () => {
+  const root = join(tmpdir(), `agent-workflow-plan-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const run = (task) => { const path = join(root, `${crypto.randomUUID()}.json`); writeFileSync(path, JSON.stringify(task)); return spawnSync(process.execPath, ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path], { cwd: process.cwd(), encoding: "utf8" }); };
+  const small = JSON.parse(run({ workflow_request: ["execution_path_review"], impact_scope: "file", impact_effect: "local_behavior", change_kind: "fix", risk_flags: [] }).stdout);
+  assert.deepEqual(small.steps[0].steps.map((step) => step.id), ["EP1"]);
+  const wide = JSON.parse(run({ workflow_request: ["execution_path_review"], impact_scope: "cross_project", impact_effect: "destructive", change_kind: "refactor", risk_flags: [] }).stdout);
+  assert.deepEqual(wide.steps[0].steps.map((step) => step.id), ["EP1", "EP2", "EP3", "EP4", "EP5"]);
+  const bad = run({ workflow_request: ["not_a_real_capability"] });
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stdout, /unknown capability/);
+});
+
+test("task-gate recomputes required evidence at gate time and a matching waiver satisfies one requirement", () => {
+  const root = join(tmpdir(), `agent-workflow-gate-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Gate test\n\n## Goal\n\nVerify runtime-compiled required evidence.\n");
+  const write = (state) => writeFileSync(join(task, "task.json"), JSON.stringify(state));
+  write({ schema_version: 2, id: "gate-test", workflow_request: ["reviewer"], compiled: { required_evidence: [] }, lifecycle: { status: "in_progress", transitions: [{ at: new Date().toISOString(), action: "create", from: "new", to: "in_progress", actor: "test" }] }, evidence: [], waivers: [] });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const gated = JSON.parse(run(["task-gate", "--task-path", join(task, "task.json")]).stdout);
+  assert.equal(gated.valid, false);
+  assert.ok(gated.errors.some((error) => error.includes("reviewer:role")));
+  const waived = run(["waive", "--task", join(task, "task.json"), "--confirmed-by-user", "user said skip reviewer", "--requirement-id", "reviewer:role"]);
+  assert.equal(waived.status, 0, waived.stderr);
+  const regated = JSON.parse(run(["task-gate", "--task-path", join(task, "task.json")]).stdout);
+  assert.ok(!regated.errors.some((error) => error.includes("reviewer:role")));
+});
+
+test("orchestrate refuses Init without the experimental flag", () => {
+  const root = join(tmpdir(), `agent-workflow-orchestration-flag-${process.pid}-${Date.now()}`);
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", "Init", "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Experimental/);
+});
+
+test("skill-guard proof rejects a changed SKILL.md and SessionEnd clears the proof", () => {
+  const root = join(tmpdir(), `agent-workflow-skill-proof-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const skillPath = join(root, "repo", ".agents", "skills", "writing-for-agents", "SKILL.md");
+  mkdirSync(join(root, "repo", ".agents", "skills", "writing-for-agents"), { recursive: true });
+  writeFileSync(skillPath, "original guidance");
+  const sessionId = "test-session";
+  const run = (event, payload) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Claude", "--event", event, "--state-root", state], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(payload) });
+  const mutate = () => run("PreToolUse", { tool_name: "write_file", tool_input: { file_path: join(".agents", "skills", "x", "SKILL.md") }, session_id: sessionId });
+  assert.equal(run("PostToolUse", { tool_name: "read", tool_input: { file_path: skillPath }, session_id: sessionId }).status, 0);
+  assert.doesNotMatch(mutate().stdout, /denied|deny/);
+  writeFileSync(skillPath, "changed guidance");
+  assert.match(mutate().stdout, /deny/);
+  writeFileSync(skillPath, "original guidance");
+  assert.doesNotMatch(mutate().stdout, /denied|deny/);
+  assert.equal(run("SessionEnd", { session_id: sessionId }).status, 0);
+  assert.match(mutate().stdout, /deny/);
 });
 
 test("MCP tools carrying a .agents path still require the writing-for-agents proof", () => {

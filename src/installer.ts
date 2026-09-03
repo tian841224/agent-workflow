@@ -3,7 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as outputStream } from "node:process";
-import { Json, JsonObject, PRODUCT_VERSION, now, output, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
+import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, output, parseFrontmatter, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
 
 type Platform = "Claude" | "Codex" | "Antigravity";
 type FileRecord = { path: string; sha256: string; kind: string };
@@ -116,13 +116,26 @@ function mergeHook(fragment: JsonObject, destination: string, runtime: string, n
   const merged = topLevel ? { ...current, ...replaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (replaced.hooks || {}) as JsonObject) };
   if (!dryRun) writeJson(destination, merged);
 }
-function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean): void {
+// Drops lines marked `<!-- skill:<name> -->` when that skill isn't present under the canonical skills root, so the entrypoint never instructs loading an absent skill.
+function filterUnselectedSkillLines(body: string, presentSkills: string[]): string {
+  return body.split(/\r?\n/).filter((line) => { const marker = line.match(/<!--\s*skill:([a-z0-9-]+)\s*-->/i); return !marker || presentSkills.includes(marker[1]); }).join("\n");
+}
+function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean, presentSkills: string[]): void {
   const begin = "<!-- agent-workflow v7 managed:start -->", end = "<!-- agent-workflow v7 managed:end -->";
   const strip = (value: string) => value.replace(/\r?\n?<!-- agent-workflow v[4567] managed:start -->[\s\S]*?<!-- agent-workflow v[4567] managed:end -->\r?\n?/g, "").trim();
   const candidates = [canonical, ...destinations].filter(existsSync).map((path) => strip(readFileSync(path, "utf8"))).filter(Boolean);
   if (new Set(candidates).size > 1) throw new Error("conflicting unmanaged entrypoint content found; refusing to overwrite it");
-  const content = `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${readFileSync(source, "utf8").trim()}\n${end}\n`;
+  const content = `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${filterUnselectedSkillLines(readFileSync(source, "utf8").trim(), presentSkills)}\n${end}\n`;
   if (!dryRun) for (const path of [canonical, ...destinations]) writeAtomic(path, content);
+}
+// Frontmatter fields that belong to task.json's workflow classification/lifecycle, not to the
+// human-readable task.md body; copied over as-is (arrays stay arrays, workflow_facts becomes an object).
+const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "change_kind", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "complexity_hint", "workflow_request", "model_profile", "independence"];
+function workflowFieldsFromFrontmatter(fields: Frontmatter): JsonObject {
+  const result: JsonObject = {};
+  for (const key of workflowFrontmatterKeys) if (fields[key] !== undefined) result[key] = fields[key] as Json;
+  if (typeof fields.workflow_facts === "string" && fields.workflow_facts.trim()) { try { result.workflow_facts = JSON.parse(fields.workflow_facts); } catch { /* leave undeclared when not valid JSON */ } }
+  return result;
 }
 function taskMigration(root: string, backup: string): number {
   let migrated = 0;
@@ -130,23 +143,44 @@ function taskMigration(root: string, backup: string): number {
     const directory = dirname(taskMd); const taskJson = join(directory, "task.json");
     if (existsSync(taskJson)) continue;
     const legacy = readFileSync(taskMd, "utf8");
-    const header = legacy.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] || "";
-    const fields: JsonObject = {};
-    for (const line of header.split(/\r?\n/)) { const index = line.indexOf(":"); if (index > 0) fields[line.slice(0, index).trim()] = line.slice(index + 1).trim().replace(/^['"]|['"]$/g, ""); }
+    const fields = parseFrontmatter(legacy);
     const id = typeof fields.id === "string" ? fields.id : basename(directory);
-    writeJson(taskJson, { schema_version: 1, id, lifecycle: { status: fields.status || "in_progress", transitions: [{ at: now(), action: "migrate", from: "legacy", to: fields.status || "in_progress", actor: "migration" }] }, evidence: [{ kind: "legacy-unverified", verified: false, note: "Imported from Python task.md; requires a new gate verification." }], intent: legacy.replace(/^---[\s\S]*?---\r?\n?/, "") });
-    const backupTarget = join(backup, "tasks", relative(join(root, "projects"), taskMd)); mkdirSync(dirname(backupTarget), { recursive: true }); writeAtomic(backupTarget, legacy); rmSync(taskMd);
+    const status = typeof fields.status === "string" && fields.status ? fields.status : "in_progress";
+    writeJson(taskJson, {
+      schema_version: 2, id, ...workflowFieldsFromFrontmatter(fields),
+      lifecycle: { status, transitions: [{ at: now(), action: "migrate", from: "legacy", to: status, actor: "migration" }], ...(typeof fields.frozen_at === "string" && fields.frozen_at ? { frozen_at: fields.frozen_at } : {}) },
+      evidence: [{ kind: "legacy-unverified", verified: false, note: "Imported from Python task.md; requires a new gate verification." }]
+    });
+    const backupTarget = join(backup, "tasks", relative(join(root, "projects"), taskMd)); mkdirSync(dirname(backupTarget), { recursive: true }); writeAtomic(backupTarget, legacy);
+    writeAtomic(taskMd, frontmatterBody(legacy));
+    migrated += 1;
+  }
+  return migrated;
+}
+function taskSchemaV1toV2Migration(root: string): number {
+  let migrated = 0;
+  for (const taskJson of filesAt(join(root, "projects")).filter((path) => basename(path) === "task.json")) {
+    const state = readJson(taskJson);
+    if (state.schema_version !== 1) continue;
+    const directory = dirname(taskJson); const taskMd = join(directory, "task.md");
+    if (typeof state.intent === "string" && state.intent.trim() && !existsSync(taskMd)) writeAtomic(taskMd, state.intent);
+    delete state.intent; delete state.required_evidence; state.schema_version = 2;
+    writeJson(taskJson, state);
     migrated += 1;
   }
   return migrated;
 }
 export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const state = resolve(root); const managedPath = join(state, "managed-runtime.json"); const existing = existsSync(managedPath) ? readJson(managedPath) : {};
-  if (existing.runtime_kind === "node" && existing.migrations && typeof existing.migrations === "object" && (existing.migrations as JsonObject).python_to_node) return { migrated: false, reason: "already-migrated" };
+  const migrations = (existing.migrations && typeof existing.migrations === "object" ? existing.migrations : {}) as JsonObject;
+  const alreadyPythonMigrated = existing.runtime_kind === "node" && migrations.python_to_node;
+  const alreadySchemaV2Migrated = migrations.v1_to_v2_task_schema;
+  if (alreadyPythonMigrated && alreadySchemaV2Migrated) return { migrated: false, reason: "already-migrated" };
   const stamp = now().replace(/[:.]/g, "-"); const backup = join(state, "migrations", `python-v6-${stamp}`);
   if (!dryRun) { mkdirSync(backup, { recursive: true }); if (existsSync(managedPath)) writeAtomic(join(backup, "managed-runtime.json"), readFileSync(managedPath)); }
-  const migratedTasks = dryRun ? 0 : taskMigration(state, backup);
-  return { migrated: true, backup, migrated_tasks: migratedTasks, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
+  const migratedTasks = dryRun || alreadyPythonMigrated ? 0 : taskMigration(state, backup);
+  const migratedSchemaV2 = dryRun || alreadySchemaV2Migrated ? 0 : taskSchemaV1toV2Migration(state);
+  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
 }
 export async function install(options: InstallOptions): Promise<number> {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const source = sourceRoot(); const managedPath = join(state, "managed-runtime.json"); const previous = existsSync(managedPath) ? readJson(managedPath) : {};
@@ -162,7 +196,8 @@ export async function install(options: InstallOptions): Promise<number> {
   for (const skill of selectedSkills) { const sourceSkill = join(source, ".agents", "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(canonical, "skills", skill), records, "canonical-skill", options.dryRun); }
   const targetRoots = roots(options); const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
-  if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, options.dryRun);
+  const presentSkills = existsSync(join(canonical, "skills")) ? readdirSync(join(canonical, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : [];
+  if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, options.dryRun, presentSkills);
   const node = process.execPath;
   for (const platform of selected) {
     const root = targetRoots[platform]; const skillRoot = join(root, ...platforms[platform].skills);
@@ -170,7 +205,7 @@ export async function install(options: InstallOptions): Promise<number> {
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity");
   }
-  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration } });
+  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true } : {}) } });
   output({ ok: true, action: options.action, runtime, selected_skills: selectedSkills, migration }); return 0;
 }
 export function verify(options: InstallOptions): number {

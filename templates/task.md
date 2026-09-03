@@ -1,33 +1,16 @@
----
-id: <YYYYMMDD-HHmmss-short-slug>
-project_id: <project-id>
-worktree_id: <worktree-id>
-status: in_progress
-code_change: <true | false>
-workflow_mode: main
-task_type: <fix | feature | refactor | chore | schema | migration | config | docs | investigation>
-change_kind: <fix | feature | refactor | chore; required when code_change: true>
-risk_flags: []
-impact_scope: <file | module | multi_module | cross_project>
-impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
-impact_confidence: <high | medium | low>
-complexity_hint: []
-workflow_request: []
-model_profile: <cheap_read; only with task_type: read_only>
-workflow_facts: <JSON object of declared facts; only affects which steps are selected within each capability already chosen in workflow_request, does not affect whether a capability itself is selected>
-created_at: <ISO-8601>
-updated_at: <ISO-8601>
-frozen_at:
-independence: native
----
-
-<!-- Frontmatter field notes (only non-obvious rules listed; see schemas/workflow-policy.json for the rest):
+<!-- This file only holds the human-readable intent (Goal/Scope/Completion criteria and the
+     evidence sections below). `id`/`project_id`/`worktree_id`/`code_change`/`workflow_mode`/
+     `task_type`/`change_kind`/`risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/
+     `complexity_hint`/`workflow_request`/`workflow_facts`/`workflow_decision`/`model_profile`/
+     `independence`/`lifecycle.frozen_at`/`lifecycle.stop_reason` all live in the sibling
+     `task.json` (schemas/task-state.schema.json), not here. Field notes (only non-obvious
+     rules listed; see schemas/workflow-policy.json for the rest):
 workflow_request: may be empty, but the reason must be explained in Impact surface; whether a capability is selected is determined solely by this field.
 workflow_facts: only affects which steps appear within an already-selected capability, not whether the capability is selected;
            an undeclared fact always keeps that step (unknown does not mean "not needed").
-frozen_at: required as ISO-8601 when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria
+lifecycle.frozen_at: required as ISO-8601 when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria
            with the user first, then fill this in. The task gate checks the field at Stop/Close; it is not a per-tool write hook.
-stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
+lifecycle.stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
 roles_waived: can only be written via waive-roles --reason '<reason>' --confirmed-by-user; direct edits are not a valid waiver
 and will not satisfy the completion gate.
 independence: defaults to native, checked only for coordinator/worker tasks or tasks with the legacy completion gate enabled;
@@ -137,7 +120,7 @@ change_kind: refactor: ## Behavior invariants and before-after evidence
 workflow_request is empty: ## Impact surface is required, explaining why this task was judged not to need any capability
 -->
 
-<!-- Add for coordinator tasks (also add subtask_role: coordinator, integration_status: pending to frontmatter):
+<!-- Add for coordinator tasks (also add subtask_role: coordinator, integration_status: pending to task.json):
 ## Decomposition plan
 - Reason for splitting and each worker's scope
 - Split plan JSON path and split-plan.py's eligibility determination
@@ -154,7 +137,7 @@ workflow_request is empty: ## Impact surface is required, explaining why this ta
 - Post-integration pre-review, affected test set, and Reviewer evidence
 -->
 
-<!-- Add for worker tasks. Add the following five fields to frontmatter (file_ownership must be an inline array):
+<!-- Add for worker tasks. Add the following five fields to task.json (file_ownership must be an array):
 subtask_role: worker
 parent_task_id: <coordinator-task-id>
 base_commit: <40-hex; worktree baseline, also the Reviewer's diff baseline>
@@ -165,6 +148,6 @@ delivery_status: pending
 - coordinator task id and base_commit
 
 ## File ownership
-- List of repo-relative prefixes matching frontmatter's file_ownership, with reasons
+- List of repo-relative prefixes matching task.json's file_ownership, with reasons
 - When files outside the scope are needed: ownership_request and the evidence at the point it stopped
 -->

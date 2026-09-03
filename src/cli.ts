@@ -1,6 +1,6 @@
 import { PRODUCT_VERSION, flag, option, parseArgs, stateRoot, stdinJson } from "./core.js";
 import { install, migrateState } from "./installer.js";
-import { recordSkillRead, runGuard } from "./hooks.js";
+import { clearSkillProof, recordSkillRead, runGuard } from "./hooks.js";
 import { closeTask, taskGate, transitionTask } from "./lifecycle.js";
 import { knowledge, memoryContext } from "./knowledge.js";
 import { orchestrate } from "./orchestration.js";
@@ -16,7 +16,8 @@ const commands = [
   "workflow-plan", "task-gate", "close-task",
   "learn", "knowledge", "skill-draft", "memory-review", "retro", "review-cause",
   "project-resolver", "project-doc", "pre-review",
-  "orchestrate", "split-plan", "worktree-fingerprint"
+  "orchestrate", "split-plan", "worktree-fingerprint",
+  "freeze", "pause", "block", "supersede", "waive"
 ];
 
 function usage(): void {
@@ -59,12 +60,13 @@ async function main(): Promise<void> {
     const platform = option(parsed.values, "platform", "Codex");
     const event = option(parsed.values, "event", command === "git-guard" ? "PreToolUse" : "PreToolUse");
     if (command === "skill-guard" && event === "PostToolUse") recordSkillRead(platform, payload, option(parsed.values, "state-root", stateRoot()));
+    if (command === "skill-guard" && event === "SessionEnd") clearSkillProof(platform, payload, option(parsed.values, "state-root", stateRoot()));
     runGuard(command === "git-guard" ? "git" : "skill", platform, event, payload, option(parsed.values, "state-root", stateRoot()));
   }
   else if (command === "memory-context") memoryContext(option(parsed.values, "platform", "Codex"), option(parsed.values, "state-root", stateRoot()));
   else if (command === "knowledge") process.exitCode = knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "orchestrate") process.exitCode = orchestrate(parsed.values);
-  else if (command === "workflow-plan") process.exitCode = workflowPlan(option(parsed.values, "task-path"));
+  else if (command === "workflow-plan") process.exitCode = workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
   else if (command === "project-resolver") process.exitCode = projectResolver(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "state-root", stateRoot()));
   else if (command === "worktree-fingerprint") process.exitCode = fingerprint(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
   else if (command === "pre-review") process.exitCode = preReview(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
@@ -78,7 +80,7 @@ async function main(): Promise<void> {
   else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"));
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
   else if (["freeze", "pause", "block", "supersede", "waive"].includes(command)) {
-    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "freeze" | "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"));
+    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "freeze" | "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
     process.stdout.write(`${JSON.stringify(state)}\n`);
   }
   else {

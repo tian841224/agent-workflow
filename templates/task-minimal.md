@@ -1,24 +1,8 @@
----
-id: <YYYYMMDD-HHmmss-short-slug>
-project_id: <project-id>
-worktree_id: <worktree-id>
-status: in_progress
-code_change: true
-workflow_mode: main
-task_type: <fix | feature | refactor | chore | schema | migration | config | docs | investigation>
-change_kind: <fix | feature | refactor | chore>
-risk_flags: []
-impact_scope: <file | module | multi_module | cross_project>
-impact_effect: <none | local_behavior | shared_behavior | schema | data | contract | destructive>
-impact_confidence: <high | medium | low>
-complexity_hint: []
-workflow_request: []
-model_profile: <cheap_read; only with task_type: read_only>
-workflow_facts:
-created_at: <ISO-8601>
-updated_at: <ISO-8601>
-frozen_at:
----
+<!-- This file only holds the human-readable intent (Goal/Scope/Completion criteria and the
+     sections below). `id`/`project_id`/`worktree_id`/`code_change`/`workflow_mode`/`task_type`/
+     `change_kind`/`risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/
+     `complexity_hint`/`workflow_request`/`workflow_facts`/`model_profile`/`lifecycle.frozen_at`
+     all live in the sibling `task.json` (schemas/task-state.schema.json), not here. -->
 
 # <task title>
 

@@ -8,6 +8,8 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task-state.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。
+
 ## 適用範圍
 
 實際修改「目標專案」的 application source code logic 時，由主對話根據觀察到的 impact 與 risk 判斷是否建立 task、選擇要跑的 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍應執行相關測試，但直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。判斷為 non-code 後若在處理過程中發現實際需要改 application source code 邏輯（原判斷有誤），不得沿用原 task 補角色：另建 `code_change: true` 的新 task 走完整流程，原 task 標記 `superseded` 並在其中註明轉出的新 task。
@@ -51,7 +53,7 @@ Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式�
 1. Standard task 直接沿用已知的 task context；只有需要跨 worktree、coordinator／worker 或 legacy runtime gate 時才執行 `~/.agent-workflow/runtime/agent_workflow.cmd project-resolver -Ensure`。
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則；project docs 讀寫時機另見 [project-docs skill](../project-docs/SKILL.md)。
-4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。
+4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同時在同一目錄建立 `task.json`（依 `schemas/task-state.schema.json`），`id` 用目錄名。
 5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
 6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `frozen_at` 先留空，取得使用者對目標、非目標與完成條件的確認後才填入；目前 freeze 主要由 task gate 與流程規範檢查，並非每次工具寫入都由 runtime 攔截。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
@@ -136,8 +138,8 @@ subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制
 
 - 同一修復假說失敗兩次，不再猜第三次；回到 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md) 的 Phase 3，一次排出 3–5 個可證偽的假設，不要繼續單一假設式猜測。
 - Review 對同一問題打回三次，停止局部修補，整理證據與架構風險交使用者裁決。
-- 中斷可續作用 `paused`；缺權限、環境或外部決策用 `blocked`。兩者都必須在 frontmatter 填 `stop_reason:`（在等什麼、下一步是什麼）；沒填時下次同一 worktree 的 Stop 會提示一次（同一 session 只提示一次），提醒補上，不阻斷結束回合。確定不做了用 `superseded`。
-- 不維護額外 state service；task.md 是唯一任務狀態。
+- 中斷可續作用 `paused`；缺權限、環境或外部決策用 `blocked`。兩者都必須在 task.json 填 `lifecycle.stop_reason`（在等什麼、下一步是什麼）；沒填時下次同一 worktree 的 Stop 會提示一次（同一 session 只提示一次），提醒補上，不阻斷結束回合。確定不做了用 `superseded`。
+- task.md 保存人的意圖與驗收條件，task.json 保存版本化 lifecycle、workflow 分類、evidence 與 waiver；兩者分工見 [architecture.md](../../../docs/architecture.md)。
 
 ## 8. 完成
 
