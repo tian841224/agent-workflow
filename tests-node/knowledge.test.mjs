@@ -32,7 +32,7 @@ test("memory-context for one project never includes a knowledge entry written un
   assert.doesNotMatch(context.stdout, /OTHER_PROJECT_DISTINCTIVE_TEXT/);
 });
 
-test("a freshly-created knowledge entry defaults to status candidate and is excluded from memory-context until verified", () => {
+test("a freshly-created knowledge entry defaults to status needs_verification and is excluded from memory-context until verified", () => {
   const root = join(tmpdir(), `agent-workflow-knowledge-status-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });

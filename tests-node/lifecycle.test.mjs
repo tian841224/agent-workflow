@@ -82,7 +82,7 @@ test("task-init creates a schema-valid task.json and refuses to overwrite an exi
   const task = join(root, "20260101-000000-init-test"); mkdirSync(task, { recursive: true });
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
-  const created = run(["task-init", "--task-path", path], JSON.stringify({ code_change: true, change_kind: "fix" }));
+  const created = run(["task-init", "--task-path", path], JSON.stringify({ code_change: true, task_type: "fix" }));
   assert.equal(created.status, 0, created.stderr);
   const state = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(state.schema_version, 3);
@@ -112,10 +112,10 @@ test("task-write merges fields through the lock, bumps plan_revision on a classi
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
   writeFileSync(path, JSON.stringify(validTask()));
-  const wrote = run(["task-write", "--task-path", path], JSON.stringify({ change_kind: "fix", risk_flags: ["data_write"] }));
+  const wrote = run(["task-write", "--task-path", path], JSON.stringify({ task_type: "fix", risk_flags: ["data_write"] }));
   assert.equal(wrote.status, 0, wrote.stderr);
   const state = JSON.parse(readFileSync(path, "utf8"));
-  assert.equal(state.change_kind, "fix");
+  assert.equal(state.task_type, "fix");
   assert.deepEqual(state.risk_flags, ["data_write"]);
   assert.equal(state.plan_revision, 2);
   assert.equal(state.state_revision, 2);

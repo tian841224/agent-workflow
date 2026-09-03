@@ -9,7 +9,7 @@ description: 修改 application source code 前載入；先以 project-doc Looku
 
 ## 與 knowledge、retro 的分工
 
-| | project docs | `knowledge.py` | `retro.py` |
+| | project docs | `knowledge` | `retro` |
 |---|---|---|---|
 | 回答 | 這塊 code 是什麼、流程怎麼走、為什麼這樣決定 | 這件事以前踩過嗎（跨 task 的框架級教訓） | 框架是不是重複漏接 |
 | 檢索鍵 | path 前綴反查 | topic 關鍵字子字串 | miss_category 計數 |
@@ -60,7 +60,7 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 | 命中，但入口、流程骨架、共用狀態、契約或假設已與文件不符 | 原地更新受影響的區塊 |
 | `uncovered`（本次路徑沒有任何文件涵蓋） | 依「佈局」建立對應文件 |
 
-判準是「文件記錄的事實是否仍成立」，不是「有沒有改到檔案」——只動不影響流程骨架的實作細節時，正確結果就是 no-op。`stale`／`stale_pending` 只當線索，一律以現況程式為準。
+判準是「文件記錄的事實是否仍成立」，不是「有沒有改到檔案」——只動不影響流程骨架的實作細節時，正確結果就是 no-op。`Stale` 的結果只當線索，一律以現況程式為準。
 
 新增或修改對外端點時，`docs/api/<slug>.md` 沒有就建立、已有就核對 request／response／errors 是否仍正確。
 
@@ -138,17 +138,17 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 ## `project-doc`
 
 ```text
-$pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\agent_workflow.cmd'
-& $pd project-doc --action Lookup --paths 'game/gameList/Seth_10017/'   # 命中文件 + uncovered，附帶 architecture/structure/dataflow/glossary
-& $pd project-doc --action List                                          # 全部文件與 stale 狀態
-& $pd project-doc --action Stale                                         # 只列 stale／stale_pending 的文件
-& $pd project-doc --action Check --doc docs/structure.md                 # frontmatter／covers／必要區塊
-& $pd project-doc --action Check --doc docs/flows/exchange.md            # 同上，flow 文件檢查四區塊
-& $pd project-doc --action Check --doc docs/modules/seth-10017.md        # 同上，module 文件檢查六區塊
-& $pd project-doc --action Check --doc docs/api/exchange-prepare.md      # 同上，api 文件檢查七區塊
+$pd = Join-Path $env:USERPROFILE '.agent-workflow\runtime\agent-workflow.mjs'
+& node $pd project-doc --action Lookup --paths 'game/gameList/Seth_10017/'   # 命中文件 + uncovered，附帶 architecture/structure/dataflow/glossary
+& node $pd project-doc --action List                                          # 全部文件與 stale 狀態
+& node $pd project-doc --action Stale                                         # 只列 covers 路徑比文件本身更新的文件
+& node $pd project-doc --action Check --doc docs/structure.md                 # frontmatter／covers／必要區塊
+& node $pd project-doc --action Check --doc docs/flows/exchange.md            # 同上，flow 文件檢查四區塊
+& node $pd project-doc --action Check --doc docs/modules/seth-10017.md        # 同上，module 文件檢查六區塊
+& node $pd project-doc --action Check --doc docs/api/exchange-prepare.md      # 同上，api 文件檢查七區塊
 ```
 
-`stale`：涵蓋路徑在文件之後又被 commit 改動。`stale_pending`：涵蓋路徑有未提交改動而文件沒有。兩者皆源自 git 歷史比較，不是欄位，不可能被手動改假；未進版控的新文件一律 `stale: false`。
+`Stale` 只回報一種情況：涵蓋路徑最後一次提交的時間晚於文件本身最後一次提交的時間。判斷完全來自版本歷史比較，不是文件裡的欄位，不可能被手動改假；未提交的改動與未進版控的新文件都不會出現在結果中。
 
 ## 在 workflow task 內的額外欄位
 

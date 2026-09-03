@@ -10,10 +10,11 @@ This file only needs to be read for Elevated tasks, coordinator/worker, or tasks
 
 ## Before pre-review and roles
 
-- Only coordinator/worker tasks, or tasks that explicitly enable the legacy completion gate, record `diff_sha256`; a regular task uses the last verification and Review result as the baseline.
-- Before Review, the main agent recomputes the fingerprint with `~/.agent-workflow/runtime/agent_workflow.cmd worktree-fingerprint` to confirm the diff has stabilized; if a review result's `diff_sha256` no longer matches the current state, Review must re-run.
+- Before Review, the main agent recomputes the fingerprint with `agent-workflow worktree-fingerprint` to confirm the diff has stabilized; `workspace_sha256` moving mid-review means the diff is still in flight, so Review waits rather than reviewing a moving target.
+- Role evidence in `task.json` is scoped to the diff a review actually covered: record `reviewed_base`, `reviewed_paths` and the `reviewed_diff_sha256` returned by `agent-workflow worktree-fingerprint --base <sha> --paths <comma-separated paths>`. The gate recomputes that digest, so an edit outside the reviewed paths leaves the review valid while any change inside them requires a re-review. Run `agent-workflow task-gate --repo-root <repo>` from the worktree being reviewed: the task directory lives in the state root, not in the repo. `reviewed_paths` must cover every path changed since `reviewed_base`, renames and deletions included — a scope aimed at an untouched path would otherwise yield a digest that never goes stale.
+- Declaring `file_ownership` declares a hard boundary, not a review filter: any path changed outside it fails the gate as an ownership violation, so a task whose delivery legitimately reaches further has to widen `file_ownership` (and re-confirm the impact) rather than leave the change unreviewed.
 
 ## Completion
 
-- Fill in the Reviewer result with its own `diff_sha256` and the `independence` status.
-- Run `~/.agent-workflow/runtime/agent_workflow.cmd close-task` to re-run the full legacy completion gate; the main agent must not decide completion criteria on its own and set `status: done` directly.
+- Fill in the Reviewer result with its own `reviewed_diff_sha256` and the `independence` status.
+- Run `agent-workflow close-task` to re-run the full legacy completion gate; the main agent must not decide completion criteria on its own and set `status: done` directly.

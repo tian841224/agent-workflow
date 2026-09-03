@@ -1,7 +1,7 @@
 import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { canonicalJson, JsonObject, schemaPath, sha256 } from "./core.js";
+import { canonicalJson, Json, JsonObject, schemaPath, sha256 } from "./core.js";
 
 // workflow-policy.schema.json is draft-07 (no 2020-12 features needed here), so the default ajv
 // export already carries its meta-schema — unlike task.schema.json's Ajv2020 workaround in lifecycle.ts.
@@ -11,7 +11,6 @@ const validatePolicySchema = ajv.compile(JSON.parse(readFileSync(schemaPath("wor
 export type WorkflowContext = {
   facts: JsonObject;
   risk_flags: string[];
-  change_kind: string;
   task_type: string;
   impact_scope: string;
   impact_effect: string;
@@ -23,7 +22,6 @@ function contextOf(task: JsonObject): WorkflowContext {
   return {
     facts,
     risk_flags: Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [],
-    change_kind: String(task.change_kind || ""),
     task_type: String(task.task_type || ""),
     impact_scope: String(task.impact_scope || ""),
     impact_effect: String(task.impact_effect || ""),
@@ -31,15 +29,19 @@ function contextOf(task: JsonObject): WorkflowContext {
   };
 }
 
-function rankAtLeast(current: string, threshold: string, ranks: JsonObject): boolean {
-  if (!(current in ranks) || !(threshold in ranks)) return true; // unrecognized value on either side is unknown; unknown keeps the step
-  return Number(ranks[current]) >= Number(ranks[threshold]);
-}
-
 export type MatchResult = "match" | "no_match" | "unknown";
-const not = (result: MatchResult): MatchResult => result === "match" ? "no_match" : result === "no_match" ? "match" : "unknown";
 
-export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): MatchResult {
+// An undeclared or unrecognized rank is genuinely unknown, not a match. Collapsing it to "match"
+// is what silently forced every at-least capability to be required on a half-filled task.
+function rankAtLeast(current: string, threshold: string, ranks: JsonObject): MatchResult {
+  if (!(current in ranks) || !(threshold in ranks)) return "unknown";
+  return Number(ranks[current]) >= Number(ranks[threshold]) ? "match" : "no_match";
+}
+const not = (result: MatchResult): MatchResult => result === "match" ? "no_match" : result === "no_match" ? "match" : "unknown";
+// An undeclared classification field is unknown; only a declared value can prove a no_match.
+const member = (current: string, expected: Json[]): MatchResult => !current ? "unknown" : expected.map(String).includes(current) ? "match" : "no_match";
+
+export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject }): MatchResult {
   if (condition.always === true) return "match";
   if (condition.not && typeof condition.not === "object" && !Array.isArray(condition.not)) return not(evaluateCondition(condition.not as JsonObject, ctx, ranks));
   if (typeof condition.fact === "string") {
@@ -48,18 +50,17 @@ export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, r
     return expected.includes(String(ctx.facts[condition.fact])) ? "match" : "no_match";
   }
   if (Array.isArray(condition.risk_flags)) return condition.risk_flags.map(String).some((flag) => ctx.risk_flags.includes(flag)) ? "match" : "no_match";
-  if (Array.isArray(condition.change_kind)) return condition.change_kind.map(String).includes(ctx.change_kind) ? "match" : "no_match";
-  if (Array.isArray(condition.task_type)) return condition.task_type.map(String).includes(ctx.task_type) ? "match" : "no_match";
-  if (Array.isArray(condition.impact_scope)) return condition.impact_scope.map(String).includes(ctx.impact_scope) ? "match" : "no_match";
-  if (Array.isArray(condition.impact_effect)) return condition.impact_effect.map(String).includes(ctx.impact_effect) ? "match" : "no_match";
-  if (Array.isArray(condition.impact_confidence)) return condition.impact_confidence.map(String).includes(ctx.impact_confidence) ? "match" : "no_match";
-  if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope) ? "match" : "no_match";
+  if (Array.isArray(condition.task_type)) return member(ctx.task_type, condition.task_type);
+  if (Array.isArray(condition.impact_scope)) return member(ctx.impact_scope, condition.impact_scope);
+  if (Array.isArray(condition.impact_effect)) return member(ctx.impact_effect, condition.impact_effect);
+  if (Array.isArray(condition.impact_confidence)) return member(ctx.impact_confidence, condition.impact_confidence);
+  if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope);
   // Reachable only if a condition bypassed loadPolicy's schema validation (e.g. a hand-built
   // policy object in a test) — schema-valid policies always match one of the branches above.
   throw new Error(`workflow-policy: condition has no recognized operator: ${canonicalJson(condition)}`);
 }
 
-export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): MatchResult {
+export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: WorkflowContext, ranks: { scope: JsonObject }): MatchResult {
   if (!Array.isArray(groups) || !groups.length) return "match";
   const groupResults = groups.map((all) => {
     const results = all.map((condition) => evaluateCondition(condition, ctx, ranks));
@@ -70,6 +71,22 @@ export function evaluateGroups(groups: JsonObject[][] | undefined, ctx: Workflow
   if (groupResults.includes("match")) return "match";
   if (groupResults.includes("unknown")) return "unknown";
   return "no_match";
+}
+
+// Names the fields a require_when group needed but the task never declared, so an
+// "incomplete classification" report tells the agent exactly what to fill in.
+function undeclaredFields(groups: JsonObject[][], ctx: WorkflowContext): string[] {
+  const missing = new Set<string>();
+  const visit = (condition: JsonObject): void => {
+    if (condition.not && typeof condition.not === "object" && !Array.isArray(condition.not)) return visit(condition.not as JsonObject);
+    if (typeof condition.fact === "string" && !(condition.fact in ctx.facts)) missing.add(`workflow_facts.${condition.fact}`);
+    if ((Array.isArray(condition.impact_scope) || typeof condition.impact_scope_at_least === "string") && !ctx.impact_scope) missing.add("impact_scope");
+    if (Array.isArray(condition.impact_effect) && !ctx.impact_effect) missing.add("impact_effect");
+    if (Array.isArray(condition.impact_confidence) && !ctx.impact_confidence) missing.add("impact_confidence");
+    if (Array.isArray(condition.task_type) && !ctx.task_type) missing.add("task_type");
+  };
+  for (const group of groups) for (const condition of group) visit(condition);
+  return [...missing].sort();
 }
 
 export function loadPolicy(path: string): JsonObject {
@@ -105,7 +122,7 @@ export function compilePlanForTaskPath(task: JsonObject, taskJsonPath: string, p
   });
 }
 
-export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject; effect: JsonObject }): JsonObject[] {
+export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject }): JsonObject[] {
   const steps = Array.isArray(capability.steps) ? capability.steps as JsonObject[] : [];
   return steps.filter((step) => evaluateGroups(step.when as JsonObject[][] | undefined, ctx, ranks) !== "no_match");
 }
@@ -129,6 +146,7 @@ export function orderCapabilities(requested: string[], capabilities: JsonObject[
 
 export type CompiledWorkflowPlan = {
   required: string[];
+  classification_incomplete: JsonObject[];
   suggested: JsonObject[];
   requested: string[];
   effective: string[];
@@ -147,8 +165,19 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const unknown = requested.filter((name) => !names.has(name));
   if (unknown.length) throw new Error(`workflow-plan: unknown capability: ${unknown.join(", ")}`);
   const ctx = contextOf(task);
-  const ranks = { scope: policy.scope_rank as JsonObject, effect: (policy.effect_rank || {}) as JsonObject };
-  const required = capabilities.filter((capability) => Array.isArray(capability.require_when) && capability.require_when.length > 0 && evaluateGroups(capability.require_when as JsonObject[][], ctx, ranks) !== "no_match").map((capability) => String(capability.name));
+  const ranks = { scope: policy.scope_rank as JsonObject };
+  // Two different decisions, deliberately not collapsed into one: a capability is forced only on a
+  // proven match, while an undecidable require_when means the task's classification is still
+  // incomplete. Reporting the second separately keeps "genuinely high risk" distinguishable from
+  // "the agent has not filled the field in yet" — the gate blocks on both, for different reasons.
+  const requireResults = capabilities
+    .filter((capability) => Array.isArray(capability.require_when) && capability.require_when.length > 0)
+    .map((capability) => ({ capability, result: evaluateGroups(capability.require_when as JsonObject[][], ctx, ranks) }));
+  const required = requireResults.filter((entry) => entry.result === "match").map((entry) => String(entry.capability.name));
+  const classification_incomplete = requireResults.filter((entry) => entry.result === "unknown").map((entry) => ({
+    name: entry.capability.name,
+    missing: undeclaredFields(entry.capability.require_when as JsonObject[][], ctx)
+  }));
   const effective = [...new Set([...required, ...requested])];
   const order = orderCapabilities(effective, capabilities);
   const selected = order.map((name) => capabilities.find((capability) => String(capability.name) === name)!).map((capability) => ({
@@ -165,9 +194,9 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const requirements_hash = sha256(canonicalJson({
     policy_version, policy_sha256: options.policySha256 ?? null, task_md_sha256: options.taskMdSha256 ?? null,
     code_change: task.code_change ?? null, workflow_mode: task.workflow_mode ?? null,
-    task_type: ctx.task_type, change_kind: ctx.change_kind, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
+    task_type: ctx.task_type, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
     risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
     required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), selected_step_ids
   }));
-  return { required, suggested, requested, effective, order, selected, required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), requirements_hash };
+  return { required, classification_incomplete, suggested, requested, effective, order, selected, required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), requirements_hash };
 }

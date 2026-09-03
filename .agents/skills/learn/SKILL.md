@@ -22,7 +22,7 @@ This is the agent's automatic learning entrypoint; the user does not need to typ
 4. Run via the runtime:
 
 ```text
-agent_workflow.cmd learn --action Capture --cwd <cwd> --scope Project --kind <kind> --topic <topic> --content <durable conclusion> --source-event <event>
+agent-workflow learn --action Capture --cwd <cwd> --scope Project --kind <kind> --topic <topic> --content <durable conclusion> --source-event <event>
 ```
 
 5. Reuse an existing entry's `--topic` wording whenever the capture is about the same subject.

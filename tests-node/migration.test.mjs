@@ -22,7 +22,7 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
   assert.match(migratedMd, /legacy intent/);
 });
 
-test("a schema_version 2 frozen task migrates to schema_version 3 with intent_approval and stale evidence", () => {
+test("a schema_version 2 frozen task migrates to schema_version 3 with intent_approval and legacy-unverified evidence", () => {
   const root = join(tmpdir(), `agent-workflow-migration-v3-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "project", "tasks", "frozen-task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Frozen task\n\n## Goal\n\nMigrate this task to schema v3.\n");
@@ -42,5 +42,6 @@ test("a schema_version 2 frozen task migrates to schema_version 3 with intent_ap
   assert.equal(migrated.intent_approval.confirmed_at, "2026-01-01T00:00:00.000Z");
   assert.ok(Number.isInteger(migrated.state_revision));
   assert.ok(Number.isInteger(migrated.plan_revision));
-  assert.equal(migrated.evidence[0].status, "stale");
+  assert.equal(migrated.evidence[0].kind, "legacy-unverified");
+  assert.equal(migrated.evidence[0].verified, false);
 });

@@ -1,18 +1,18 @@
 <!-- This file only holds the human-readable intent (Goal/Scope/Completion criteria and the
      evidence sections below). `id`/`project_id`/`worktree_id`/`code_change`/`workflow_mode`/
-     `task_type`/`change_kind`/`risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/
-     `complexity_hint`/`workflow_request`/`workflow_facts`/`workflow_decision`/`model_profile`/
-     `independence`/`lifecycle.frozen_at`/`lifecycle.stop_reason` all live in the sibling
-     `task.json` (schemas/task-state.schema.json), not here. Field notes (only non-obvious
-     rules listed; see schemas/workflow-policy.json for the rest):
-workflow_request: may be empty, but the reason must be explained in Impact surface; whether a capability is selected is determined solely by this field.
+     `task_type`/`risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/
+     `workflow_request`/`workflow_facts`/`workflow_decision`/`model_profile`/`independence`/
+     `intent_approval`/`lifecycle.stop_reason` all live in the sibling `task.json`
+     (schemas/task.schema.json), written only through `agent-workflow task-init` / `task-write`.
+     Field notes (only non-obvious rules listed; see schemas/workflow-policy.json for the rest):
+workflow_request: may be empty, but a capability whose require_when matches is added by the runtime regardless; the only way to drop one is an explicit waiver.
 workflow_facts: only affects which steps appear within an already-selected capability, not whether the capability is selected;
            an undeclared fact always keeps that step (unknown does not mean "not needed").
-lifecycle.frozen_at: required as ISO-8601 when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria
-           with the user first, then fill this in. The task gate checks the field at Stop/Close; it is not a per-tool write hook.
+intent_approval: required when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria with the
+           user first, then record the approval; it binds this file's SHA-256, so editing task.md afterwards invalidates it.
 lifecycle.stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
-roles_waived: can only be written via waive-roles --reason '<reason>' --confirmed-by-user; direct edits are not a valid waiver
-and will not satisfy the completion gate.
+waivers: written only by `agent-workflow waive --requirement-id <id> --confirmed-by-user '<text>'`; a waiver binds the plan's
+           requirements_hash, so it lapses the moment the task's classification changes. Direct edits are not a valid waiver.
 independence: defaults to native, checked only for coordinator/worker tasks or tasks with the legacy completion gate enabled;
            if a native role fails to load, or the main agent fills in a role section on its behalf, this must be honestly recorded as degraded — the close gate rejects unwaived degraded tasks.
 -->
@@ -108,7 +108,7 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
      field in schemas/workflow-policy.json (data_impact and contract_review share "Contract and data impact",
      execution_path_review and regression_validation share "Execution path and regression evidence").
      Only write the steps actually selected within that capability (which steps are selected is determined by
-     the same policy's steps[].when, driven by impact_scope/impact_effect/change_kind/risk_flags/workflow_facts),
+     the same policy's steps[].when, driven by impact_scope/impact_effect/task_type/risk_flags/workflow_facts),
      one line per step as `- <step id>: <conclusion and evidence>`; unselected steps do not need to be filled in and are not checked.
 -->
 
@@ -116,14 +116,14 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 behavior_change/ui: ## Acceptance cases
 cross_feature/migration/irreversible: ## Implementation sequence (implementation order, dependencies, and rollback points)
 ui: ## Browser verification
-change_kind: refactor: ## Behavior invariants and before-after evidence
+task_type: refactor: ## Behavior invariants and before-after evidence
 workflow_request is empty: ## Impact surface is required, explaining why this task was judged not to need any capability
 -->
 
 <!-- Add for coordinator tasks (also add subtask_role: coordinator, integration_status: pending to task.json):
 ## Decomposition plan
 - Reason for splitting and each worker's scope
-- Split plan JSON path and split-plan.py's eligibility determination
+- Split plan JSON path and `agent-workflow split-plan`'s eligibility determination
 
 ## Worker results
 - Each worker's status, validation results, fix-forward history, and Manual handoff information

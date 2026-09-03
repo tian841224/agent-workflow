@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { JsonObject, mutateTask, now, output, readJson, schemaPath, sha256, stateRoot, writeAtomic } from "./core.js";
+import { JsonObject, mutateTask, now, option, optionList, output, readJson, schemaPath, sha256, stateRoot, writeAtomic } from "./core.js";
 
 function taskIdFor(taskFilePath: string): string {
   const directory = dirname(taskFilePath); const taskJson = join(directory, "task.json");
@@ -9,8 +9,8 @@ function taskIdFor(taskFilePath: string): string {
 }
 
 type Options = Map<string, string | boolean | string[]>;
-const string = (options: Options, name: string, fallback = "") => typeof options.get(name) === "string" ? options.get(name) as string : fallback;
-const values = (options: Options, name: string) => string(options, name).split(",").map((value) => value.trim()).filter(Boolean);
+const string = option; // single-value reads share one implementation, so a duplicate flag errors here too
+const values = optionList;
 function index(root: string, store: string): [string, JsonObject] { const path = join(root, store, "index.json"); return [path, existsSync(path) ? readJson(path) : { schema_version: 1, entries: [] }]; }
 function entries(data: JsonObject): JsonObject[] { if (!Array.isArray(data.entries)) throw new Error("index has no entries array"); return data.entries.filter((value): value is JsonObject => !!value && !Array.isArray(value) && typeof value === "object"); }
 export function reviewCause(options: Options): number {

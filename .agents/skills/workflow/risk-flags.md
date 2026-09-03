@@ -4,7 +4,7 @@
 
 `behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
 
-「只重構內部結構」的判斷改由 `change_kind: refactor` 單一入口承載，`## Behavior invariants and before-after evidence` 段落改依 `change_kind` 觸發（見 [SKILL.md](SKILL.md) 第 4 節）。
+「只重構內部結構」的判斷改由 `task_type: refactor` 單一入口承載，`## Behavior invariants and before-after evidence` 段落改依 `task_type` 觸發（見 [SKILL.md](SKILL.md) 第 4 節）。
 
 | Flag | 定義（什麼情況標記） | 對應要求 |
 |---|---|---|

@@ -141,7 +141,7 @@ npx --yes @tian/agent-workflow@latest
                                │
                     ~/.agent-workflow/runtime
                                │
-        dist/agent-workflow.mjs（經 agent_workflow.cmd／agent-workflow 呼叫）
+        dist/agent-workflow.mjs（經 agent-workflow 指令呼叫）
                                │
         ┌───────────────────────┼────────────────────────┐
         │                       │                        │
@@ -254,11 +254,21 @@ install.cmd --action Uninstall --target-agent All
 
 ### v7 breaking changes
 
-- `schemas/task.schema.json` 成為 `task.json` 的唯一 contract（`schemas/task-state.schema.json` 已移至 `schemas/legacy/task-v2.schema.json`，只供 migration 參照）；`task.json` 新增 `state_revision`／`plan_revision`，lifecycle 不再有 `frozen` 狀態，改以 `intent_approval`（綁定 task.md 內容 hash）判斷高風險任務是否已取得使用者確認。
+- `schemas/task.schema.json` 成為 `task.json` 的唯一 contract，並完整定義 evidence、transition、waiver 與 `workflow_facts` 的結構；退役的 v2 contract 移至 `schemas/legacy/task-v2.schema.json`，只供 migration 參照；`task.json` 新增 `state_revision`／`plan_revision`，lifecycle 不再有 `frozen` 狀態，改以 `intent_approval`（綁定 task.md 內容 hash）判斷高風險任務是否已取得使用者確認。
 - `workflow-plan` 會依 `risk_flags` 計算 `required` capability，`workflow_request` 只能疊加、無法移除；要略過必須明確 `waive --confirmed-by-user`，且該 waiver 綁定當下的 `requirements_hash`，task 分類一變就失效。
-- `task-gate` 改為 pure read-only：不再把 `compiled` 寫回 `task.json`；reviewer 等 role evidence 另外綁定 `workspace_sha256`，程式碼在 review 後又被改動就會判定 stale，需要重新 review。
+- `task-gate` 改為 pure read-only：不再把 `compiled` 寫回 `task.json`；role evidence 綁定它實際審查過的 diff（`reviewed_base` + `reviewed_paths` + `reviewed_diff_sha256`），只有審查範圍內的變更才判定 stale，範圍外的檔案改動不再觸發重審。審查範圍必須涵蓋這個 task 實際交付的變更（有 `file_ownership` 就以它為界，否則是全部變更路徑），避免把範圍指向沒動過的檔案來取得一個永不失效的 digest。task 目錄位於 state root 而非 repo，因此 `task-gate`／`close-task` 需要在受審 worktree 內執行或傳入 `--repo-root`。
 - `git-guard` 由「denylist 擋已知危險指令」改成「allowlist 只放行已知唯讀指令」，未列在 allowlist 的 git 子指令一律需要使用者明確執行。
-- Knowledge／learning 新寫入的預設狀態從 `verified` 改成 `candidate`；SessionStart 只會注入當前 project 與 global 的 `verified` 記憶，不再掃描其他 project。
+- Knowledge／learning 新寫入的預設狀態從 `verified` 改成 `needs_verification`，寫入前一律經 `schemas/knowledge.schema.json` 驗證；entry 依實際 project id 分桶（不再落在字面上的 `default` 目錄），SessionStart 仍只注入當前 project 與 global 的 `verified` 記憶，但改以相關性排序並設下限：同 project 加權，帶 `--query` 時完全不命中關鍵字的 entry 直接不注入。
+- `workflow-plan` 的三值判斷拆成兩層：條件明確成立才進 `required`，資料不足只進 `classification_incomplete`（附上缺哪個欄位），不再因為 `impact_scope` 沒填就把所有 capability 強制加入。step 選取維持「unknown 保留」。
+- 變更分類收斂成單一欄位：移除 `change_kind` 與 `complexity_hint`，policy 條件改讀 `task_type`，情境旗標一律寫進 `workflow_facts`。 <!-- contract-lint:allow -->
+- 新增 `agent-workflow contract-lint`（已納入 `npm run ci`）：以 schema、workflow policy 與 CLI 指令表為真相來源，檢查 `templates/`、`.agents/`、`adapters/` 與 `docs/` 是否還引用退役名稱、不存在的指令或不存在的 schema。
+- `.agents` 與 `task.json` 的寫入保護不再依賴 mutation regex：只要指令提到這些路徑，就必須整條命令都落在唯讀 allowlist 內，否則一律 deny（涵蓋 `python -c`、`node -e`、`bash -c`、`powershell -Command` 這類把寫入藏在直譯器參數裡的形式）。
+- `file_ownership` 一旦宣告就是硬邊界：任何在它之外的變更路徑（含 rename 的來源側與刪除）直接判定 ownership violation，不會被 diff-scoped review 過濾掉；`reviewed_paths` 也必須涵蓋自 `reviewed_base` 以來的全部變更路徑。
+- 重複 option 不再靜默覆蓋：multi-value option（`--id`、`--paths`、`--source-entry` 等）重複給值會累積，comma 形式與重複形式等價；single-value option 重複給值直接報 `duplicate option`。
+- 新增 `schemas/cli-output.schema.json`：`workflow-plan`、`task-gate`、`project-doc`、`review-cause`、`skill-draft`、`worktree-fingerprint`、`verify`、`contract-lint`、`policy-matrix` 的 stdout 形狀首次有正式定義，測試會驗證實際輸出符合它。
+- 新增 `agent-workflow policy-matrix`：對 task_type × impact_scope × impact_effect × impact_confidence × risk flag 組合 × fact 組合（宣告為真／宣告為假／未宣告）展開 5,760 列，輸出每個 task_type 的 capability／step 選取 digest。測試以 `tests-node/fixtures/policy-matrix.json` 為 golden file，policy 一改就會指名是哪個 task_type 的選取變了。
+- `contract-lint` 新增四條規則：文件裡的 option 必須是該 command 接受的 option、backtick 內的 snake_case term 必須來自 schema／policy／CLI、step id 必須存在於 policy、`contract-lint:allow=<rule>` 只豁免指名的那一條規則。fenced code block 現在也會被掃描。
+- `git-guard` 改成先做 shell 解析再判斷 command：heredoc body 與引號區段依「接收指令是否把它當資料」決定要不要剝掉（`cat`／`echo`／`grep` 這類是資料，`bash`／`python` 這類是程式碼，保留），分段只在引號外的分隔符切開，`$( )` 與 backtick 的內容一律當成獨立指令解析。引述在資料型指令引號或 heredoc 裡的 Git 指令不再誤判；`bash -c` 型直譯器、`ssh`／`docker` 這類 remote executor、`sudo`／`xargs` 這類 prefix wrapper 與 substitution 裡的真實 Git 寫入則一律攔下。同一套解析也用在 mutation 偵測，所以引號內的 `>` 不再被當成重導向。
 - `install`／`repair` 會自動跑 v2→v3 migration：既有 `task.json` 的 evidence／waiver 一律標成 stale，需要重新驗證才能通過新版 `task-gate`。
 - `workflow-plan` 遇到未知 capability 或損壞 facts 時改為非零結束。
 - `Verify` 從入口存在檢查提升為完整 runtime integrity contract。

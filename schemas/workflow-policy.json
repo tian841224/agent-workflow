@@ -15,8 +15,19 @@
       "section": "Impact discovery",
       "order_after": [],
       "require_when": [
-        [{ "impact_confidence": ["medium", "low"] }],
-        [{ "impact_scope_at_least": "multi_module" }]
+        [
+          {
+            "impact_confidence": [
+              "medium",
+              "low"
+            ]
+          }
+        ],
+        [
+          {
+            "impact_scope_at_least": "multi_module"
+          }
+        ]
       ],
       "steps": [
         {
@@ -60,7 +71,14 @@
       "section": "Schema compatibility",
       "order_after": [],
       "require_when": [
-        [{ "risk_flags": ["schema", "migration"] }]
+        [
+          {
+            "risk_flags": [
+              "schema",
+              "migration"
+            ]
+          }
+        ]
       ],
       "steps": [
         {
@@ -154,7 +172,13 @@
         "schema_compatibility"
       ],
       "require_when": [
-        [{ "risk_flags": ["migration"] }]
+        [
+          {
+            "risk_flags": [
+              "migration"
+            ]
+          }
+        ]
       ],
       "steps": [
         {
@@ -255,8 +279,24 @@
         "schema_compatibility"
       ],
       "require_when": [
-        [{ "impact_effect": ["data", "destructive"] }],
-        [{ "risk_flags": ["data_write", "financial", "migration", "irreversible"] }]
+        [
+          {
+            "impact_effect": [
+              "data",
+              "destructive"
+            ]
+          }
+        ],
+        [
+          {
+            "risk_flags": [
+              "data_write",
+              "financial",
+              "migration",
+              "irreversible"
+            ]
+          }
+        ]
       ],
       "steps": [
         {
@@ -364,7 +404,13 @@
       "section": "Contract and data impact",
       "order_after": [],
       "require_when": [
-        [{ "risk_flags": ["contract"] }]
+        [
+          {
+            "risk_flags": [
+              "contract"
+            ]
+          }
+        ]
       ],
       "steps": [
         {
@@ -450,9 +496,28 @@
         "impact_discovery"
       ],
       "require_when": [
-        [{ "impact_scope_at_least": "multi_module" }],
-        [{ "impact_effect": ["shared_behavior", "data", "destructive"] }],
-        [{ "risk_flags": ["cross_feature", "authorization"] }]
+        [
+          {
+            "impact_scope_at_least": "multi_module"
+          }
+        ],
+        [
+          {
+            "impact_effect": [
+              "shared_behavior",
+              "data",
+              "destructive"
+            ]
+          }
+        ],
+        [
+          {
+            "risk_flags": [
+              "cross_feature",
+              "authorization"
+            ]
+          }
+        ]
       ],
       "steps": [
         {
@@ -483,7 +548,12 @@
           "when": [
             [
               {
-                "impact_effect": ["shared_behavior", "contract", "data", "destructive"]
+                "impact_effect": [
+                  "shared_behavior",
+                  "contract",
+                  "data",
+                  "destructive"
+                ]
               }
             ]
           ]
@@ -494,9 +564,11 @@
           "when": [
             [
               {
-                "change_kind": [
+                "task_type": [
                   "feature",
-                  "refactor"
+                  "refactor",
+                  "schema",
+                  "migration"
                 ]
               }
             ],
@@ -530,9 +602,32 @@
         "execution_path_review"
       ],
       "require_when": [
-        [{ "change_kind": ["refactor"] }],
-        [{ "risk_flags": ["behavior_change", "financial", "authorization", "data_write", "contract", "schema", "migration", "irreversible"] }],
-        [{ "impact_scope_at_least": "multi_module" }]
+        [
+          {
+            "task_type": [
+              "refactor"
+            ]
+          }
+        ],
+        [
+          {
+            "risk_flags": [
+              "behavior_change",
+              "financial",
+              "authorization",
+              "data_write",
+              "contract",
+              "schema",
+              "migration",
+              "irreversible"
+            ]
+          }
+        ],
+        [
+          {
+            "impact_scope_at_least": "multi_module"
+          }
+        ]
       ],
       "steps": [
         {
@@ -574,7 +669,7 @@
           "when": [
             [
               {
-                "change_kind": [
+                "task_type": [
                   "refactor"
                 ]
               }
@@ -599,7 +694,7 @@
             ],
             [
               {
-                "change_kind": [
+                "task_type": [
                   "refactor"
                 ]
               }
@@ -618,9 +713,11 @@
       "suggest_when": [
         [
           {
-            "change_kind": [
+            "task_type": [
               "feature",
-              "refactor"
+              "refactor",
+              "schema",
+              "migration"
             ]
           }
         ],
@@ -668,9 +765,11 @@
           "when": [
             [
               {
-                "change_kind": [
+                "task_type": [
                   "feature",
-                  "refactor"
+                  "refactor",
+                  "schema",
+                  "migration"
                 ]
               }
             ],
@@ -717,9 +816,11 @@
           "when": [
             [
               {
-                "change_kind": [
+                "task_type": [
                   "feature",
-                  "refactor"
+                  "refactor",
+                  "schema",
+                  "migration"
                 ]
               }
             ],
@@ -745,7 +846,7 @@
       "suggest_when": [
         [
           {
-            "change_kind": [
+            "task_type": [
               "fix"
             ]
           }
@@ -853,7 +954,7 @@
       "suggest_when": [
         [
           {
-            "change_kind": [
+            "task_type": [
               "feature",
               "fix"
             ]
@@ -940,9 +1041,34 @@
         "regression_validation"
       ],
       "require_when": [
-        [{ "impact_scope_at_least": "multi_module" }],
-        [{ "impact_effect": ["shared_behavior", "data", "contract", "destructive"] }],
-        [{ "risk_flags": ["financial", "authorization", "cross_feature", "migration", "irreversible", "schema", "contract"] }]
+        [
+          {
+            "impact_scope_at_least": "multi_module"
+          }
+        ],
+        [
+          {
+            "impact_effect": [
+              "shared_behavior",
+              "data",
+              "contract",
+              "destructive"
+            ]
+          }
+        ],
+        [
+          {
+            "risk_flags": [
+              "financial",
+              "authorization",
+              "cross_feature",
+              "migration",
+              "irreversible",
+              "schema",
+              "contract"
+            ]
+          }
+        ]
       ],
       "steps": []
     }

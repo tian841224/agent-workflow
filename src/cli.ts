@@ -1,4 +1,4 @@
-import { PRODUCT_VERSION, flag, option, parseArgs, stateRoot, stdinJson } from "./core.js";
+import { PRODUCT_VERSION, flag, option, optionList, parseArgs, stateRoot, stdinJson } from "./core.js";
 import { install, migrateState } from "./installer.js";
 import { clearSkillProof, recordSkillRead, runGuard } from "./hooks.js";
 import { closeTask, taskGate, taskInit, taskWrite, transitionTask } from "./lifecycle.js";
@@ -9,16 +9,43 @@ import { retro, reviewCause, splitPlan } from "./records.js";
 import { learn, skillDraft } from "./learning.js";
 import { memoryReview } from "./memory-review.js";
 import { projectDoc } from "./project-doc.js";
+import { contractLint } from "./contract-lint.js";
+import { policyMatrixCommand } from "./policy-matrix.js";
 
-const commands = [
-  "install", "repair", "verify", "uninstall", "migrate-state",
-  "git-guard", "skill-guard", "memory-context",
-  "workflow-plan", "task-init", "task-write", "task-gate", "close-task",
-  "learn", "knowledge", "skill-draft", "memory-review", "retro", "review-cause",
-  "project-resolver", "project-doc", "pre-review",
-  "orchestrate", "split-plan", "worktree-fingerprint",
-  "pause", "block", "supersede", "waive"
-];
+// The option each command accepts, declared here rather than discovered by reading every module's
+// inline reads. This is the registry contract-lint validates documented invocations against, so a
+// documented flag that no command reads is a finding instead of a silently ignored argument.
+const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
+const TASK_TARGET_OPTIONS = ["task-path", "task"];
+export const commandOptions: Record<string, string[]> = {
+  install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
+  "migrate-state": ["state-root", "dry-run"],
+  "git-guard": ["platform", "event", "state-root"],
+  "skill-guard": ["platform", "event", "state-root"],
+  "memory-context": ["platform", "state-root", "query", "cwd"],
+  "workflow-plan": ["task-path", "policy-path"],
+  "task-init": [...TASK_TARGET_OPTIONS, "actor"],
+  "task-write": TASK_TARGET_OPTIONS,
+  "task-gate": [...TASK_TARGET_OPTIONS, "repo-root"],
+  "close-task": [...TASK_TARGET_OPTIONS, "actor", "confirmed-by-user", "state-root", "repo-root"],
+  pause: ["task", "actor"], block: ["task", "actor"], supersede: ["task", "actor"],
+  waive: ["task", "actor", "confirmed-by-user", "requirement-id"],
+  learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "status", "supersedes", "forget", "id", "reason", "approved-by-user"],
+  knowledge: ["action", "state-root", "scope", "project-id", "cwd", "query", "limit", "topic", "content", "status", "approved-by-user"],
+  "skill-draft": ["action", "state-root", "name", "status", "project-id", "cwd", "min-occurrences", "description", "content", "cluster-id", "source-entry", "note", "approved-by-user"],
+  "memory-review": ["action", "state-root", "decision"],
+  retro: ["action", "state-root", "status", "id", "task-path", "proposed-change"],
+  "review-cause": ["action", "state-root", "cause", "status", "id", "task-path", "evidence", "round", "paths", "min-occurrences"],
+  "project-resolver": ["path", "state-root"],
+  "project-doc": ["action", "paths", "doc", "doc-root", "repo-root"],
+  "pre-review": ["path"],
+  orchestrate: ["action", "id", "state-root"],
+  "split-plan": ["plan-path"],
+  "worktree-fingerprint": ["path", "base", "paths"],
+  "contract-lint": ["root"],
+  "policy-matrix": ["policy-path", "mode", "task-type"]
+};
+const commands = Object.keys(commandOptions);
 
 function usage(): void {
   process.stdout.write(`agent-workflow ${PRODUCT_VERSION}\n\nUsage: agent-workflow [command] [options]\n\nCommands:\n${commands.map((command) => `  ${command}`).join("\n")}\n`);
@@ -63,12 +90,14 @@ async function main(): Promise<void> {
     if (command === "skill-guard" && event === "SessionEnd") clearSkillProof(platform, payload, option(parsed.values, "state-root", stateRoot()));
     runGuard(command === "git-guard" ? "git" : "skill", platform, event, payload, option(parsed.values, "state-root", stateRoot()));
   }
-  else if (command === "memory-context") memoryContext(option(parsed.values, "platform", "Codex"), option(parsed.values, "state-root", stateRoot()));
+  else if (command === "memory-context") memoryContext(option(parsed.values, "platform", "Codex"), option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()));
   else if (command === "knowledge") process.exitCode = knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "orchestrate") process.exitCode = orchestrate(parsed.values);
   else if (command === "workflow-plan") process.exitCode = workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
   else if (command === "project-resolver") process.exitCode = projectResolver(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "state-root", stateRoot()));
-  else if (command === "worktree-fingerprint") process.exitCode = fingerprint(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
+  else if (command === "worktree-fingerprint") process.exitCode = fingerprint(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "base"), optionList(parsed.values, "paths"));
+  else if (command === "policy-matrix") process.exitCode = policyMatrixCommand(option(parsed.values, "policy-path") || undefined, option(parsed.values, "mode", "digests"), option(parsed.values, "task-type"));
+  else if (command === "contract-lint") process.exitCode = contractLint(option(parsed.values, "root", parsed.positionals[0] || process.cwd()), commandOptions);
   else if (command === "pre-review") process.exitCode = preReview(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
   else if (command === "retro") process.exitCode = retro(parsed.values);
   else if (command === "review-cause") process.exitCode = reviewCause(parsed.values);
@@ -78,8 +107,8 @@ async function main(): Promise<void> {
   else if (command === "project-doc") process.exitCode = projectDoc(parsed.values);
   else if (command === "task-init") { let patch = {}; try { patch = stdinJson(); } catch { patch = {}; } process.exitCode = taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), patch, option(parsed.values, "actor", "cli")); }
   else if (command === "task-write") process.exitCode = taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson());
-  else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")));
-  else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"));
+  else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
   else if (["pause", "block", "supersede", "waive"].includes(command)) {
     const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));

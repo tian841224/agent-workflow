@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/cli-output.schema.json",
+  "title": "agent-workflow CLI output shapes",
+  "description": "The stdout object each contract-bearing command emits. Agent documents quote these field names, so they need a definition to be checked against — without one, a renamed output field drifts silently. $defs are keyed by command name.",
+  "type": "object",
+  "$defs": {
+    "workflow-plan": {
+      "type": "object",
+      "required": ["required", "classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "requirements_hash", "roles"],
+      "properties": {
+        "required": { "type": "array", "items": { "type": "string" } },
+        "classification_incomplete": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "missing"],
+            "properties": { "name": { "type": "string" }, "missing": { "type": "array", "items": { "type": "string" } } },
+            "additionalProperties": false
+          }
+        },
+        "suggested": { "type": "array", "items": { "type": "object" } },
+        "requested": { "type": "array", "items": { "type": "string" } },
+        "selected": { "type": "array", "items": { "type": "string" } },
+        "order": { "type": "array", "items": { "type": "string" } },
+        "steps": { "type": "array", "items": { "type": "object" } },
+        "required_evidence": { "type": "array", "items": { "type": "string" } },
+        "requirements_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "roles": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "task-gate": {
+      "type": "object",
+      "required": ["valid", "errors"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "task": { "type": "string" },
+        "status": { "type": "string" },
+        "compiled": { "type": "object" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "project-doc-lookup": {
+      "type": "object",
+      "required": ["docs", "uncovered"],
+      "properties": {
+        "docs": { "type": "array", "items": { "$ref": "#/$defs/projectDocEntry" } },
+        "uncovered": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "projectDocEntry": {
+      "type": "object",
+      "required": ["path", "doc_type", "covers"],
+      "properties": {
+        "path": { "type": "string" },
+        "doc_type": { "type": "string" },
+        "covers": { "type": "array", "items": { "type": "string" } },
+        "matched_by": { "type": "array", "items": { "type": "string" } },
+        "issues": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "review-cause-escalate": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cause", "remedy_kind", "occurrences", "finding_ids", "task_ids", "paths"],
+        "properties": {
+          "cause": { "type": "string" },
+          "remedy_kind": { "type": "string" },
+          "occurrences": { "type": "integer" },
+          "finding_ids": { "type": "array", "items": { "type": "string" } },
+          "task_ids": { "type": "array", "items": { "type": "string" } },
+          "paths": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "skill-draft-scan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cluster_id", "topic", "occurrences", "source_entries"],
+        "properties": {
+          "cluster_id": { "type": "string" },
+          "topic": { "type": "string" },
+          "occurrences": { "type": "integer" },
+          "source_entries": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "worktree-fingerprint": {
+      "type": "object",
+      "required": ["workspace", "head", "dirty_sha256", "workspace_sha256"],
+      "properties": {
+        "workspace": { "type": "string" },
+        "head": { "type": "string" },
+        "dirty_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "workspace_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "reviewed_base": { "type": "string" },
+        "reviewed_paths": { "type": "array", "items": { "type": "string" } },
+        "reviewed_diff_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "verify": {
+      "type": "object",
+      "required": ["valid", "runtime_root", "node", "errors"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "runtime_root": { "type": "string" },
+        "node": { "type": "string" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "contract-lint": {
+      "type": "object",
+      "required": ["valid", "root", "scanned", "findings"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "root": { "type": "string" },
+        "scanned": { "type": "array", "items": { "type": "string" } },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "line", "rule", "detail"],
+            "properties": { "file": { "type": "string" }, "line": { "type": "integer" }, "rule": { "type": "string" }, "detail": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy-matrix": {
+      "type": "object",
+      "required": ["rows", "digests"],
+      "properties": {
+        "rows": { "type": "integer" },
+        "digests": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

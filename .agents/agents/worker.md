@@ -14,7 +14,7 @@ The main conversation follows [orchestration.md](../skills/workflow/orchestratio
 - May write only to: its own worktree root and its own task directory.
 - Everything else is off-limits, including the main working directory, other workers' worktrees, other task directories, and other state-root files.
 - No Git writes of any kind (commit, branch, add, index, refs are all untouched); read-only Git queries are unrestricted.
-- Does not produce `delivery.patch` on its own — delivery is handled uniformly by the coordinator's `orchestrate.py --action Collect`.
+- Does not produce `delivery.patch` on its own — delivery is handled uniformly by the coordinator's `agent-workflow orchestrate --action Collect`.
 - Does not read other workers' tasks and does not operate on other worktrees.
 
 ## Preflight checks
@@ -33,4 +33,4 @@ Stop immediately — do not modify outside your boundary. Record the needed path
 ## Wrap-up
 
 1. Compare against your own completion criteria and report the paths you modified along with reasons for anything incomplete.
-2. Call `orchestrate.py --action WorkerReady` to report back your worktree's absolute path.
+2. Call `agent-workflow orchestrate --action WorkerReady` to report back your worktree's absolute path.

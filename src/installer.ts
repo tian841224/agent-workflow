@@ -3,7 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as outputStream } from "node:process";
-import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, output, parseFrontmatter, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
+import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, output, parseFrontmatter, projectIdentity, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
 
 type Platform = "Claude" | "Codex" | "Antigravity";
 type FileRecord = { path: string; sha256: string; kind: string };
@@ -130,7 +130,7 @@ function managedEntrypoint(source: string, canonical: string, destinations: stri
 }
 // Frontmatter fields that belong to task.json's workflow classification/lifecycle, not to the
 // human-readable task.md body; copied over as-is (arrays stay arrays, workflow_facts becomes an object).
-const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "change_kind", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "complexity_hint", "workflow_request", "model_profile", "independence"];
+const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "model_profile", "independence"];
 function workflowFieldsFromFrontmatter(fields: Frontmatter): JsonObject {
   const result: JsonObject = {};
   for (const key of workflowFrontmatterKeys) if (fields[key] !== undefined) result[key] = fields[key] as Json;
@@ -182,11 +182,24 @@ function taskSchemaV2toV3Migration(root: string): number {
     state.intent_approval = typeof frozenAt === "string" && frozenAt && existsSync(taskMd)
       ? { intent_sha256: sha256(readFileSync(taskMd)), confirmed_at: frozenAt, confirmed_by_user: "migrated" }
       : null;
-    delete lifecycle.frozen_at; state.lifecycle = lifecycle;
+    delete lifecycle.frozen_at;
+    // v3 requires a transition history; a v2 state that never recorded one would otherwise migrate
+    // into a task that fails every write path, including the supersede that would retire it.
+    if (!Array.isArray(lifecycle.transitions) || !lifecycle.transitions.length) lifecycle.transitions = [{ at: now(), action: "migrate", from: "legacy", to: String(lifecycle.status || "in_progress"), actor: "migrate-state" }];
+    state.lifecycle = lifecycle;
     state.state_revision = 1; state.plan_revision = 1;
     delete state.compiled;
-    state.evidence = (Array.isArray(state.evidence) ? state.evidence : []).map((item) => ({ ...(item && typeof item === "object" ? item as JsonObject : {}), status: "stale", legacy: true }));
-    state.waivers = (Array.isArray(state.waivers) ? state.waivers : []).map((item) => ({ ...(item && typeof item === "object" ? item as JsonObject : {}), stale: true }));
+    for (const retired of ["change_kind", "complexity_hint", "roles_waived", "stop_reason", "frozen_at", "required_evidence", "intent"]) delete state[retired];
+    // v2 evidence carries no reviewed-diff scope and v2 waivers carry no requirement_id, so neither
+    // can be re-checked against the v3 contract; both collapse into one entry the gate always rejects
+    // until a real verification replaces it, rather than being carried over as unverifiable state.
+    const carried = (Array.isArray(state.evidence) ? state.evidence : []).length + (Array.isArray(state.waivers) ? state.waivers : []).length;
+    state.evidence = carried ? [{ kind: "legacy-unverified", verified: false, note: `Imported from schema v2; ${carried} evidence/waiver record(s) predate the v3 contract and need re-verification.` }] : [];
+    state.waivers = [];
+    for (const [key, fallback] of [["code_change", false], ["risk_flags", []], ["created_at", now()], ["updated_at", now()]] as [string, Json][]) if (state[key] === undefined) state[key] = fallback;
+    const hexId = (value: Json | undefined) => typeof value === "string" && /^[a-f0-9]{16}$/.test(value);
+    if (!hexId(state.project_id) || !hexId(state.worktree_id)) { const identity = projectIdentity(directory); if (!hexId(state.project_id)) state.project_id = identity.projectId; if (!hexId(state.worktree_id)) state.worktree_id = identity.worktreeId; }
+    if (typeof state.id !== "string" || !/^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$/.test(state.id)) state.id = basename(directory);
     state.schema_version = 3;
     writeJson(taskJson, state);
     migrated += 1;

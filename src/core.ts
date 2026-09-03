@@ -145,9 +145,17 @@ export function setFrontmatter(content: string, name: string, value: string): st
   return content.replace(/^---\r?\n/, (header) => `${header}${line}\n`);
 }
 
+// A repeated flag accumulates instead of overwriting. `--id a --id b` used to keep only "b", which
+// is the shape an agent naturally writes for a multi-value option and silently lost half its input.
 export function parseArgs(argv: string[]): { positionals: string[]; values: Map<string, string | boolean | string[]> } {
   const positionals: string[] = [];
   const values = new Map<string, string | boolean | string[]>();
+  const add = (key: string, value: string | boolean): void => {
+    const existing = values.get(key);
+    if (existing === undefined) values.set(key, value);
+    else if (Array.isArray(existing)) values.set(key, [...existing, String(value)]);
+    else values.set(key, [String(existing), String(value)]);
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const item = argv[index];
     if (!item.startsWith("--")) {
@@ -156,23 +164,32 @@ export function parseArgs(argv: string[]): { positionals: string[]; values: Map<
     }
     const [key, inline] = item.slice(2).split("=", 2);
     if (inline !== undefined) {
-      values.set(key, inline);
+      add(key, inline);
       continue;
     }
     const next = argv[index + 1];
     if (!next || next.startsWith("--")) {
-      values.set(key, true);
+      add(key, true);
     } else {
-      values.set(key, next);
+      add(key, next);
       index += 1;
     }
   }
   return { positionals, values };
 }
 
+// A single-value option refuses to guess which repetition was meant, rather than picking one.
 export function option(values: Map<string, string | boolean | string[]>, name: string, fallback = ""): string {
   const value = values.get(name);
+  if (Array.isArray(value)) throw new Error(`duplicate option --${name} (given ${value.length} times); --${name} takes a single value`);
   return typeof value === "string" ? value : fallback;
+}
+
+// The multi-value read: accepts repeated flags, a comma-separated value, or any mix of the two.
+export function optionList(values: Map<string, string | boolean | string[]>, name: string): string[] {
+  const value = values.get(name);
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  return raw.flatMap((item) => item.split(",")).map((item) => item.trim()).filter(Boolean);
 }
 
 export function flag(values: Map<string, string | boolean | string[]>, name: string): boolean {
@@ -203,6 +220,8 @@ export function canonicalJson(value: Json): string {
 export function withFileLock<T>(lockPath: string, fn: () => T, staleMs = 5 * 60 * 1000): T {
   const owner = randomUUID();
   const ownerFile = join(lockPath, "owner");
+  mkdirSync(dirname(lockPath), { recursive: true }); // the lock can be the first thing ever written under a fresh state root
+
   for (;;) {
     try { mkdirSync(lockPath); writeFileSync(ownerFile, owner); break; }
     catch (error) {
@@ -246,4 +265,39 @@ export function workspaceFingerprint(cwd: string): string {
     catch { return `${relPath}:missing`; }
   }).join("\n");
   return sha256(`${head.status === 0 ? head.stdout.trim() : ""}|${diffSha}|${manifest}`);
+}
+
+// Scoped counterpart to workspaceFingerprint: hashes only the diff of the paths a role actually
+// reviewed against the base it reviewed them at. An unrelated edit elsewhere in the repo no longer
+// invalidates the review, while any change inside the reviewed scope still does.
+export function diffFingerprint(cwd: string, base: string, paths: string[]): string {
+  const scope = [...new Set(paths.map((value) => value.trim()).filter(Boolean))].sort();
+  const diff = git(cwd, ["diff", "--binary", base, "--", ...scope]);
+  if (diff.status !== 0) throw new Error(`diff-fingerprint: git diff failed for base ${base}: ${diff.stderr.trim()}`);
+  const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard", "--", ...scope]).stdout
+    .split(/\r?\n/).map((line) => line.trim()).filter(Boolean).sort();
+  const manifest = untracked.map((relPath) => {
+    try { return `${relPath}:${sha256(readFileSync(resolve(cwd, relPath)))}`; }
+    catch { return `${relPath}:missing`; }
+  }).join("\n");
+  return sha256(`${base}|${scope.join("\n")}|${sha256(diff.stdout)}|${manifest}`);
+}
+
+// Every repo-relative path this working tree touches relative to `base`, tracked or not. Pairs with
+// diffFingerprint: the fingerprint says "did my scope change", this says "was my scope the right one".
+//
+// --name-status, not --name-only, because a rename reports both sides and a delete reports a path
+// that no longer exists on disk; a scope check that only sees files still present would let a moved
+// or removed file out of the reviewed set entirely.
+export function changedPaths(cwd: string, base: string): string[] {
+  const tracked = git(cwd, ["diff", "--name-status", base]);
+  if (tracked.status !== 0) throw new Error(`changed-paths: git diff failed for base ${base}: ${tracked.stderr.trim()}`);
+  const result: string[] = [];
+  for (const line of tracked.stdout.split(/\r?\n/)) {
+    const parts = line.split("\t").map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    result.push(...parts.slice(1)); // R/C carry both the old and the new path; every other status carries one
+  }
+  result.push(...git(cwd, ["ls-files", "--others", "--exclude-standard"]).stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  return [...new Set(result)].sort();
 }

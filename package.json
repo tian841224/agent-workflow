@@ -27,7 +27,8 @@
     "pack:check": "npm pack --dry-run",
     "memory-review": "node scripts/weekly-memory-review.mjs",
     "typecheck": "tsc --noEmit",
-    "ci": "npm run typecheck && npm test && npm run pack:check"
+    "ci": "npm run typecheck && npm test && npm run lint:contract && npm run pack:check",
+    "lint:contract": "node dist/agent-workflow.mjs contract-lint"
   },
   "dependencies": {
     "ajv": "^8.20.0",

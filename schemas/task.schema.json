@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/task.schema.json",
   "title": "agent-workflow task state (v3)",
+  "description": "The single machine contract for task.json. Every runtime write path validates against this file before the state lands on disk; the sibling task.md holds human intent only.",
   "type": "object",
   "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "risk_flags", "created_at", "updated_at", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
   "properties": {
@@ -15,17 +16,14 @@
     "workflow_mode": { "enum": ["main", "legacy"] },
     "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
     "model_profile": { "enum": ["cheap_read"] },
-    "change_kind": { "enum": ["fix", "feature", "refactor", "chore"] },
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
-    "complexity_hint": { "type": "array", "uniqueItems": true, "items": { "enum": ["multi_path", "shared_state", "external_boundary"] } },
     "workflow_request": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-    "workflow_facts": { "type": "object" },
+    "workflow_facts": { "$ref": "#/$defs/workflowFacts" },
     "workflow_decision": { "type": "string", "minLength": 2 },
     "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] } },
     "independence": { "enum": ["native", "degraded"] },
-    "roles_waived": { "type": "string", "minLength": 1 },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "file_ownership": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^(?!\\./)[^\\\\,\\[\\]]+$" } },
@@ -39,36 +37,116 @@
         "intent_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "confirmed_at": { "type": "string", "format": "date-time" },
         "confirmed_by_user": { "type": "string", "minLength": 1 }
-      }
+      },
+      "additionalProperties": false
     },
     "lifecycle": {
       "type": "object",
       "required": ["status", "transitions"],
       "properties": {
         "status": { "enum": ["in_progress", "paused", "blocked", "superseded", "closed"] },
-        "transitions": { "type": "array", "minItems": 1 },
-        "stop_reason": { "type": "string" }
-      }
+        "transitions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/transition" } },
+        "stop_reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
     },
-    "evidence": { "type": "array" },
-    "waivers": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "at": { "type": "string" },
-          "actor": { "type": "string" },
-          "confirmed_by_user": { "type": "string" },
-          "requirement_id": { "type": "string" },
-          "requirements_hash": { "type": "string" },
-          "stale": { "type": "boolean" }
-        }
-      }
-    },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "waivers": { "type": "array", "items": { "$ref": "#/$defs/waiver" } },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" }
   },
   "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "workflowFacts": {
+      "type": "object",
+      "description": "Declared facts that steer step selection inside an already-selected capability. Names are the closed set referenced by schemas/workflow-policy.json; an undeclared fact stays unknown and keeps its step.",
+      "propertyNames": {
+        "enum": [
+          "changes_module_interface", "data_transform", "debug_requested", "destructive_operation",
+          "flaky_failure", "has_consumer", "improves_testability", "introduces_adapter",
+          "performance_anomaly", "schema_constraint_change", "schema_operation", "testable_behavior_change"
+        ]
+      },
+      "additionalProperties": { "type": ["boolean", "string", "number"] }
+    },
+    "transition": {
+      "type": "object",
+      "required": ["at", "action", "from", "to", "actor"],
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "action": { "enum": ["create", "migrate", "pause", "block", "supersede", "waive", "close"] },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "minLength": 1 },
+        "confirmed_by_user": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "waiver": {
+      "type": "object",
+      "required": ["at", "actor", "confirmed_by_user", "requirement_id", "requirements_hash"],
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "actor": { "type": "string", "minLength": 1 },
+        "confirmed_by_user": { "type": "string", "minLength": 1 },
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "requirements_hash": { "$ref": "#/$defs/sha256" },
+        "stale": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "oneOf": [
+        { "$ref": "#/$defs/roleEvidence" },
+        { "$ref": "#/$defs/stepEvidence" },
+        { "$ref": "#/$defs/legacyEvidence" }
+      ]
+    },
+    "roleEvidence": {
+      "type": "object",
+      "description": "One role capability's result. Freshness is scoped to the diff that was actually reviewed, not to the whole workspace: reviewed_base + reviewed_paths + reviewed_diff_sha256 must be present together, and the gate recomputes them.",
+      "required": ["kind", "id", "verified", "at", "requirements_hash", "plan_revision", "reviewed_base", "reviewed_paths", "reviewed_diff_sha256"],
+      "properties": {
+        "kind": { "const": "role" },
+        "id": { "type": "string", "pattern": "^role\\.[a-z0-9_]+$" },
+        "verified": { "type": "boolean" },
+        "at": { "type": "string", "format": "date-time" },
+        "requirements_hash": { "$ref": "#/$defs/sha256" },
+        "plan_revision": { "type": "integer", "minimum": 1 },
+        "reviewed_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "reviewed_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "reviewed_diff_sha256": { "$ref": "#/$defs/sha256" },
+        "summary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "stepEvidence": {
+      "type": "object",
+      "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence.",
+      "required": ["kind", "id", "verified", "at", "requirements_hash", "summary"],
+      "properties": {
+        "kind": { "const": "step" },
+        "id": { "type": "string", "pattern": "^[a-z_]+\\.[A-Za-z0-9]+$" },
+        "verified": { "type": "boolean" },
+        "at": { "type": "string", "format": "date-time" },
+        "requirements_hash": { "$ref": "#/$defs/sha256" },
+        "summary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "legacyEvidence": {
+      "type": "object",
+      "description": "Written only by migrate-state for an imported Python-era task.md; the gate always rejects it until a real verification replaces it.",
+      "required": ["kind", "verified"],
+      "properties": {
+        "kind": { "const": "legacy-unverified" },
+        "verified": { "const": false },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
   "x_agent_workflow": {
     "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
     "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],

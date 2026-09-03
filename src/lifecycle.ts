@@ -2,7 +2,7 @@ import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
-import { JsonObject, mutateTask, now, output, projectIdentity, readJson, schemaPath, sha256, withFileLock, writeJson, workspaceFingerprint } from "./core.js";
+import { changedPaths, diffFingerprint, JsonObject, mutateTask, now, output, projectIdentity, readJson, schemaPath, sha256, withFileLock, writeJson } from "./core.js";
 import { memoryReviewPrompt } from "./memory-review.js";
 import { compilePlanForTaskPath } from "./workflow-policy.js";
 
@@ -37,18 +37,69 @@ function applyTransition(state: JsonObject, path: string, action: Transition, ac
   if (action === "waive") {
     const waivers = Array.isArray(state.waivers) ? state.waivers : [];
     const plan = compilePlanForTaskPath(state, path);
-    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, ...(requirementId ? { requirement_id: requirementId } : {}), requirements_hash: plan.requirements_hash });
+    // A typo would otherwise record a waiver the gate can never match, leaving the user believing a
+    // requirement was waived while it silently still blocks.
+    if (!plan.required_evidence.includes(requirementId)) throw new Error(`waive: '${requirementId}' is not a required evidence id for this task; expected one of: ${plan.required_evidence.join(", ") || "(none)"}`);
+    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, requirements_hash: plan.requirements_hash });
     state.waivers = waivers;
   }
+  // Every write path funnels through here, so validating once here keeps task.schema.json the only
+  // place that decides what a valid task.json is. Abandoning a task is the one exception: a state
+  // written by an older runtime must still be closable out, or it can never be retired.
+  const errors = action === "supersede" ? [] : schemaErrors(state);
+  if (errors.length) throw new Error(`${action}: resulting task.json fails schema: ${errors.join("; ")}`);
 }
 export function transitionTask(value: string, action: Transition, actor = "cli", confirmation = "", requirementId = ""): JsonObject {
   const path = taskPath(value);
   if (!existsSync(path)) throw new Error(`task state is missing: ${path}`);
   if (action === "waive" && !confirmation) throw new Error("waiver requires explicit --confirmed-by-user");
+  if (action === "waive" && !requirementId) throw new Error("waiver requires --requirement-id naming the requirement being waived");
   return mutateTask<JsonObject>(path, (state) => applyTransition(state, path, action, actor, confirmation, requirementId));
 }
+// The newest entry wins outright: an older PASS must never mask a later FAIL for the same
+// requirement, which a "first verified entry" lookup would happily do.
+function latestEvidence(evidence: JsonObject[], key: string): JsonObject | undefined {
+  const matches = evidence.filter((entry) => String(entry.id || entry.kind || "") === key);
+  // Parsed, not compared as strings: an RFC 3339 offset timestamp sorts wrong lexicographically, so
+  // "2026-01-01T09:00:00+08:00" would beat the later "2026-01-01T05:00:00Z".
+  const instant = (entry: JsonObject): number => { const parsed = Date.parse(String(entry.at || "")); return Number.isNaN(parsed) ? -Infinity : parsed; };
+  return matches.length ? matches.reduce((best, entry) => instant(entry) >= instant(best) ? entry : best) : undefined;
+}
+const covers = (scopes: string[], path: string): boolean => scopes.some((scope) => path === scope || path.startsWith(scope.replace(/\/?$/, "/")));
+// Declaring file_ownership declares a boundary, so a delivery that reaches outside it is a
+// violation in its own right — never something diff-scoped review is allowed to filter away. The
+// baseline is base_commit when the task records one, else the base a role review was taken against.
+function ownershipErrors(state: JsonObject, repoRoot: string, evidence: JsonObject[]): string[] {
+  const ownership = Array.isArray(state.file_ownership) ? state.file_ownership.map(String) : [];
+  if (!ownership.length) return [];
+  const base = String(state.base_commit || evidence.find((item) => typeof item.reviewed_base === "string")?.reviewed_base || "");
+  if (!base) return ["file_ownership is declared but the task records no base_commit to measure the delivery against"];
+  try {
+    const outside = changedPaths(repoRoot, base).filter((changed) => !covers(ownership, changed));
+    if (outside.length) return [`ownership violation: ${outside.slice(0, 5).join(", ")}${outside.length > 5 ? `, +${outside.length - 5} more` : ""} changed outside file_ownership (${ownership.join(", ")})`];
+  } catch (error) { return [`ownership cannot be checked: ${String((error as Error).message || error)}`]; }
+  return [];
+}
+// Role evidence goes stale only when the diff it actually reviewed changes, or when the task's
+// classification moved under it — not when some unrelated file elsewhere in the repo is touched.
+function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject): string[] {
+  if (Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) return [`role evidence predates the current plan revision, re-review required: ${key}`];
+  const paths = Array.isArray(item.reviewed_paths) ? item.reviewed_paths.map(String) : [];
+  const base = String(item.reviewed_base || "");
+  try {
+    // A digest over a scope the reviewer chose freely proves nothing on its own: pointing
+    // reviewed_paths at an untouched file yields a constant digest that never goes stale, so the
+    // review has to cover every path this task delivers. Nothing is filtered out by ownership here —
+    // a change outside file_ownership is an ownership violation reported by the gate itself, never a
+    // path the reviewer is allowed to ignore.
+    const uncovered = changedPaths(repoRoot, base).filter((changed) => !covers(paths, changed));
+    if (uncovered.length) return [`role evidence does not cover every changed path (${uncovered.slice(0, 3).join(", ")}${uncovered.length > 3 ? `, +${uncovered.length - 3} more` : ""}), re-review required: ${key}`];
+    if (diffFingerprint(repoRoot, base, paths) !== String(item.reviewed_diff_sha256 || "")) return [`role evidence is stale (reviewed diff changed since review), re-review required: ${key}`];
+  } catch (error) { return [`role evidence freshness cannot be recomputed for ${key}: ${String((error as Error).message || error)}`]; }
+  return [];
+}
 type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[] };
-function evaluateTaskGate(state: JsonObject, path: string): GateResult {
+function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string): GateResult {
   const life = lifecycle(state);
   const evidence = (Array.isArray(state.evidence) ? state.evidence : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
   const errors: string[] = [...schemaErrors(state)];
@@ -68,21 +119,29 @@ function evaluateTaskGate(state: JsonObject, path: string): GateResult {
   let compiled: JsonObject = {};
   try {
     const plan = compilePlanForTaskPath(state, path);
-    compiled = { policy_version: plan.policy_version, requirements_hash: plan.requirements_hash, order: plan.order, required_evidence: plan.required_evidence };
+    compiled = { policy_version: plan.policy_version, requirements_hash: plan.requirements_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence };
+    // Only a code task owes an impact classification: a read-only or docs task never reaches the
+    // capabilities these fields gate, so demanding them would leave it with no way to close.
+    if (state.code_change === true) for (const entry of plan.classification_incomplete) errors.push(`workflow classification is incomplete: ${String(entry.name)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
     const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.requirements_hash || "") === plan.requirements_hash).map((item) => String(item.requirement_id || "")));
-    const workspaceSha = workspaceFingerprint(projectIdentity(dirname(path)).root);
+    // The task directory normally lives in the state root, not in the repo, so the worktree to
+    // fingerprint has to come from the caller's location rather than from the task's own path.
+    const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
+    errors.push(...ownershipErrors(state, repoRoot, evidence));
     for (const key of plan.required_evidence) {
-      const item = evidence.find((entry) => String(entry.id || entry.kind || "") === key && entry.verified === true);
-      if (!item) { if (!waived.has(key)) errors.push(`required evidence is not verified or waived: ${key}`); continue; }
-      if (key.startsWith("role.") && String(item.workspace_sha256 || "") !== workspaceSha && !waived.has(key)) errors.push(`role evidence is stale (workspace changed since review), re-review required: ${key}`);
+      if (waived.has(key)) continue;
+      const item = latestEvidence(evidence, key);
+      if (!item || item.verified !== true) { errors.push(`required evidence is not verified or waived: ${key}`); continue; }
+      if (String(item.requirements_hash || "") !== plan.requirements_hash) { errors.push(`evidence was recorded against a different plan, re-verification required: ${key}`); continue; }
+      if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state));
     }
   } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
   return { valid: errors.length === 0, status: String(life.status), compiled, errors };
 }
-export function taskGate(value: string): number {
+export function taskGate(value: string, repoRoot = process.cwd()): number {
   try {
     const path = taskPath(value); const state = task(path);
-    const gate = evaluateTaskGate(state, path);
+    const gate = evaluateTaskGate(state, path, repoRoot);
     output({ valid: gate.valid, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors });
     return gate.valid ? 0 : 1;
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
@@ -113,7 +172,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli"): numbe
   });
 }
 const WRITE_MANAGED_KEYS = new Set(["schema_version", "id", "project_id", "worktree_id", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers"]);
-const CLASSIFICATION_KEYS = new Set(["code_change", "workflow_mode", "task_type", "change_kind", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "complexity_hint"]);
+const CLASSIFICATION_KEYS = new Set(["code_change", "workflow_mode", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
 export function taskWrite(value: string, patch: JsonObject): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
@@ -131,12 +190,12 @@ export function taskWrite(value: string, patch: JsonObject): number {
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
-export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string): number {
+export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string, repoRoot = process.cwd()): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   const outcome = withFileLock<{ code: number; body: JsonObject }>(`${path}.lock`, () => {
     const state = readJson(path) as JsonObject;
-    const gate = evaluateTaskGate(state, path);
+    const gate = evaluateTaskGate(state, path, repoRoot);
     if (!gate.valid) return { code: 1, body: { valid: false, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors } as JsonObject };
     applyTransition(state, path, "close", actor, confirmation, "");
     state.state_revision = Number(state.state_revision || 0) + 1;

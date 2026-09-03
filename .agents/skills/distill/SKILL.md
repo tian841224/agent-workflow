@@ -14,12 +14,11 @@ The runtime counts and routes; you write the prose; the user decides what takes 
 ## Source 1 — recurring memory patterns
 
 ```text
-agent_workflow.cmd skill-draft --action Scan --cwd <cwd>
+agent-workflow skill-draft --action Scan --cwd <cwd>
 ```
 
-Each candidate carries `occurrences`, `summaries`, `entry_paths`, `entry_sha` and
-`existing_skill_match`. Read the entries behind a candidate before judging it — the summaries are
-one line each and routinely too thin to draft from.
+Each cluster carries `cluster_id`, `topic`, `occurrences` and `source_entries`. Read the entries
+behind a cluster before judging it — a topic and a count are routinely too thin to draft from.
 
 Before counting the threshold as earned:
 
@@ -38,7 +37,7 @@ Draft it when all six hold:
 - The cluster is semantically coherent after reading every source entry.
 - The entries describe a **repeatable procedure or decision rule**, not one project's facts.
 - A future session would act differently for having read it.
-- `existing_skill_match` is empty, or the matched skill genuinely does not cover this.
+- No installed skill already covers this — check the skill list yourself; Scan does not match against it.
 - The rule stays true outside the specific files the entries mention.
 
 Otherwise leave it in memory or reject the candidate. Reject a cluster that is incoherent,
@@ -47,7 +46,7 @@ superseded, or already covered so the same stale pattern does not return on ever
 ## Source 2 — review causes at threshold
 
 ```text
-agent_workflow.cmd review-cause --action Escalate --repo-root <repo>
+agent-workflow review-cause --action Escalate --min-occurrences <n>
 ```
 
 Each group carries `cause`, `remedy_kind`, `occurrences`, `finding_ids`, `paths` and the per-round
@@ -56,7 +55,7 @@ was actually missing:
 
 | remedy_kind | Cause | What to produce |
 | --- | --- | --- |
-| `project_doc` | `doc_gap` | Write the missing doc per [project-docs](../project-docs/SKILL.md). The group's `uncovered_paths` names the paths no doc covers. |
+| `project_doc` | `doc_gap` | Write the missing doc per [project-docs](../project-docs/SKILL.md). Run `agent-workflow project-doc --action Lookup --paths <the group's paths>` to see which of them no doc covers. |
 | `task_spec` | `prompt_gap` | Propose the concrete field or rule to add to `templates/task.md` or `AGENTS.md`, so the next task states the requirement up front. |
 | `skill` | `convention_gap`, `context_miss` | Draft a skill, below. |
 
@@ -65,7 +64,7 @@ was actually missing:
 After the remedy lands, close the findings that earned it:
 
 ```text
-agent_workflow.cmd review-cause --action Resolve --id <id> --id <id> --status applied --note <what shipped>
+agent-workflow review-cause --action Resolve --id <id>,<id> --status applied
 ```
 
 Use `--status rejected` when the group is real but the remedy is not worth it, and say why in the
@@ -77,10 +76,10 @@ Load [writing-for-agents](../writing-for-agents/SKILL.md) first — a draft is j
 document, so trigger wording and progressive disclosure apply from the first version.
 
 ```text
-agent_workflow.cmd skill-draft --action Draft --name <slug> --description <trigger sentence> --content <body> --cluster-id <cluster_id> --source-entry <sha> --source-entry <sha>
+agent-workflow skill-draft --action Draft --name <slug> --description <trigger sentence> --content <body> --cluster-id <cluster_id> --source-entry <sha>,<sha>
 ```
 
-For a memory cluster, pass every `entry_sha`: the sha set is what suppresses a rejected pattern
+For a memory cluster, pass every id from `source_entries`: that set is what suppresses a rejected pattern
 later, and a partial set makes the same cluster resurface.
 
 The draft lands in `<state>/skill-drafts/<name>/SKILL.md`, outside every platform skill directory.
@@ -92,8 +91,8 @@ Show what you produced and ask for a decision. Every remedy needs the user's exp
 conversation; the flags below record that approval and never substitute for it.
 
 ```text
-agent_workflow.cmd skill-draft --action Promote --name <slug> --approved-by-user
-agent_workflow.cmd skill-draft --action Reject --name <slug> --note <why>
+agent-workflow skill-draft --action Promote --name <slug> --approved-by-user
+agent-workflow skill-draft --action Reject --name <slug> --note <why>
 ```
 
 Promote writes `<state>/skills/<name>/SKILL.md` and makes it visible to every installed platform
