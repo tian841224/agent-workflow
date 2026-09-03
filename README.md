@@ -44,7 +44,7 @@ npx --yes @tian/agent-workflow@latest
 | v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
 | v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
 | v4 | 依情境載入流程、canonical `.agents`、TDD、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
-| v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排 | 將流程選擇與 runtime 執行分離，兼顧彈性、可驗證性與跨平台一致性 |
+| v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排；`task.json` 統一 contract（`state_revision`／`plan_revision`／`intent_approval`）、risk_flags 驅動的 required capability、pure task-gate、CAS 檔案鎖與 git-guard allowlist | 將流程選擇與 runtime 執行分離，並讓高風險流程不再能靠少填 `workflow_request` 被略過，兼顧彈性、可驗證性與跨平台一致性 |
 | v6 | 在 v5 架構基礎上，以「同 prompt、有無 skill／角色提示」的 A/B 比較作為去留依據，只保留驗證後仍有效的最小提示 | skill／角色清單只增不減，缺乏依據判斷提示內容是否真的提升輸出品質，導致 token 與執行時間持續墊高 |
 
 ## 二、功能介紹
@@ -62,7 +62,7 @@ npx --yes @tian/agent-workflow@latest
 3. **非程式碼任務**：設定、文件、註解、script、除錯、review、規劃、問答與翻譯等任務一律 bypass，不建立 task、不啟動角色。
 4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務，使用 `task_type: read_only` 與 `model_profile: cheap_read`；Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
 
-流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把最終要跑的角色與檢查完整寫進 task 的 `workflow_request`；runtime 只驗證這份清單的執行結果是否齊全，不自行增減。可透過 `agent-workflow workflow-plan` 查看候選與理由。
+流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `requirements_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -228,7 +228,7 @@ install.cmd --target-agent All --skills all
 
 新增 skill 時，先確認要列為必裝或選擇性，再在 `adapters/managed-manifest.json` 的 `skills` catalog 登錄名稱、說明與 `required` 設定。
 
-版本欄位分工如下：product version 是 CLI 顯示的 `v6`；`adapters/managed-manifest.json` 的 `schema_version` 是 manifest 格式版本；`.agent-workflow/managed-runtime.json` 的 `schema_version` 是 installed state 格式版本。三者獨立演進，不再以同一個數字代稱。
+版本欄位分工如下：product version 是 CLI 顯示的 `v7`；`adapters/managed-manifest.json` 的 `schema_version` 是 manifest 格式版本；`.agent-workflow/managed-runtime.json` 的 `schema_version` 是 installed state 格式版本。三者獨立演進，不再以同一個數字代稱。
 
 ### 檢查安裝狀態
 
@@ -252,8 +252,13 @@ install.cmd --action Uninstall --target-agent All
 
 移除安裝時，只會移除仍由本專案管理且未被使用者修改的 managed files，不會刪除既有的 knowledge、projects、tasks 或 imports 資料。
 
-### v6 breaking changes
+### v7 breaking changes
 
-- task lifecycle 的機械狀態由 `task.json` 保存；coordinator completion 與 worker roster 檢查由 `task-gate` 的 Stop／Close 路徑統一處理。
+- `schemas/task.schema.json` 成為 `task.json` 的唯一 contract（`schemas/task-state.schema.json` 已移至 `schemas/legacy/task-v2.schema.json`，只供 migration 參照）；`task.json` 新增 `state_revision`／`plan_revision`，lifecycle 不再有 `frozen` 狀態，改以 `intent_approval`（綁定 task.md 內容 hash）判斷高風險任務是否已取得使用者確認。
+- `workflow-plan` 會依 `risk_flags` 計算 `required` capability，`workflow_request` 只能疊加、無法移除；要略過必須明確 `waive --confirmed-by-user`，且該 waiver 綁定當下的 `requirements_hash`，task 分類一變就失效。
+- `task-gate` 改為 pure read-only：不再把 `compiled` 寫回 `task.json`；reviewer 等 role evidence 另外綁定 `workspace_sha256`，程式碼在 review 後又被改動就會判定 stale，需要重新 review。
+- `git-guard` 由「denylist 擋已知危險指令」改成「allowlist 只放行已知唯讀指令」，未列在 allowlist 的 git 子指令一律需要使用者明確執行。
+- Knowledge／learning 新寫入的預設狀態從 `verified` 改成 `candidate`；SessionStart 只會注入當前 project 與 global 的 `verified` 記憶，不再掃描其他 project。
+- `install`／`repair` 會自動跑 v2→v3 migration：既有 `task.json` 的 evidence／waiver 一律標成 stale，需要重新驗證才能通過新版 `task-gate`。
 - `workflow-plan` 遇到未知 capability 或損壞 facts 時改為非零結束。
 - `Verify` 從入口存在檢查提升為完整 runtime integrity contract。
