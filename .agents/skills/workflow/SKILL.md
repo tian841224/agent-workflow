@@ -8,7 +8,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
-task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`，之後改任一欄位用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地），狀態轉換用 `pause`／`block`／`supersede`／`waive`／`close-task`；hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
 
 ## 適用範圍
 
@@ -53,9 +53,9 @@ Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式�
 1. Standard task 直接沿用已知的 task context；只有需要跨 worktree、coordinator／worker 或 legacy runtime gate 時才執行 `~/.agent-workflow/runtime/agent_workflow.cmd project-resolver -Ensure`。
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作；不是就先將舊 task 改為 `paused`、`blocked`、`done` 或 `superseded`。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則；project docs 讀寫時機另見 [project-docs skill](../project-docs/SKILL.md)。
-4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同時在同一目錄建立 `task.json`（依 `schemas/task.schema.json`），`id` 用目錄名。
-5. 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
-6. 一律使用 `status: in_progress`。命中 freeze-required flag 時 `intent_approval` 先留空，取得使用者對目標、非目標與完成條件的確認後才寫入（見 [risk-flags.md](risk-flags.md)）；task-gate 憑 `intent_approval.intent_sha256` 是否等於當下 task.md 雜湊放行，並非每次工具寫入都由 runtime 攔截。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
+4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同一目錄執行 `agent-workflow task-init --task-path <dir>`（stdin 傳初始欄位的 JSON，`id` 自動取目錄名）建立 `task.json`；預設 `status: in_progress`，欄位需符合 `schemas/task.schema.json`。
+5. 用 `task-write` 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`。`change_kind: fix | feature | refactor | chore` 仍在 `code_change: true` 結案時必填。
+6. 命中 freeze-required flag 時 `intent_approval` 先留空，取得使用者對目標、非目標與完成條件的確認後才用 `task-write` 寫入（見 [risk-flags.md](risk-flags.md)）；task-gate 憑 `intent_approval.intent_sha256` 是否等於當下 task.md 雜湊放行，並非每次工具寫入都由 runtime 攔截。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
 

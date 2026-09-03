@@ -1,7 +1,7 @@
 import { PRODUCT_VERSION, flag, option, parseArgs, stateRoot, stdinJson } from "./core.js";
 import { install, migrateState } from "./installer.js";
 import { clearSkillProof, recordSkillRead, runGuard } from "./hooks.js";
-import { closeTask, taskGate, transitionTask } from "./lifecycle.js";
+import { closeTask, taskGate, taskInit, taskWrite, transitionTask } from "./lifecycle.js";
 import { knowledge, memoryContext } from "./knowledge.js";
 import { orchestrate } from "./orchestration.js";
 import { fingerprint, preReview, projectResolver, workflowPlan } from "./misc.js";
@@ -13,7 +13,7 @@ import { projectDoc } from "./project-doc.js";
 const commands = [
   "install", "repair", "verify", "uninstall", "migrate-state",
   "git-guard", "skill-guard", "memory-context",
-  "workflow-plan", "task-gate", "close-task",
+  "workflow-plan", "task-init", "task-write", "task-gate", "close-task",
   "learn", "knowledge", "skill-draft", "memory-review", "retro", "review-cause",
   "project-resolver", "project-doc", "pre-review",
   "orchestrate", "split-plan", "worktree-fingerprint",
@@ -76,6 +76,8 @@ async function main(): Promise<void> {
   else if (command === "learn") process.exitCode = learn(parsed.values);
   else if (command === "skill-draft") process.exitCode = skillDraft(parsed.values);
   else if (command === "project-doc") process.exitCode = projectDoc(parsed.values);
+  else if (command === "task-init") { let patch = {}; try { patch = stdinJson(); } catch { patch = {}; } process.exitCode = taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), patch, option(parsed.values, "actor", "cli")); }
+  else if (command === "task-write") process.exitCode = taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson());
   else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")));
   else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"));
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);

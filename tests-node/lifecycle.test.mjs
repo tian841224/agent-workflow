@@ -77,6 +77,64 @@ test("a waiver recorded against one requirements_hash does not satisfy the same 
   assert.ok(regated.errors.some((error) => error.includes("role.reviewer")));
 });
 
+test("task-init creates a schema-valid task.json and refuses to overwrite an existing one", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-${process.pid}-${Date.now()}`);
+  const task = join(root, "20260101-000000-init-test"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const created = run(["task-init", "--task-path", path], JSON.stringify({ code_change: true, change_kind: "fix" }));
+  assert.equal(created.status, 0, created.stderr);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.schema_version, 3);
+  assert.equal(state.code_change, true);
+  assert.equal(state.lifecycle.status, "in_progress");
+  const again = run(["task-init", "--task-path", path], "{}");
+  assert.notEqual(again.status, 0);
+  assert.match(JSON.parse(again.stdout).errors[0], /already exists/);
+});
+
+test("task-init rejects a runtime-managed field and a patch that fails schema", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-invalid-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const run = (input) => JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-init", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input }).stdout);
+  const managed = run(JSON.stringify({ state_revision: 99 }));
+  assert.equal(managed.valid, false);
+  assert.match(managed.errors[0], /runtime-managed/);
+  const invalid = run(JSON.stringify({ code_change: "yes" }));
+  assert.equal(invalid.valid, false);
+  assert.match(invalid.errors[0], /fails schema/);
+});
+
+test("task-write merges fields through the lock, bumps plan_revision on a classification change, and rejects lifecycle edits", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  writeFileSync(path, JSON.stringify(validTask()));
+  const wrote = run(["task-write", "--task-path", path], JSON.stringify({ change_kind: "fix", risk_flags: ["data_write"] }));
+  assert.equal(wrote.status, 0, wrote.stderr);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.change_kind, "fix");
+  assert.deepEqual(state.risk_flags, ["data_write"]);
+  assert.equal(state.plan_revision, 2);
+  assert.equal(state.state_revision, 2);
+  const blocked = run(["task-write", "--task-path", path], JSON.stringify({ lifecycle: { status: "closed" } }));
+  assert.notEqual(blocked.status, 0);
+  assert.match(JSON.parse(blocked.stdout).errors[0], /runtime-managed/);
+});
+
+test("task-write refuses a patch that would make task.json fail schema", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-invalid-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask()));
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ impact_scope: "not_a_real_scope" }) });
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /fails schema/);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).impact_scope, undefined);
+});
+
 test("workflow-plan and task-gate compute the same requirements_hash for the same task.json", () => {
   const root = join(tmpdir(), `agent-workflow-gate-hash-parity-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });

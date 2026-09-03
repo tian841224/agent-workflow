@@ -41,6 +41,7 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
 export function hookDecision(event: CanonicalHookEvent): HookDecision {
   if (event.mutation && !event.targetKnown) return { allow: false, reason: "hook-policy: mutation target cannot be normalized; denied fail-closed." };
   if (event.mutation && event.paths.some((path) => !path.trim())) return { allow: false, reason: "hook-policy: mutation target is invalid; denied fail-closed." };
+  if (event.mutation && event.paths.some((path) => /(?:^|[\\/])task\.json$/i.test(path))) return { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-init` / `task-write` / pause / block / supersede / waive / close-task instead of editing it directly." };
   return { allow: true };
 }
 function parseGitInvocation(segment: string): { subcommand: string; args: string[] } | null {

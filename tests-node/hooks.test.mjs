@@ -75,6 +75,16 @@ test("skill-guard denies a shell delete/redirect command whose target path canno
   assert.match(guarded.stdout, /denied fail-closed/);
 });
 
+test("skill-guard denies a direct Edit/Write tool call targeting task.json", () => {
+  const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "skill-guard", "--platform", "Claude"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify({ tool_name: "edit", tool_input: { file_path: join("tasks", "20260101-000000-demo", "task.json") } }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.match(guarded.stdout, /task-guard/);
+});
+
 test("git-guard denies a git subcommand that is not on the read-only allowlist", () => {
   const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude"], {
     cwd: process.cwd(),

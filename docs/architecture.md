@@ -27,7 +27,7 @@ Node 20 是唯一 runtime。`src/` 是 TypeScript source，`dist/agent-workflow.
 
 ## 責任邊界
 
-`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接改寫其語意或狀態；`task-gate` 只讀取並回報 gate 結果，不寫入 task 狀態。`task.md` 只保存人的意圖與驗收條件；`task.json` 保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 取代舊版「frozen」lifecycle 狀態。Waiver 必須包含明確使用者確認及 transition history。`workflow-policy.ts` 編譯出的 plan 區分 `required`（runtime 強制、無法透過省略 `workflow_request` 移除）、`suggested` 與 `requested` 三種 capability。
+`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接改寫其語意或狀態；`task-gate` 只讀取並回報 gate 結果，不寫入 task 狀態。`task.md` 只保存人的意圖與驗收條件；`task.json` 保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 取代舊版「frozen」lifecycle 狀態。`task.json` 只能經由 runtime CLI 寫入（建立用 `task-init`、任意欄位變更用 `task-write`、lifecycle 轉換用 `TaskLifecycle` 指令），三者皆經同一檔案鎖並在落地前對照 `task.schema.json` 驗證；agent 對 `task.json` 的直接檔案寫入由 `src/hooks.ts` fail-closed 攔截。Waiver 必須包含明確使用者確認及 transition history。`workflow-policy.ts` 編譯出的 plan 區分 `required`（runtime 強制、無法透過省略 `workflow_request` 移除）、`suggested` 與 `requested` 三種 capability。
 
 `OrchestrationEngine` 以 transition table 管理 split、execute、integrate、cleanup；未完成 integrate 前不可 cleanup、失敗 path 不可跳過 cleanup、已套用 patch 不可重複套用。
 

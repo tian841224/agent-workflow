@@ -1,7 +1,7 @@
 import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { JsonObject, mutateTask, now, output, projectIdentity, readJson, schemaPath, sha256, withFileLock, writeJson, workspaceFingerprint } from "./core.js";
 import { memoryReviewPrompt } from "./memory-review.js";
 import { compilePlanForTaskPath } from "./workflow-policy.js";
@@ -86,6 +86,50 @@ export function taskGate(value: string): number {
     output({ valid: gate.valid, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors });
     return gate.valid ? 0 : 1;
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
+}
+const CREATE_MANAGED_KEYS = new Set(["schema_version", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers", "project_id", "worktree_id"]);
+export function taskInit(value: string, patch: JsonObject, actor = "cli"): number {
+  const path = taskPath(value);
+  return withFileLock(`${path}.lock`, () => {
+    if (existsSync(path)) { output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
+    try {
+      const blocked = Object.keys(patch).filter((key) => CREATE_MANAGED_KEYS.has(key));
+      if (blocked.length) throw new Error(`task-init: field(s) are runtime-managed and cannot be set directly: ${blocked.join(", ")}`);
+      const identity = projectIdentity(dirname(path));
+      const stamp = now();
+      const state: JsonObject = {
+        schema_version: 3, id: basename(dirname(path)), project_id: identity.projectId, worktree_id: identity.worktreeId,
+        code_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
+        lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
+        evidence: [], waivers: [],
+        ...patch
+      };
+      const errors = schemaErrors(state);
+      if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
+      writeJson(path, state);
+      output({ valid: true, task: path });
+      return 0;
+    } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+  });
+}
+const WRITE_MANAGED_KEYS = new Set(["schema_version", "id", "project_id", "worktree_id", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers"]);
+const CLASSIFICATION_KEYS = new Set(["code_change", "workflow_mode", "task_type", "change_kind", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "complexity_hint"]);
+export function taskWrite(value: string, patch: JsonObject): number {
+  const path = taskPath(value);
+  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  try {
+    const blocked = Object.keys(patch).filter((key) => WRITE_MANAGED_KEYS.has(key));
+    if (blocked.length) throw new Error(`task-write: field(s) are runtime-managed and cannot be set directly: ${blocked.join(", ")} (use task-init / pause / block / supersede / waive / close-task instead)`);
+    const state = mutateTask<JsonObject>(path, (current) => {
+      for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
+      current.updated_at = now();
+      if (Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key))) current.plan_revision = Number(current.plan_revision || 0) + 1;
+      const errors = schemaErrors(current);
+      if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
+    });
+    output({ valid: true, task: path, state_revision: state.state_revision, plan_revision: state.plan_revision });
+    return 0;
+  } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
 export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string): number {
   const path = taskPath(value);
