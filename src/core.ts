@@ -245,7 +245,9 @@ export function withFileLock<T>(lockPath: string, fn: () => T, staleMs = 5 * 60 
 
 // The one blessed read-modify-write for a shared JSON file: lock, read, mutate in place, bump
 // revision, write. A mutex under one function beats optimistic CAS since every writer routes here.
-export function mutateTask<T extends JsonObject>(path: string, mutator: (state: T) => void): T {
+// Generic across every JSON state file this runtime owns (task.json, orchestration index,
+// review-cause/retro records) — not task.json-specific despite the historical name pressure.
+export function mutateJsonState<T extends JsonObject>(path: string, mutator: (state: T) => void): T {
   return withFileLock(`${path}.lock`, () => {
     const state = (existsSync(path) ? readJson(path) : {}) as T;
     mutator(state);
@@ -289,6 +291,13 @@ export function diffFingerprint(cwd: string, base: string, paths: string[]): str
 // --name-status, not --name-only, because a rename reports both sides and a delete reports a path
 // that no longer exists on disk; a scope check that only sees files still present would let a moved
 // or removed file out of the reviewed set entirely.
+// The whole-delivery counterpart to diffFingerprint: every path changed since base, not a
+// reviewer-chosen subset. Used for the task-level delivery_hash rather than role-evidence's
+// deliberately narrower reviewed_paths scoping.
+export function deliveryHash(cwd: string, base: string): string {
+  return diffFingerprint(cwd, base, changedPaths(cwd, base));
+}
+
 export function changedPaths(cwd: string, base: string): string[] {
   const tracked = git(cwd, ["diff", "--name-status", base]);
   if (tracked.status !== 0) throw new Error(`changed-paths: git diff failed for base ${base}: ${tracked.stderr.trim()}`);

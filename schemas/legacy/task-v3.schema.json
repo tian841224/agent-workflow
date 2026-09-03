@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agent-workflow task state (v3, retired)",
+  "description": "Reference only, for migration — not enforced. Captures the pre-v4 shape: a single requirements_hash mixing policy/classification/task.md content, boolean verified evidence, and intent_approval.intent_sha256 over the whole task.md file. See schemas/task.schema.json for the current (v4) contract and src/installer.ts's taskSchemaV3toV4Migration for the conversion.",
+  "type": "object",
+  "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "risk_flags", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "worktree_id": { "type": "string" },
+    "state_revision": { "type": "integer" },
+    "plan_revision": { "type": "integer" },
+    "code_change": { "type": "boolean" },
+    "workflow_mode": { "type": "string" },
+    "task_type": { "type": "string" },
+    "model_profile": { "type": "string" },
+    "impact_scope": { "type": "string" },
+    "impact_effect": { "type": "string" },
+    "impact_confidence": { "type": "string" },
+    "workflow_request": { "type": "array", "items": { "type": "string" } },
+    "workflow_facts": { "type": "object" },
+    "workflow_decision": { "type": "string" },
+    "risk_flags": { "type": "array", "items": { "type": "string" } },
+    "independence": { "type": "string" },
+    "subtask_role": { "type": "string" },
+    "parent_task_id": { "type": "string" },
+    "file_ownership": { "type": "array", "items": { "type": "string" } },
+    "base_commit": { "type": "string" },
+    "delivery_status": { "type": "string" },
+    "integration_status": { "type": "string" },
+    "intent_approval": {
+      "type": ["object", "null"],
+      "properties": {
+        "intent_sha256": { "type": "string" },
+        "confirmed_at": { "type": "string" },
+        "confirmed_by_user": { "type": "string" }
+      }
+    },
+    "lifecycle": { "type": "object" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": { "enum": ["role", "step", "legacy-unverified"] },
+          "id": { "type": "string" },
+          "verified": { "type": "boolean" },
+          "requirements_hash": { "type": "string" },
+          "reviewed_base": { "type": "string" },
+          "reviewed_paths": { "type": "array", "items": { "type": "string" } },
+          "reviewed_diff_sha256": { "type": "string" }
+        }
+      }
+    },
+    "waivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": { "type": "string" },
+          "actor": { "type": "string" },
+          "confirmed_by_user": { "type": "string" },
+          "requirement_id": { "type": "string" },
+          "requirements_hash": { "type": "string" }
+        }
+      }
+    },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

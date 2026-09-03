@@ -1,6 +1,5 @@
 import { Ajv } from "ajv";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { canonicalJson, Json, JsonObject, schemaPath, sha256 } from "./core.js";
 
 // workflow-policy.schema.json is draft-07 (no 2020-12 features needed here), so the default ajv
@@ -111,15 +110,11 @@ export function loadPolicy(path: string): JsonObject {
   return policy;
 }
 
-// The one hash-relevant input set (policy + sibling task.md) every command must feed
+// The one hash-relevant input set (policy + classification) every command must feed
 // compileWorkflowPlan identically, so task-gate / waive / workflow-plan never disagree on
-// requirements_hash for the same task.json on disk.
+// plan_hash for the same task.json on disk. task.md's content feeds intent_hash separately (intent.ts).
 export function compilePlanForTaskPath(task: JsonObject, taskJsonPath: string, policyPath = schemaPath("workflow-policy.json")): CompiledWorkflowPlan {
-  const taskMd = join(dirname(taskJsonPath), "task.md");
-  return compileWorkflowPlan(task, loadPolicy(policyPath), {
-    taskMdSha256: existsSync(taskMd) ? sha256(readFileSync(taskMd)) : undefined,
-    policySha256: sha256(readFileSync(policyPath))
-  });
+  return compileWorkflowPlan(task, loadPolicy(policyPath), { policySha256: sha256(readFileSync(policyPath)) });
 }
 
 export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject }): JsonObject[] {
@@ -155,10 +150,10 @@ export type CompiledWorkflowPlan = {
   required_evidence: string[];
   policy_version: number;
   policy_sha256?: string;
-  requirements_hash: string;
+  plan_hash: string;
 };
 
-export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, options: { taskMdSha256?: string; policySha256?: string } = {}): CompiledWorkflowPlan {
+export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, options: { policySha256?: string } = {}): CompiledWorkflowPlan {
   const capabilities = policy.capabilities as JsonObject[];
   const names = new Set(capabilities.map((capability) => String(capability.name)));
   const requested = Array.isArray(task.workflow_request) ? task.workflow_request.map(String) : [];
@@ -191,12 +186,14 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const suggested = capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match").map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
   const policy_version = Number(policy.version || 0);
   const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => String(step.id))))].sort();
-  const requirements_hash = sha256(canonicalJson({
-    policy_version, policy_sha256: options.policySha256 ?? null, task_md_sha256: options.taskMdSha256 ?? null,
+  // plan_hash covers policy + classification only — not task.md's prose, which is intent_hash's job
+  // (see intent.ts). A task.md typo no longer invalidates evidence/waivers recorded against this plan.
+  const plan_hash = sha256(canonicalJson({
+    policy_version, policy_sha256: options.policySha256 ?? null,
     code_change: task.code_change ?? null, workflow_mode: task.workflow_mode ?? null,
     task_type: ctx.task_type, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
     risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
     required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), selected_step_ids
   }));
-  return { required, classification_incomplete, suggested, requested, effective, order, selected, required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), requirements_hash };
+  return { required, classification_incomplete, suggested, requested, effective, order, selected, required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), plan_hash };
 }

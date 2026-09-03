@@ -9,7 +9,7 @@ import { test } from "node:test";
 // id matching the task-id pattern, no unknown top-level keys) before task-gate will validate it.
 function validTask(overrides = {}) {
   return {
-    schema_version: 3,
+    schema_version: 4,
     id: "20260101-000000-gate-test",
     project_id: "0123456789abcdef",
     worktree_id: "0123456789abcdef",
@@ -57,10 +57,10 @@ test("task-gate is a pure read: it never writes to task.json", () => {
   assert.equal(statSync(path).mtimeMs, mtimeBefore);
 });
 
-test("a waiver recorded against one requirements_hash does not satisfy the same requirement_id after the hash shifts", () => {
+test("a waiver recorded against one plan_hash does not satisfy the same requirement_id after the hash shifts", () => {
   const root = join(tmpdir(), `agent-workflow-gate-stale-waiver-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Stale waiver\n\n## Goal\n\nVerify a waiver does not survive a requirements_hash shift.\n");
+  writeFileSync(join(task, "task.md"), "# Stale waiver\n\n## Goal\n\nVerify a waiver does not survive a plan_hash shift.\n");
   const path = join(task, "task.json");
   const write = (state) => writeFileSync(path, JSON.stringify(state));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
@@ -69,7 +69,7 @@ test("a waiver recorded against one requirements_hash does not satisfy the same 
   assert.equal(waived.status, 0, waived.stderr);
   const satisfied = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(!satisfied.errors.some((error) => error.includes("role.reviewer")));
-  // impact_scope 改變 requirements_hash（見 compileWorkflowPlan），舊 waiver 不應再滿足同一個 requirement_id
+  // impact_scope 改變 plan_hash（見 compileWorkflowPlan），舊 waiver 不應再滿足同一個 requirement_id
   const state = JSON.parse(readFileSync(path, "utf8"));
   state.impact_scope = "module";
   write(state);
@@ -79,18 +79,64 @@ test("a waiver recorded against one requirements_hash does not satisfy the same 
 
 test("task-init creates a schema-valid task.json and refuses to overwrite an existing one", () => {
   const root = join(tmpdir(), `agent-workflow-task-init-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
   const task = join(root, "20260101-000000-init-test"); mkdirSync(task, { recursive: true });
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
-  const created = run(["task-init", "--task-path", path], JSON.stringify({ code_change: true, task_type: "fix" }));
+  const created = run(["task-init", "--task-path", path, "--repo-root", repo], JSON.stringify({ code_change: true, task_type: "fix" }));
   assert.equal(created.status, 0, created.stderr);
   const state = JSON.parse(readFileSync(path, "utf8"));
-  assert.equal(state.schema_version, 3);
+  assert.equal(state.schema_version, 4);
   assert.equal(state.code_change, true);
   assert.equal(state.lifecycle.status, "in_progress");
+  assert.equal(state.base_commit, vcs(["rev-parse", "HEAD"]).stdout.trim());
   const again = run(["task-init", "--task-path", path], "{}");
   assert.notEqual(again.status, 0);
   assert.match(JSON.parse(again.stdout).errors[0], /already exists/);
+});
+
+test("task-init refuses a dirty worktree for a code task unless --adopt-current-diff is passed", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-dirty-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  writeFileSync(join(repo, "file.txt"), "two"); // uncommitted change
+  const task1 = join(root, "20260101-000000-dirty-1"); mkdirSync(task1, { recursive: true });
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const refused = run(["task-init", "--task-path", join(task1, "task.json"), "--repo-root", repo], JSON.stringify({ code_change: true, task_type: "fix" }));
+  assert.notEqual(refused.status, 0);
+  assert.match(JSON.parse(refused.stdout).errors[0], /uncommitted changes/);
+  const task2 = join(root, "20260101-000000-dirty-2"); mkdirSync(task2, { recursive: true });
+  const adopted = run(["task-init", "--task-path", join(task2, "task.json"), "--repo-root", repo, "--adopt-current-diff"], JSON.stringify({ code_change: true, task_type: "fix" }));
+  assert.equal(adopted.status, 0, adopted.stderr);
+  const state = JSON.parse(readFileSync(join(task2, "task.json"), "utf8"));
+  assert.equal(state.base_commit, vcs(["rev-parse", "HEAD"]).stdout.trim());
+});
+
+test("task-init refuses a second active code task in the same worktree", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-lease-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  const state = join(root, "state");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const task1 = join(root, "20260101-000000-lease-1"); mkdirSync(task1, { recursive: true });
+  const first = run(["task-init", "--task-path", join(task1, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+  assert.equal(first.status, 0, first.stderr);
+  const task2 = join(root, "20260101-000000-lease-2"); mkdirSync(task2, { recursive: true });
+  const second = run(["task-init", "--task-path", join(task2, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+  assert.notEqual(second.status, 0);
+  assert.match(JSON.parse(second.stdout).errors[0], /active code task/);
+  // pause/block still hold the lease (a paused task can resume); supersede does not, so the lease
+  // self-heals the moment the first task leaves in_progress/paused/blocked.
+  assert.equal(run(["supersede", "--task", join(task1, "task.json")]).status, 0);
+  const third = run(["task-init", "--task-path", join(task2, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+  assert.equal(third.status, 0, third.stderr);
 });
 
 test("task-init rejects a runtime-managed field and a patch that fails schema", () => {
@@ -121,7 +167,7 @@ test("task-write merges fields through the lock, bumps plan_revision on a classi
   assert.equal(state.state_revision, 2);
   const blocked = run(["task-write", "--task-path", path], JSON.stringify({ lifecycle: { status: "closed" } }));
   assert.notEqual(blocked.status, 0);
-  assert.match(JSON.parse(blocked.stdout).errors[0], /runtime-managed/);
+  assert.match(JSON.parse(blocked.stdout).errors[0], /not writable via task-write/);
 });
 
 test("task-write refuses a patch that would make task.json fail schema", () => {
@@ -135,16 +181,16 @@ test("task-write refuses a patch that would make task.json fail schema", () => {
   assert.equal(JSON.parse(readFileSync(path, "utf8")).impact_scope, undefined);
 });
 
-test("workflow-plan and task-gate compute the same requirements_hash for the same task.json", () => {
+test("workflow-plan and task-gate compute the same plan_hash for the same task.json", () => {
   const root = join(tmpdir(), `agent-workflow-gate-hash-parity-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Hash parity\n\n## Goal\n\nVerify requirements_hash matches across commands.\n");
+  writeFileSync(join(task, "task.md"), "# Hash parity\n\n## Goal\n\nVerify plan_hash matches across commands.\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ workflow_request: ["reviewer"], impact_scope: "file" })));
   const run = (args) => JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" }).stdout);
   const plan = run(["workflow-plan", "--task-path", path]);
   const gated = run(["task-gate", "--task-path", path]);
-  assert.equal(plan.requirements_hash, gated.compiled.requirements_hash);
+  assert.equal(plan.plan_hash, gated.compiled.plan_hash);
 });
 
 test("concurrent transitions against the same task.json never lose an update (lock contention integrity)", async () => {

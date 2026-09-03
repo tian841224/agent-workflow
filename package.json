@@ -22,7 +22,7 @@
   "scripts": {
     "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --banner:js=\"#!/usr/bin/env node\" --outfile=dist/agent-workflow.mjs",
     "setup": "node dist/agent-workflow.mjs install",
-    "test:node": "node --test tests-node/**/*.test.mjs",
+    "test:node": "node scripts/run-tests.mjs",
     "test": "npm run build && npm run test:node",
     "pack:check": "npm pack --dry-run",
     "memory-review": "node scripts/weekly-memory-review.mjs",

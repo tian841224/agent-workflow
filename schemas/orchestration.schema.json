@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workflow.local/schemas/orchestration.schema.json",
+  "title": "agent-workflow orchestration state (experimental)",
+  "description": "The state file for `agent-workflow orchestrate`'s phase tracking, kept separate from task.schema.json: this describes the experimental worker/coordinator engine's own index, not any individual task's fields. Gated behind AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL; see src/orchestration.ts.",
+  "type": "object",
+  "required": ["schema_version", "id", "experimental", "phase", "workers", "integration", "history"],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "id": { "type": "string", "minLength": 1 },
+    "experimental": { "const": true },
+    "phase": { "enum": ["planned", "split", "executing", "integrating", "integrated", "failed", "cleaned"] },
+    "workers": { "type": "array" },
+    "integration": { "type": "array" },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["at", "from", "to", "action"],
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "action": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "state_revision": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

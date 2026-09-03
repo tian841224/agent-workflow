@@ -27,7 +27,7 @@ Node 20 是唯一 runtime。`src/` 是 TypeScript source，`dist/agent-workflow.
 
 ## 責任邊界
 
-`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接改寫其語意或狀態；`task-gate` 只讀取並回報 gate 結果，不寫入 task 狀態。`task.md` 只保存人的意圖與驗收條件；`task.json` 保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 取代舊版「frozen」lifecycle 狀態。`task.json` 只能經由 runtime CLI 寫入（建立用 `task-init`、任意欄位變更用 `task-write`、lifecycle 轉換用 `TaskLifecycle` 指令），三者皆經同一檔案鎖並在落地前對照 `task.schema.json` 驗證；agent 對 `task.json` 的直接檔案寫入由 `src/hooks.ts` fail-closed 攔截。Waiver 必須包含明確使用者確認及 transition history。`workflow-policy.ts` 編譯出的 plan 區分 `required`（runtime 強制、無法透過省略 `workflow_request` 移除）、`suggested` 與 `requested` 三種 capability。
+`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接改寫其語意或狀態；`task-gate` 只讀取並回報 gate 結果，不寫入 task 狀態。`task.md` 只保存人的意圖與驗收條件；`task.json` 保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 取代舊版「frozen」lifecycle 狀態。`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立用 `task-init`；分類欄位用 `task-write`（allowlist，非分類欄位一律拒絕）；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）；lifecycle 轉換用 `TaskLifecycle` 指令。hash／timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對 `task.json` 的直接檔案寫入由 `src/hooks.ts` fail-closed 攔截。Waiver 必須包含明確使用者確認及 transition history，且綁定當下 `plan_hash`。`workflow-policy.ts` 編譯出的 plan 區分 `required`（runtime 強制、無法透過省略 `workflow_request` 移除）、`suggested` 與 `requested` 三種 capability，其 `plan_hash` 只覆蓋 policy 與分類欄位；task.md 的 Goal／Scope／Completion criteria 另由 `intent_hash` 覆蓋，兩者互不影響。
 
 `OrchestrationEngine` 是 experimental 子系統，目前只以 transition table 管理 split、execute、integrate、cleanup 的階段狀態，尚未實作 worktree snapshot 與 patch collect／apply；未完成 integrate 前不可 cleanup、失敗 path 不可跳過 cleanup、已套用 patch 不可重複套用。它的 state 與 task state 走同一把檔案鎖，因為 coordinator 與各 worker process 會同時寫入。由 runtime 建立 worktree 的 `Init` 需要 `AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1`；主流程預設走 sequential 或 host-native dispatch。
 
@@ -35,7 +35,9 @@ Node 20 是唯一 runtime。`src/` 是 TypeScript source，`dist/agent-workflow.
 
 Platform adapter 必須先正規化為 `CanonicalHookEvent`，runtime 僅回傳 `HookDecision`；未知或無法定位 target 的 mutation 絕不交由平台猜測，而是拒絕。
 
-Shell command 的判斷分兩層：先做 shell 解析取得真正會執行的 segment（剝除由資料型指令接收的 heredoc body 與引號內容、只在引號外切分隔符、把 `$( )` 與 backtick 內容視為獨立 segment、展開 `-c` 型直譯器與 prefix／remote wrapper 的 payload），再對 segment 判斷 allowlist。判斷是否為「資料」的依據是接收指令而非文字外觀：`cat`／`echo`／`grep` 的引號內容是資料，`bash`／`python` 的引號內容是程式碼。
+Shell command 的判斷分兩層：先做 shell 解析取得真正會執行的 segment（剝除由資料型指令接收的 heredoc body 與引號內容、只在引號外切分隔符、把 `$( )` 與 backtick 內容視為獨立 segment、展開 `-c` 型直譯器與 prefix／remote wrapper 的 payload），再對 segment 判斷 allowlist。判斷是否為「資料」的依據是接收指令而非文字外觀：`cat`／`echo`／`grep` 的引號內容是資料，`bash`／`python` 的引號內容是程式碼。這一層是 `isShellMutation`（用於一般 mutation 偵測，保護 `task.json`／`.agents`）的規則。
+
+`git-guard` 對 git 指令另用更嚴格、不遞迴解析的規則：任何 wrapper／直譯器／remote／container carrier 或 command substitution 只要與提到 git 的 segment 同時出現，一律直接拒絕，不嘗試解析包裝內實際是哪個 git 指令——即使包裝內其實是唯讀安全的呼叫（例如 `ssh host git status`）也一樣。只有沒有任何間接層的裸 `git <subcommand>` 才會對照 allowlist（`status`／`diff`／`log`／`show`／`rev-parse`／`ls-files`／`rev-list`／受限的 `branch`／`remote`／`config`）。這是刻意的取捨：git 指令交給 runtime 自己判斷「包裝內其實安不安全」的成本，換成「看不懂就一律拒絕」的固定規則。
 
 Managed hook 對未知 mutation、缺少 session id、無法正規化的路徑、損毀或逾期 state、讀取失敗與 hook exception 一律 fail closed。`.agents/**` 寫入必須有同一 session、同一 `.agents` root 的 `writing-for-agents/SKILL.md` 成功讀取事件；proof 同時綁定該檔案當前 SHA-256，skill 變動後舊 proof 立即失效。SessionEnd 會清除 proof，TTL 只作遺留 state 的額外清理。
 

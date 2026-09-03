@@ -21,7 +21,9 @@ const RETIRED: { pattern: RegExp; replacement: string }[] = [
   { pattern: /\bchange_kind\b/, replacement: "task_type" },
   { pattern: /\bcomplexity_hint\b/, replacement: "workflow_facts" },
   { pattern: /\bdiff_sha256\b/, replacement: "reviewed_diff_sha256 (role evidence) or workspace_sha256 (worktree-fingerprint)" },
-  { pattern: /\bstale_pending\b/, replacement: "project-doc --action Stale, which reports one condition only" }
+  { pattern: /\bstale_pending\b/, replacement: "project-doc --action Stale, which reports one condition only" },
+  { pattern: /\brequirements_hash\b/, replacement: "plan_hash" },
+  { pattern: /\bintent_sha256\b/, replacement: "intent_approval.intent_hash, written by agent-workflow approve-intent" }
 ];
 const SCANNED = [".agents", "templates", "adapters", "docs", "README.md", "AGENTS.md"];
 // The vocabulary rules only apply where this framework owns the vocabulary. Bundled third-party

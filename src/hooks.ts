@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { Json, JsonObject, normal, now, output, readJson, sha256, stateRoot, writeJson } from "./core.js";
 
 const SKILL_PROOF_TTL_MS = 12 * 60 * 60 * 1000;
@@ -211,8 +211,34 @@ function isReadOnlyTool(tool: string): boolean {
 // The runtime CLI is the sanctioned writer for both protected resources — `task-write` for task.json
 // and `install`/`repair` for .agents — so guarding against it would deny the very path the guard's
 // own deny message tells the caller to use.
-function isRuntimeInvocation(command: string): boolean {
-  return splitShellSegments(command).every((segment) => /(?:^|[\s"'\\/])agent-workflow(?:\.mjs)?(?:["']?\s|$)/i.test(segment));
+//
+// This hook only ever sees the command as text, never a live process it could introspect via its
+// own execPath — so a bare invocation relying on PATH resolution (e.g. "agent-workflow repair") has
+// no stronger identity to check and keeps the name-based trust it always had. When the command text
+// does carry a resolvable path, and this host has an installed managed-runtime.json recording the
+// real bundle's hash, that path's actual file content must match it — a script merely named
+// "agent-workflow.mjs" sitting at some other path no longer passes on name alone.
+const AGENT_WORKFLOW_TOKEN = /(?:^|[\s"'\\/])agent-workflow(?:\.mjs)?(?:["']?\s|$)/i;
+function resolvableAgentWorkflowPath(segment: string): string | undefined {
+  const match = segment.match(/(\S*agent-workflow(?:\.mjs)?)(?=["']?(?:\s|$))/i);
+  if (!match) return undefined;
+  const candidate = match[1].replace(/^["']|["']$/g, "");
+  if (!candidate.includes("/") && !candidate.includes("\\")) return undefined; // a bare name is PATH-resolved; nothing on disk to check yet
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  return resolve(/^~[\\/]/.test(candidate) ? home + candidate.slice(1) : candidate);
+}
+function isRuntimeInvocation(command: string, root = stateRoot()): boolean {
+  return splitShellSegments(command).every((segment) => {
+    if (!AGENT_WORKFLOW_TOKEN.test(segment)) return false;
+    const resolvedPath = resolvableAgentWorkflowPath(segment);
+    if (!resolvedPath) return true;
+    const managedPath = join(root, "managed-runtime.json");
+    if (!existsSync(managedPath)) return true; // no installed identity recorded on this host to check against
+    try {
+      const runtimeHash = String((readJson(managedPath) as JsonObject).runtime_hash || "");
+      return !!runtimeHash && existsSync(resolvedPath) && sha256(readFileSync(resolvedPath)) === runtimeHash;
+    } catch { return true; } // cannot establish stronger identity; fall back to trusting the name
+  });
 }
 function isReadOnly(event: CanonicalHookEvent): boolean {
   return event.command ? isReadOnlyShellCommand(event.command) || isRuntimeInvocation(event.command) : isReadOnlyTool(event.tool);
@@ -233,18 +259,6 @@ function parseGitInvocation(segment: string): { subcommand: string; args: string
 // Wrappers that hand a command to something else to run: their payload can sit anywhere in the
 // segment, not at its head. Head-anchoring alone read `ssh host git push` as an invocation of ssh.
 const COMMAND_CARRYING = new Set([...SCRIPT_INTERPRETERS, ...PREFIX_WRAPPERS, "ssh", "docker", "podman", "kubectl", "lxc", "vagrant"]);
-function gitInvocations(segment: string): { subcommand: string; args: string[] }[] {
-  const found: { subcommand: string; args: string[] }[] = [];
-  const atHead = parseGitInvocation(segment);
-  if (atHead) found.push(atHead);
-  if (COMMAND_CARRYING.has(commandHead(segment))) {
-    for (const match of segment.matchAll(/\bgit\b/gi)) {
-      const parsed = parseGitInvocation(segment.slice(match.index));
-      if (parsed) found.push(parsed);
-    }
-  }
-  return found;
-}
 function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
   if (["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"].includes(subcommand)) return true;
   if (subcommand === "branch") return args.length === 0 || (args.length === 1 && args[0] === "--show-current");
@@ -252,18 +266,24 @@ function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
   if (subcommand === "config") return args.length > 0 && ["--get", "--get-all", "--list"].includes(args[0]);
   return false;
 }
-// Three layers, each removing a different kind of text that only looks like an invocation: a data
-// command's heredoc body, a real separator versus one inside quotes, and a data command's quoted
-// arguments. What survives all three is parsed as a command, and only at the segment head.
+// git gets a stricter, simpler rule than the general read-only allowlist: any indirection at all —
+// a wrapper/interpreter/remote/container carrier, or a command substitution — touching a segment
+// that mentions git is denied outright, without trying to resolve what git call is actually inside
+// it. Only a bare, unwrapped, top-level `git <subcommand>` is evaluated against the allowlist. This
+// trades "correctly classify every clever wrapping" for "never try": a case this cannot parse with
+// certainty is refused, not reasoned about, so the parser does not have to keep chasing new
+// disguises through recursive unwrapping.
 export function gitDecision(event: CanonicalHookEvent): HookDecision {
   const command = stripHeredocBodies(event.command || "");
   if (!/\bgit\b/i.test(command)) return { allow: true };
-  for (const raw of splitShellSegments(command).flatMap((segment) => unwrapCommands(segment))) {
+  for (const raw of splitShellSegments(command)) {
+    if (!/\bgit\b/i.test(raw)) continue;
+    const head = commandHead(raw);
+    if (COMMAND_CARRYING.has(head) || SUBSTITUTION.test(raw)) return { allow: false, reason: "git-guard: git reached through a wrapper, interpreter, remote/container carrier, or command substitution is denied outright; ask the user to run it explicitly." };
     const segment = stripQuotedData(raw);
-    if (!/\bgit\b/i.test(segment)) continue;
-    for (const parsed of gitInvocations(segment)) {
-      if (!gitSubcommandAllowed(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: 'git ${parsed.subcommand || segment}' is not on the read-only allowlist; ask the user to run it explicitly.` };
-    }
+    if (!/\bgit\b/i.test(segment)) continue; // "git" only appeared inside a data command's quoted argument, e.g. grep "git status"
+    const parsed = parseGitInvocation(segment);
+    if (!parsed || !gitSubcommandAllowed(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: 'git ${parsed?.subcommand || segment}' is not on the read-only allowlist; ask the user to run it explicitly.` };
   }
   return { allow: true };
 }

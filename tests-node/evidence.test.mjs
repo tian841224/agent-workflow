@@ -10,7 +10,7 @@ const vcs = (repo, args) => spawnSync("git", ["-C", repo, ...args], { encoding: 
 
 function validTask(overrides = {}) {
   return {
-    schema_version: 3,
+    schema_version: 4,
     id: "20260101-000000-evidence-test",
     project_id: "0123456789abcdef",
     worktree_id: "0123456789abcdef",
@@ -107,9 +107,9 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   const reviewedPaths = "reviewed.txt,unrelated.txt";
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask(classification)));
-  const requirementsHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).requirements_hash;
+  const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
   writeFileSync(join(repo, "reviewed.txt"), "two");
-  const evidence = [{ kind: "role", id: "role.reviewer", verified: true, at: "2026-01-01T00:00:00.000Z", requirements_hash: requirementsHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest() }];
+  const evidence = [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest(), delivery_hash: "0".repeat(64) }];
   writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence })));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.equal(gate().valid, true, JSON.stringify(gate().errors));
@@ -142,45 +142,67 @@ test("role evidence that skips a delivered path is rejected even when its own di
   const path = join(task, "task.json");
   const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
   writeFileSync(path, JSON.stringify(validTask(classification)));
-  const requirementsHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).requirements_hash;
+  const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
   writeFileSync(join(repo, "skipped.txt"), "two");
   const digest = JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", "reviewed.txt"]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask({
     ...classification,
-    evidence: [{ kind: "role", id: "role.reviewer", verified: true, at: "2026-01-01T00:00:00.000Z", requirements_hash: requirementsHash, plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest }]
+    evidence: [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest, delivery_hash: "0".repeat(64) }]
   })));
   const gated = JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.equal(gated.valid, false);
   assert.ok(gated.errors.some((error) => /does not cover every changed path.*skipped\.txt/.test(error)), gated.errors.join("; "));
 });
 
-test("a later failing evidence entry overrides an earlier passing one for the same requirement", () => {
+// Step evidence has no pass/fail state (status is always "recorded" — the agent completed the
+// analysis, that is not a verdict); only role evidence carries a verdict, so that is what exercises
+// "the newest entry for a requirement wins, even when it is worse than an earlier one".
+test("a later failing role evidence entry overrides an earlier passing one for the same requirement", () => {
   const root = join(tmpdir(), `agent-workflow-latest-evidence-${process.pid}-${Date.now()}`);
-  const task = join(root, "task");
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  const vcsHere = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcsHere(["init", "-q"]); vcsHere(["config", "user.email", "t@e.com"]); vcsHere(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "reviewed.txt"), "one");
+  vcsHere(["add", "."]); vcsHere(["commit", "-q", "-m", "init"]);
+  const head = vcsHere(["rev-parse", "HEAD"]).stdout.trim();
+  const task = join(root, "state", "task");
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Latest evidence\n\n## Goal\n\nVerify newest-wins evidence selection.\n");
   const path = join(task, "task.json");
-  const classification = { workflow_request: ["impact_discovery"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
+  const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
   writeFileSync(path, JSON.stringify(validTask(classification)));
-  const hash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).requirements_hash;
-  const step = (verified, at) => ({ kind: "step", id: "impact_discovery.ID1", verified, at, requirements_hash: hash, summary: "entry" });
-  writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence: [step(true, "2026-01-01T00:00:00.000Z"), step(false, "2026-01-02T00:00:00.000Z")] })));
-  const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
-  assert.ok(gated.errors.some((error) => error.includes("impact_discovery.ID1")), gated.errors.join("; "));
+  const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
+  const digest = JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", "reviewed.txt"]).stdout).reviewed_diff_sha256;
+  const role = (result, at) => ({ kind: "role", id: "role.reviewer", result, at, plan_hash: planHash, plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest, delivery_hash: "0".repeat(64) });
+  writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence: [role("pass", "2026-01-01T00:00:00.000Z"), role("fail", "2026-01-02T00:00:00.000Z")] })));
+  const gated = JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
+  assert.ok(gated.errors.some((error) => error.includes("role.reviewer")), gated.errors.join("; "));
 });
 
-test("task.json rejects an evidence entry that does not match any evidence shape", () => {
+test("task-write refuses to write evidence at all — it is not a classification field", () => {
   const root = join(tmpdir(), `agent-workflow-evidence-shape-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask()));
-  const wrote = run(["task-write", "--task-path", path]);
   const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], {
-    cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ evidence: [{ kind: "role", id: "role.reviewer", verified: true }] })
+    cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ evidence: [{ kind: "role", id: "role.reviewer", result: "pass" }] })
   });
-  assert.equal(result.status, 1, wrote.stdout);
-  assert.match(result.stdout, /fails schema/);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /not writable via task-write/);
+});
+
+test("task-gate rejects a task.json whose evidence entry does not match any evidence shape", () => {
+  const root = join(tmpdir(), `agent-workflow-evidence-shape-gate-${process.pid}-${Date.now()}`);
+  const task = join(root, "task");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Shape\n\n## Goal\n\nVerify a malformed evidence entry fails schema at gate time.\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ evidence: [{ kind: "role", id: "role.reviewer", verified: true }] })));
+  const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.equal(gated.valid, false);
+  assert.ok(gated.errors.some((error) => /task\.json/.test(error)), gated.errors.join("; "));
 });
 
 test("an undeclared impact_scope reports an incomplete classification instead of silently forcing every capability", () => {

@@ -80,12 +80,12 @@ test("an unknown workflow_facts key keeps a step whose when-clause references th
   assert.ok(schemaCompatibility.steps.some((step) => step.id === "SC4"));
 });
 
-test("changing task_type between two otherwise-identical workflow-plan calls changes requirements_hash", () => {
+test("changing task_type between two otherwise-identical workflow-plan calls changes plan_hash", () => {
   const root = join(tmpdir(), `agent-workflow-plan-hash-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });
   const base = { workflow_request: [], risk_flags: [], impact_scope: "file", impact_effect: "local_behavior" };
   const planFor = (task_type) => { const path = join(root, `${task_type}.json`); writeFileSync(path, JSON.stringify({ ...base, task_type })); return JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path], { cwd: process.cwd(), encoding: "utf8" }).stdout); };
   const fix = planFor("fix");
   const refactor = planFor("refactor");
-  assert.notEqual(fix.requirements_hash, refactor.requirements_hash);
+  assert.notEqual(fix.plan_hash, refactor.plan_hash);
 });

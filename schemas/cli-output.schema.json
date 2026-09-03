@@ -7,7 +7,7 @@
   "$defs": {
     "workflow-plan": {
       "type": "object",
-      "required": ["required", "classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "requirements_hash", "roles"],
+      "required": ["required", "classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "plan_hash", "roles"],
       "properties": {
         "required": { "type": "array", "items": { "type": "string" } },
         "classification_incomplete": {
@@ -25,8 +25,48 @@
         "order": { "type": "array", "items": { "type": "string" } },
         "steps": { "type": "array", "items": { "type": "object" } },
         "required_evidence": { "type": "array", "items": { "type": "string" } },
-        "requirements_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "roles": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "approve-intent": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "task": { "type": "string" },
+        "intent_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "intent_approval": { "type": "object" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "evidence-record": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "task": { "type": "string" },
+        "id": { "type": "string" },
+        "state_revision": { "type": "integer" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "review-record": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "task": { "type": "string" },
+        "id": { "type": "string" },
+        "result": { "type": "string" },
+        "reviewed_base": { "type": "string" },
+        "reviewed_paths": { "type": "array", "items": { "type": "string" } },
+        "delivery_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "state_revision": { "type": "integer" },
+        "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },

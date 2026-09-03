@@ -9,10 +9,11 @@ workflow_request: may be empty, but a capability whose require_when matches is a
 workflow_facts: only affects which steps appear within an already-selected capability, not whether the capability is selected;
            an undeclared fact always keeps that step (unknown does not mean "not needed").
 intent_approval: required when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria with the
-           user first, then record the approval; it binds this file's SHA-256, so editing task.md afterwards invalidates it.
+           user first, then run `agent-workflow approve-intent --confirmed-by <who> --as-user`; it binds only this file's
+           Goal/Scope/Completion criteria sections, so editing other sections afterwards does not invalidate it.
 lifecycle.stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
 waivers: written only by `agent-workflow waive --requirement-id <id> --confirmed-by-user '<text>'`; a waiver binds the plan's
-           requirements_hash, so it lapses the moment the task's classification changes. Direct edits are not a valid waiver.
+           plan_hash, so it lapses the moment the task's classification changes. Direct edits are not a valid waiver.
 independence: defaults to native, checked only for coordinator/worker tasks or tasks with the legacy completion gate enabled;
            if a native role fails to load, or the main agent fills in a role section on its behalf, this must be honestly recorded as degraded — the close gate rejects unwaived degraded tasks.
 -->

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/task.schema.json",
-  "title": "agent-workflow task state (v3)",
+  "title": "agent-workflow task state (v4)",
   "description": "The single machine contract for task.json. Every runtime write path validates against this file before the state lands on disk; the sibling task.md holds human intent only.",
   "type": "object",
   "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "risk_flags", "created_at", "updated_at", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
   "properties": {
-    "schema_version": { "const": 3 },
+    "schema_version": { "const": 4 },
     "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
     "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
@@ -31,12 +31,14 @@
     "delivery_status": { "enum": ["pending", "applied", "merged", "rejected", "skipped"] },
     "integration_status": { "enum": ["pending", "conflicted", "applied", "abandoned"] },
     "intent_approval": {
+      "description": "Written only by `agent-workflow approve-intent`; intent_hash covers only task.md's Goal/Scope/Completion criteria sections, not the whole file, so unrelated edits (typos, evidence prose) do not invalidate it.",
       "type": ["object", "null"],
-      "required": ["intent_sha256", "confirmed_at", "confirmed_by_user"],
+      "required": ["intent_hash", "confirmed_at", "confirmed_by", "source"],
       "properties": {
-        "intent_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "intent_hash": { "$ref": "#/$defs/sha256" },
         "confirmed_at": { "type": "string", "format": "date-time" },
-        "confirmed_by_user": { "type": "string", "minLength": 1 }
+        "confirmed_by": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["user", "cli-attestation"] }
       },
       "additionalProperties": false
     },
@@ -85,13 +87,13 @@
     },
     "waiver": {
       "type": "object",
-      "required": ["at", "actor", "confirmed_by_user", "requirement_id", "requirements_hash"],
+      "required": ["at", "actor", "confirmed_by_user", "requirement_id", "plan_hash"],
       "properties": {
         "at": { "type": "string", "format": "date-time" },
         "actor": { "type": "string", "minLength": 1 },
         "confirmed_by_user": { "type": "string", "minLength": 1 },
         "requirement_id": { "type": "string", "minLength": 1 },
-        "requirements_hash": { "$ref": "#/$defs/sha256" },
+        "plan_hash": { "$ref": "#/$defs/sha256" },
         "stale": { "type": "boolean" }
       },
       "additionalProperties": false
@@ -105,43 +107,45 @@
     },
     "roleEvidence": {
       "type": "object",
-      "description": "One role capability's result. Freshness is scoped to the diff that was actually reviewed, not to the whole workspace: reviewed_base + reviewed_paths + reviewed_diff_sha256 must be present together, and the gate recomputes them.",
-      "required": ["kind", "id", "verified", "at", "requirements_hash", "plan_revision", "reviewed_base", "reviewed_paths", "reviewed_diff_sha256"],
+      "description": "One role capability's result, written only by `agent-workflow review-record`. Freshness is scoped to the diff that was actually reviewed, not to the whole workspace: reviewed_base + reviewed_paths + reviewed_diff_sha256 are runtime-computed and the gate recomputes them. delivery_hash additionally fingerprints the task's whole delivery (every changed path from base_commit), for audit use alongside the more precise reviewed_* scoping.",
+      "required": ["kind", "id", "result", "at", "plan_hash", "plan_revision", "reviewed_base", "reviewed_paths", "reviewed_diff_sha256", "delivery_hash"],
       "properties": {
         "kind": { "const": "role" },
         "id": { "type": "string", "pattern": "^role\\.[a-z0-9_]+$" },
-        "verified": { "type": "boolean" },
+        "result": { "enum": ["pass", "fail"] },
         "at": { "type": "string", "format": "date-time" },
-        "requirements_hash": { "$ref": "#/$defs/sha256" },
+        "plan_hash": { "$ref": "#/$defs/sha256" },
         "plan_revision": { "type": "integer", "minimum": 1 },
         "reviewed_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
         "reviewed_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "reviewed_diff_sha256": { "$ref": "#/$defs/sha256" },
+        "delivery_hash": { "$ref": "#/$defs/sha256" },
         "summary": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },
     "stepEvidence": {
       "type": "object",
-      "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence.",
-      "required": ["kind", "id", "verified", "at", "requirements_hash", "summary"],
+      "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence, written only by `agent-workflow evidence-record`. status: recorded means the agent has completed and recorded this analysis — it is not a cryptographic verification claim.",
+      "required": ["kind", "id", "status", "at", "plan_hash", "summary"],
       "properties": {
         "kind": { "const": "step" },
         "id": { "type": "string", "pattern": "^[a-z_]+\\.[A-Za-z0-9]+$" },
-        "verified": { "type": "boolean" },
+        "status": { "const": "recorded" },
         "at": { "type": "string", "format": "date-time" },
-        "requirements_hash": { "$ref": "#/$defs/sha256" },
+        "plan_hash": { "$ref": "#/$defs/sha256" },
+        "actor": { "type": "string", "minLength": 1 },
         "summary": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },
     "legacyEvidence": {
       "type": "object",
-      "description": "Written only by migrate-state for an imported Python-era task.md; the gate always rejects it until a real verification replaces it.",
-      "required": ["kind", "verified"],
+      "description": "Written only by migrate-state for an imported/pre-v4 task.md; the gate always rejects it until a new evidence-record/review-record replaces it.",
+      "required": ["kind", "status"],
       "properties": {
         "kind": { "const": "legacy-unverified" },
-        "verified": { "const": false },
+        "status": { "const": "needs_reverification" },
         "note": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false

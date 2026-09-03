@@ -1,6 +1,17 @@
-import { existsSync } from "node:fs";
+import { Ajv } from "ajv";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { JsonObject, mutateTask, now, option, output, readJson, stateRoot } from "./core.js";
+import { JsonObject, mutateJsonState, now, option, output, readJson, schemaPath, stateRoot } from "./core.js";
+
+// orchestration.schema.json declares 2020-12, same workaround as lifecycle.ts's task validator.
+const Ajv2020 = createRequire(import.meta.url)("ajv/dist/2020.js") as unknown as typeof Ajv;
+const ajv = new Ajv2020({ allErrors: true, strict: false });
+(createRequire(import.meta.url)("ajv-formats") as (instance: Ajv) => void)(ajv);
+const validateOrchestration = ajv.compile(JSON.parse(readFileSync(schemaPath("orchestration.schema.json"), "utf8")) as JsonObject);
+function orchestrationSchemaErrors(state: JsonObject): string[] {
+  return validateOrchestration(state) ? [] : (validateOrchestration.errors || []).map((error: { instancePath?: string; message?: string }) => `orchestration${error.instancePath || ""} ${error.message}`.trim());
+}
 
 type Phase = "planned" | "split" | "executing" | "integrating" | "integrated" | "failed" | "cleaned";
 const transitions: Record<Phase, Phase[]> = { planned: ["split", "failed"], split: ["executing", "failed"], executing: ["integrating", "failed"], integrating: ["integrated", "failed"], integrated: ["cleaned"], failed: ["cleaned"], cleaned: [] };
@@ -27,7 +38,7 @@ export function orchestrate(options: Map<string, string | boolean | string[]>): 
   if (action !== "RegisterNative" && (aliases[action] || action.toLowerCase()) === "split" && process.env.AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL !== "1") throw new Error(EXPERIMENTAL_NOTICE);
   // Every phase change is a read-modify-write on state shared by the coordinator and each worker
   // process, which is exactly where an unlocked readJson/writeJson pair loses a concurrent update.
-  const state = mutateTask<JsonObject>(path, (current) => {
+  const state = mutateJsonState<JsonObject>(path, (current) => {
     if (!current.phase) Object.assign(current, initialState(id));
     const phase = String(current.phase) as Phase;
     const target = aliases[action] || action.toLowerCase() as Phase;
@@ -37,6 +48,8 @@ export function orchestrate(options: Map<string, string | boolean | string[]>): 
     const history = Array.isArray(current.history) ? current.history : [];
     history.push({ at: now(), from: phase, to: target, action });
     current.history = history;
+    const errors = orchestrationSchemaErrors(current);
+    if (errors.length) throw new Error(`orchestrate: resulting state fails schema: ${errors.join("; ")}`);
   });
   output(state);
   return 0;

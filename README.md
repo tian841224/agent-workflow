@@ -62,7 +62,7 @@ npx --yes @tian/agent-workflow@latest
 3. **非程式碼任務**：設定、文件、註解、script、除錯、review、規劃、問答與翻譯等任務一律 bypass，不建立 task、不啟動角色。
 4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務，使用 `task_type: read_only` 與 `model_profile: cheap_read`；Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
 
-流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `requirements_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
+流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -255,7 +255,7 @@ install.cmd --action Uninstall --target-agent All
 ### v7 breaking changes
 
 - `schemas/task.schema.json` 成為 `task.json` 的唯一 contract，並完整定義 evidence、transition、waiver 與 `workflow_facts` 的結構；退役的 v2 contract 移至 `schemas/legacy/task-v2.schema.json`，只供 migration 參照；`task.json` 新增 `state_revision`／`plan_revision`，lifecycle 不再有 `frozen` 狀態，改以 `intent_approval`（綁定 task.md 內容 hash）判斷高風險任務是否已取得使用者確認。
-- `workflow-plan` 會依 `risk_flags` 計算 `required` capability，`workflow_request` 只能疊加、無法移除；要略過必須明確 `waive --confirmed-by-user`，且該 waiver 綁定當下的 `requirements_hash`，task 分類一變就失效。
+- `workflow-plan` 會依 `risk_flags` 計算 `required` capability，`workflow_request` 只能疊加、無法移除；要略過必須明確 `waive --confirmed-by-user`，且該 waiver 綁定當下的 `requirements_hash`，task 分類一變就失效。 <!-- contract-lint:allow -->
 - `task-gate` 改為 pure read-only：不再把 `compiled` 寫回 `task.json`；role evidence 綁定它實際審查過的 diff（`reviewed_base` + `reviewed_paths` + `reviewed_diff_sha256`），只有審查範圍內的變更才判定 stale，範圍外的檔案改動不再觸發重審。審查範圍必須涵蓋這個 task 實際交付的變更（有 `file_ownership` 就以它為界，否則是全部變更路徑），避免把範圍指向沒動過的檔案來取得一個永不失效的 digest。task 目錄位於 state root 而非 repo，因此 `task-gate`／`close-task` 需要在受審 worktree 內執行或傳入 `--repo-root`。
 - `git-guard` 由「denylist 擋已知危險指令」改成「allowlist 只放行已知唯讀指令」，未列在 allowlist 的 git 子指令一律需要使用者明確執行。
 - Knowledge／learning 新寫入的預設狀態從 `verified` 改成 `needs_verification`，寫入前一律經 `schemas/knowledge.schema.json` 驗證；entry 依實際 project id 分桶（不再落在字面上的 `default` 目錄），SessionStart 仍只注入當前 project 與 global 的 `verified` 記憶，但改以相關性排序並設下限：同 project 加權，帶 `--query` 時完全不命中關鍵字的 entry 直接不注入。

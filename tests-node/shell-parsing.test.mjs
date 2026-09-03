@@ -70,11 +70,19 @@ test("read-only git commands survive every stripping layer", () => {
     "git status",
     "git --no-pager log --oneline -5",
     `echo "git push" ; git status`,
-    "cat <<EOF\ngit push\nEOF\ngit diff HEAD",
-    `ssh build-host git status`,
-    `bash -c "git rev-parse HEAD"`
+    "cat <<EOF\ngit push\nEOF\ngit diff HEAD"
   ]) {
     assert.equal(denied("git-guard", command), false, command);
+  }
+});
+
+// git gets a stricter rule than the general read-only allowlist: any indirection at all around a
+// segment that mentions git is denied outright, even when the wrapped git call would itself have
+// been read-only-safe. The guard no longer tries to resolve what is inside a wrapper/interpreter/
+// remote carrier — it refuses on sight of the wrapping instead.
+test("git-guard denies git reached through any wrapper, even one that would itself be read-only-safe", () => {
+  for (const command of [`ssh build-host git status`, `bash -c "git rev-parse HEAD"`]) {
+    assert.equal(denied("git-guard", command), true, command);
   }
 });
 

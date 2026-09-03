@@ -2,7 +2,8 @@ import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
-import { changedPaths, diffFingerprint, JsonObject, mutateTask, now, output, projectIdentity, readJson, schemaPath, sha256, withFileLock, writeJson } from "./core.js";
+import { changedPaths, deliveryHash, diffFingerprint, git, JsonObject, mutateJsonState, now, output, projectIdentity, readJson, schemaPath, stateRoot, withFileLock, writeJson } from "./core.js";
+import { intentHash } from "./intent.js";
 import { memoryReviewPrompt } from "./memory-review.js";
 import { compilePlanForTaskPath } from "./workflow-policy.js";
 
@@ -25,6 +26,31 @@ function schemaErrors(state: JsonObject): string[] {
 export function taskPath(value: string): string { return value.endsWith(".json") ? resolve(value) : join(resolve(value), "task.json"); }
 function task(value: string): JsonObject { const path = taskPath(value); if (!existsSync(path)) throw new Error(`task state is missing: ${path}`); return readJson(path); }
 function lifecycle(value: JsonObject): JsonObject { const current = value.lifecycle; if (!current || Array.isArray(current) || typeof current !== "object") throw new Error("task.json lifecycle is missing"); return current as JsonObject; }
+
+const ACTIVE_STATUSES = new Set(["in_progress", "paused", "blocked"]);
+function worktreeLeasePath(root: string, worktreeId: string): string { return join(root, "worktree-leases", `${worktreeId}.json`); }
+// A code task exclusively owns its worktree so two deliveries can never blend under review. The
+// lease is self-healing rather than explicitly released: if the task it names is no longer active
+// (closed/superseded, or its task.json is gone), the lease is treated as stale and a new task may
+// claim the worktree, regardless of where task directories physically live.
+function activeLeaseConflict(root: string, worktreeId: string, excludeTaskId: string): JsonObject | undefined {
+  const leasePath = worktreeLeasePath(root, worktreeId);
+  if (!existsSync(leasePath)) return undefined;
+  let lease: JsonObject;
+  try { lease = readJson(leasePath); } catch { return undefined; }
+  const taskId = String(lease.task_id || "");
+  if (!taskId || taskId === excludeTaskId) return undefined;
+  const taskJsonPath = String(lease.task_path || "");
+  if (!taskJsonPath || !existsSync(taskJsonPath)) return undefined;
+  let candidate: JsonObject;
+  try { candidate = readJson(taskJsonPath); } catch { return undefined; }
+  const status = String(((candidate.lifecycle as JsonObject | undefined) || {}).status || "");
+  return ACTIVE_STATUSES.has(status) ? candidate : undefined;
+}
+function writeLease(root: string, worktreeId: string, taskId: string, taskJsonPath: string): void {
+  writeJson(worktreeLeasePath(root, worktreeId), { worktree_id: worktreeId, task_id: taskId, task_path: taskJsonPath, acquired_at: now() });
+}
+
 // Shared by transitionTask and closeTask so both write through the exact same transition logic.
 function applyTransition(state: JsonObject, path: string, action: Transition, actor: string, confirmation: string, requirementId: string): void {
   const life = lifecycle(state); const from = String(life.status || "");
@@ -40,7 +66,7 @@ function applyTransition(state: JsonObject, path: string, action: Transition, ac
     // A typo would otherwise record a waiver the gate can never match, leaving the user believing a
     // requirement was waived while it silently still blocks.
     if (!plan.required_evidence.includes(requirementId)) throw new Error(`waive: '${requirementId}' is not a required evidence id for this task; expected one of: ${plan.required_evidence.join(", ") || "(none)"}`);
-    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, requirements_hash: plan.requirements_hash });
+    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, plan_hash: plan.plan_hash });
     state.waivers = waivers;
   }
   // Every write path funnels through here, so validating once here keeps task.schema.json the only
@@ -54,7 +80,7 @@ export function transitionTask(value: string, action: Transition, actor = "cli",
   if (!existsSync(path)) throw new Error(`task state is missing: ${path}`);
   if (action === "waive" && !confirmation) throw new Error("waiver requires explicit --confirmed-by-user");
   if (action === "waive" && !requirementId) throw new Error("waiver requires --requirement-id naming the requirement being waived");
-  return mutateTask<JsonObject>(path, (state) => applyTransition(state, path, action, actor, confirmation, requirementId));
+  return mutateJsonState<JsonObject>(path, (state) => applyTransition(state, path, action, actor, confirmation, requirementId));
 }
 // The newest entry wins outright: an older PASS must never mask a later FAIL for the same
 // requirement, which a "first verified entry" lookup would happily do.
@@ -98,6 +124,11 @@ function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: string, st
   } catch (error) { return [`role evidence freshness cannot be recomputed for ${key}: ${String((error as Error).message || error)}`]; }
   return [];
 }
+function evidenceSatisfied(item: JsonObject): boolean {
+  if (item.kind === "step") return item.status === "recorded";
+  if (item.kind === "role") return item.result === "pass";
+  return false;
+}
 type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[] };
 function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string): GateResult {
   const life = lifecycle(state);
@@ -113,17 +144,17 @@ function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string
     const approval = state.intent_approval;
     if (!approval || Array.isArray(approval) || typeof approval !== "object") errors.push("intent_approval is required for a freeze-required risk flag but is missing");
     else if (!taskMdBuffer) errors.push("intent_approval cannot be verified: sibling task.md is missing");
-    else if (String((approval as JsonObject).intent_sha256 || "") !== sha256(taskMdBuffer)) errors.push("intent_approval.intent_sha256 is stale: task.md has changed since approval");
+    else if (String((approval as JsonObject).intent_hash || "") !== intentHash(taskMdBuffer.toString("utf8"))) errors.push("intent_approval.intent_hash is stale: Goal/Scope/Completion criteria changed since approval");
   }
   const waivers = (Array.isArray(state.waivers) ? state.waivers : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
   let compiled: JsonObject = {};
   try {
     const plan = compilePlanForTaskPath(state, path);
-    compiled = { policy_version: plan.policy_version, requirements_hash: plan.requirements_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence };
+    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence };
     // Only a code task owes an impact classification: a read-only or docs task never reaches the
     // capabilities these fields gate, so demanding them would leave it with no way to close.
     if (state.code_change === true) for (const entry of plan.classification_incomplete) errors.push(`workflow classification is incomplete: ${String(entry.name)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
-    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.requirements_hash || "") === plan.requirements_hash).map((item) => String(item.requirement_id || "")));
+    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan.plan_hash).map((item) => String(item.requirement_id || "")));
     // The task directory normally lives in the state root, not in the repo, so the worktree to
     // fingerprint has to come from the caller's location rather than from the task's own path.
     const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
@@ -131,8 +162,8 @@ function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string
     for (const key of plan.required_evidence) {
       if (waived.has(key)) continue;
       const item = latestEvidence(evidence, key);
-      if (!item || item.verified !== true) { errors.push(`required evidence is not verified or waived: ${key}`); continue; }
-      if (String(item.requirements_hash || "") !== plan.requirements_hash) { errors.push(`evidence was recorded against a different plan, re-verification required: ${key}`); continue; }
+      if (!item || !evidenceSatisfied(item)) { errors.push(`required evidence is not recorded/passed or waived: ${key}`); continue; }
+      if (String(item.plan_hash || "") !== plan.plan_hash) { errors.push(`evidence was recorded against a different plan, re-verification required: ${key}`); continue; }
       if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state));
     }
   } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
@@ -147,7 +178,7 @@ export function taskGate(value: string, repoRoot = process.cwd()): number {
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
 }
 const CREATE_MANAGED_KEYS = new Set(["schema_version", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers", "project_id", "worktree_id"]);
-export function taskInit(value: string, patch: JsonObject, actor = "cli"): number {
+export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
     if (existsSync(path)) { output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
@@ -155,41 +186,159 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli"): numbe
       const blocked = Object.keys(patch).filter((key) => CREATE_MANAGED_KEYS.has(key));
       if (blocked.length) throw new Error(`task-init: field(s) are runtime-managed and cannot be set directly: ${blocked.join(", ")}`);
       const identity = projectIdentity(dirname(path));
+      const taskId = basename(dirname(path));
+      const codeChange = patch.code_change === true;
+      const root = stateRoot(stateRootValue);
+      // Leases are keyed by the actual repository being worked in (repoRootValue), not by
+      // identity.worktreeId — the task directory normally lives in the state root, not the repo (see
+      // evaluateTaskGate's comment above), so a lease keyed off the task's own path would never
+      // collide between two tasks pointed at the same real worktree.
+      const leaseWorktreeId = codeChange ? projectIdentity(repoRootValue).worktreeId : "";
+      let autoBaseCommit: string | undefined;
+      if (codeChange) {
+        const conflict = activeLeaseConflict(root, leaseWorktreeId, taskId);
+        if (conflict) throw new Error(`task-init: worktree already has an active code task (${conflict.id}); pause/block/close it first, or use a different worktree`);
+        const status = git(repoRootValue, ["status", "--porcelain"]);
+        if (status.status !== 0) throw new Error(`task-init: cannot read git status for ${repoRootValue}: ${status.stderr.trim()}`);
+        if (status.stdout.trim() && !adoptCurrentDiff) throw new Error("task-init: worktree has uncommitted changes; commit/stash them first, or pass --adopt-current-diff to treat the current diff as this task's delivery");
+        const head = git(repoRootValue, ["rev-parse", "HEAD"]);
+        if (head.status !== 0) throw new Error(`task-init: cannot resolve HEAD for base_commit in ${repoRootValue}: ${head.stderr.trim()}`);
+        autoBaseCommit = head.stdout.trim();
+      }
       const stamp = now();
       const state: JsonObject = {
-        schema_version: 3, id: basename(dirname(path)), project_id: identity.projectId, worktree_id: identity.worktreeId,
+        schema_version: 4, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
         code_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
         lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
         evidence: [], waivers: [],
+        ...(autoBaseCommit ? { base_commit: autoBaseCommit } : {}),
         ...patch
       };
       const errors = schemaErrors(state);
       if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
       writeJson(path, state);
+      if (codeChange) writeLease(root, leaseWorktreeId, taskId, path);
       output({ valid: true, task: path });
       return 0;
     } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
 }
-const WRITE_MANAGED_KEYS = new Set(["schema_version", "id", "project_id", "worktree_id", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers"]);
-const CLASSIFICATION_KEYS = new Set(["code_change", "workflow_mode", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
-export function taskWrite(value: string, patch: JsonObject): number {
+const TASK_WRITABLE_FIELDS = new Set(["code_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision"]);
+export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd()): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
-    const blocked = Object.keys(patch).filter((key) => WRITE_MANAGED_KEYS.has(key));
-    if (blocked.length) throw new Error(`task-write: field(s) are runtime-managed and cannot be set directly: ${blocked.join(", ")} (use task-init / pause / block / supersede / waive / close-task instead)`);
-    const state = mutateTask<JsonObject>(path, (current) => {
+    const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
+    if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / supersede / waive / close-task instead)`);
+    let leaseRoot: string | undefined; let leaseWorktreeId = ""; let leaseTaskId = "";
+    if (patch.code_change === true) {
+      const before = task(path);
+      leaseTaskId = String(before.id || "");
+      if (before.code_change !== true) {
+        // Same repo-based key as task-init — see its comment on why identity.worktreeId is not used.
+        leaseWorktreeId = projectIdentity(repoRootValue).worktreeId;
+        leaseRoot = stateRoot(stateRootValue);
+        const conflict = activeLeaseConflict(leaseRoot, leaseWorktreeId, leaseTaskId);
+        if (conflict) throw new Error(`task-write: worktree already has an active code task (${conflict.id}); pause/block/close it first, or use a different worktree`);
+      }
+    }
+    const state = mutateJsonState<JsonObject>(path, (current) => {
+      const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
+      const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
       for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
       current.updated_at = now();
-      if (Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key))) current.plan_revision = Number(current.plan_revision || 0) + 1;
       const errors = schemaErrors(current);
       if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
+      if (beforePlanHash !== undefined && compilePlanForTaskPath(current, path).plan_hash !== beforePlanHash) current.plan_revision = Number(current.plan_revision || 0) + 1;
     });
+    if (leaseRoot) writeLease(leaseRoot, leaseWorktreeId, leaseTaskId, path);
     output({ valid: true, task: path, state_revision: state.state_revision, plan_revision: state.plan_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
+const CLASSIFICATION_KEYS = new Set(["code_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
+
+// Runtime computes intent_hash itself from the sibling task.md; the caller only asserts who
+// confirmed it. source is "user" only when the caller explicitly claims a real user confirmation —
+// this runtime has no platform event bridge to verify that independently, so it is an honest
+// attestation, not a cryptographic guarantee of user provenance.
+export function approveIntent(value: string, confirmedBy: string, asUser: boolean): number {
+  const path = taskPath(value);
+  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  if (!confirmedBy) { output({ valid: false, errors: ["approve-intent requires --confirmed-by"] }); return 1; }
+  const taskMd = join(dirname(path), "task.md");
+  if (!existsSync(taskMd)) { output({ valid: false, errors: ["approve-intent: sibling task.md is missing"] }); return 1; }
+  try {
+    const hash = intentHash(readFileSync(taskMd, "utf8"));
+    const state = mutateJsonState<JsonObject>(path, (current) => {
+      current.intent_approval = { intent_hash: hash, confirmed_at: now(), confirmed_by: confirmedBy, source: asUser ? "user" : "cli-attestation" };
+      current.updated_at = now();
+      const errors = schemaErrors(current);
+      if (errors.length) throw new Error(`approve-intent: resulting task.json fails schema: ${errors.join("; ")}`);
+    });
+    output({ valid: true, task: path, intent_hash: hash, intent_approval: state.intent_approval });
+    return 0;
+  } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+}
+
+// Records that the agent completed one evidence-capability step's analysis. plan_hash/at are
+// computed here, not accepted from the caller — an agent can no longer backdate a step or attach it
+// to a plan it wasn't actually run against.
+export function evidenceRecord(value: string, requirementId: string, summary: string, actor = "agent"): number {
+  const path = taskPath(value);
+  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
+  try {
+    const plan = compilePlanForTaskPath(task(path), path);
+    const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
+    if (!selectedStepIds.has(requirementId)) throw new Error(`evidence-record: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+    const state = mutateJsonState<JsonObject>(path, (current) => {
+      const evidence = Array.isArray(current.evidence) ? current.evidence : [];
+      evidence.push({ kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, actor, summary });
+      current.evidence = evidence;
+      current.updated_at = now();
+      const errors = schemaErrors(current);
+      if (errors.length) throw new Error(`evidence-record: resulting task.json fails schema: ${errors.join("; ")}`);
+    });
+    output({ valid: true, task: path, id: requirementId, state_revision: state.state_revision });
+    return 0;
+  } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+}
+
+// Records one role capability's review result. reviewed_base/reviewed_paths/reviewed_diff_sha256/
+// delivery_hash are computed here from git, not accepted from the caller — the reviewer can no
+// longer assert a scope or a digest it did not actually derive from the working tree.
+export function reviewRecord(value: string, roleId: string, result: string, summary: string, repoRootValue = process.cwd()): number {
+  const path = taskPath(value);
+  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  if (!["pass", "fail"].includes(result)) { output({ valid: false, errors: ["review-record requires --result pass or fail"] }); return 1; }
+  if (!summary) { output({ valid: false, errors: ["review-record requires --summary"] }); return 1; }
+  try {
+    const state0 = task(path);
+    const plan = compilePlanForTaskPath(state0, path);
+    const roleKey = roleId.startsWith("role.") ? roleId : `role.${roleId}`;
+    const selectedRoles = new Set(plan.selected.filter((capability) => capability.kind === "role").map((capability) => `role.${String(capability.name)}`));
+    if (!selectedRoles.has(roleKey)) throw new Error(`review-record: '${roleKey}' is not a selected role for this task; expected one of: ${[...selectedRoles].join(", ") || "(none)"}`);
+    const repoRoot = projectIdentity(repoRootValue).root;
+    const base = String(state0.base_commit || "") || git(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+    if (!base) throw new Error("review-record: cannot determine reviewed_base (no base_commit on the task and HEAD could not be resolved)");
+    const paths = changedPaths(repoRoot, base);
+    if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
+    const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
+    const delivery = deliveryHash(repoRoot, base);
+    const state = mutateJsonState<JsonObject>(path, (current) => {
+      const evidence = Array.isArray(current.evidence) ? current.evidence : [];
+      evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, delivery_hash: delivery, summary });
+      current.evidence = evidence;
+      current.updated_at = now();
+      const errors = schemaErrors(current);
+      if (errors.length) throw new Error(`review-record: resulting task.json fails schema: ${errors.join("; ")}`);
+    });
+    output({ valid: true, task: path, id: roleKey, result, reviewed_base: base, reviewed_paths: paths, delivery_hash: delivery, state_revision: state.state_revision });
+    return 0;
+  } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+}
+
 export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string, repoRoot = process.cwd()): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }

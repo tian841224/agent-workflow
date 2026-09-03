@@ -10,7 +10,7 @@ const run = (args, options = {}) => spawnSync(process.execPath, [cli, ...args], 
 const guard = (kind, payload) => run([kind, "--platform", "Claude"], { input: JSON.stringify(payload) });
 const vcs = (repo, args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
 
-test("a v2 task carrying retired fields and no transition history migrates into a writable v3 task", () => {
+test("a v2 task carrying retired fields and no transition history migrates into a writable v4 task", () => {
   const root = join(tmpdir(), `agent-workflow-migrate-roundtrip-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "p", "tasks", "20260101-000000-legacy");
   mkdirSync(task, { recursive: true });
@@ -29,7 +29,7 @@ test("a v2 task carrying retired fields and no transition history migrates into 
   }));
   assert.equal(run(["migrate-state", "--state-root", root]).status, 0);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 3);
+  assert.equal(migrated.schema_version, 4);
   assert.equal(migrated.change_kind, undefined);
   assert.equal(migrated.complexity_hint, undefined);
   assert.equal(migrated.roles_waived, undefined);
@@ -86,17 +86,19 @@ test("evidence recency is compared as instants, not as strings", () => {
   writeFileSync(join(task, "task.md"), "# Timezone\n\n## Goal\n\nVerify instant comparison.\n");
   const path = join(task, "task.json");
   const base = {
-    schema_version: 3, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
+    schema_version: 4, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
     code_change: true, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
     state_revision: 1, plan_revision: 1,
     lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },
     waivers: [], workflow_request: ["impact_discovery"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix"
   };
   writeFileSync(path, JSON.stringify({ ...base, evidence: [] }));
-  const hash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).requirements_hash;
-  // "09:00+08:00" is 01:00Z — earlier than the 05:00Z failure, but later as a plain string.
-  const step = (verified, at) => ({ kind: "step", id: "impact_discovery.ID1", verified, at, requirements_hash: hash, summary: "entry" });
-  writeFileSync(path, JSON.stringify({ ...base, evidence: [step(false, "2026-01-01T05:00:00.000Z"), step(true, "2026-01-01T09:00:00.000+08:00")] }));
+  const hash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
+  // "09:00+08:00" is 01:00Z — earlier than the 05:00Z entry, but later as a plain string. The stale
+  // (wrong plan_hash) entry is the chronologically later one; if recency were compared as strings
+  // the fresh matching entry would wrongly win instead.
+  const step = (planHash, at) => ({ kind: "step", id: "impact_discovery.ID1", status: "recorded", at, plan_hash: planHash, summary: "entry" });
+  writeFileSync(path, JSON.stringify({ ...base, evidence: [step(hash, "2026-01-01T09:00:00.000+08:00"), step("0".repeat(64), "2026-01-01T05:00:00.000Z")] }));
   const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(gated.errors.some((error) => error.includes("impact_discovery.ID1")), gated.errors.join("; "));
 });
@@ -181,6 +183,9 @@ test("the documented learn invocation round-trips into memory-context", () => {
   // Exactly the command line .agents/skills/learn/SKILL.md documents: no --status, no --project-id.
   const captured = run(["learn", "--action", "Capture", "--cwd", repo, "--scope", "Project", "--kind", "decision", "--topic", "round-trip", "--content", "ROUNDTRIP_DISTINCTIVE_TEXT", "--source-event", "user-correction", "--state-root", state]);
   assert.equal(captured.status, 0, captured.stderr);
+  // Capture only ever creates needs_verification; knowledge-verify is the sole path to verified.
+  const confirmed = run(["knowledge-verify", "--cwd", repo, "--state-root", state, "--id", JSON.parse(captured.stdout).id, "--source-path", join(repo, "file.txt")]);
+  assert.equal(confirmed.status, 0, confirmed.stderr);
   assert.match(run(["memory-context", "--platform", "Claude", "--state-root", state, "--cwd", repo]).stdout, /ROUNDTRIP_DISTINCTIVE_TEXT/);
 });
 

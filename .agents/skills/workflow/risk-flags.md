@@ -33,7 +33,7 @@
 - Task 增加段落：非目標與相容性、現況與影響面、方案與取捨、邊界與異常、驗收案例、使用者確認。
 - `contract`／`schema`／`data_write`／`financial`／`migration` 另補 `Contract and data impact`。
 - `cross_feature`／`migration`／`irreversible` 另補 `Implementation sequence`（實作順序、依賴與回滾點）。
-- 沒有另一個「解凍」狀態要維護：task-gate 只在通過時比對 `intent_approval.intent_sha256` 是否等於當下 task.md 內容的雜湊。取得使用者對目標、非目標與完成條件的確認後，把這個雜湊寫入 `intent_approval`，task-gate 才會放行；之後只要 task.md 內容再變動（即使只是補字），這個雜湊就立刻對不上，task-gate 重新擋下，必須重新確認並寫入新的雜湊——不需要、也沒有另一個 lifecycle status 來標記「已凍結／已解凍」。
+- 沒有另一個「解凍」狀態要維護：task-gate 只在通過時比對 `intent_approval.intent_hash` 是否等於當下 task.md 的 Goal／Scope／Completion criteria 三段內容的雜湊（不含其他 section，補證據、修錯字不受影響）。取得使用者對目標、非目標與完成條件的確認後，執行 `approve-intent --confirmed-by <who> --as-user`（runtime 自己算雜湊、寫入 `intent_approval`），task-gate 才會放行；之後只要這三段內容再變動，這個雜湊就立刻對不上，task-gate 重新擋下，必須重新 `approve-intent`——不需要、也沒有另一個 lifecycle status 來標記「已凍結／已解凍」。
 - 通過雜湊比對前不得修改目標、非目標或完成條件；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)。
 
 ## unclear_requirements 的釐清流程
@@ -41,4 +41,4 @@
 在正式 code task 或前期的需求討論、問答與概念發想中，只要遇到需求籠統或未明（命中 `unclear_requirements` 語意情境）：
 1. 先用 `planning` skill 釐清目標、限制與成功標準，梳理出初步架構與方向。
 2. 若計畫或假設仍有較高風險、分支未明或涉及重大決策，主動加開 `grill-me` skill 逐一提問、壓力測試計畫與假設。
-3. Code task 需取得使用者對目標、非目標與完成條件的明確確認後才能解除凍結（把 task.md 當下內容的雜湊寫入 `intent_approval.intent_sha256`）；純討論／規劃則藉此收斂至具體可行的下一步。不必每次都跑兩個：`planning` 足以釐清就直接繼續；只有計畫或假設仍有風險、需要進一步逼問時才加開 `grill-me`。
+3. Code task 需取得使用者對目標、非目標與完成條件的明確確認後才能解除凍結（執行 `approve-intent`，寫入 `intent_approval.intent_hash`）；純討論／規劃則藉此收斂至具體可行的下一步。不必每次都跑兩個：`planning` 足以釐清就直接繼續；只有計畫或假設仍有風險、需要進一步逼問時才加開 `grill-me`。

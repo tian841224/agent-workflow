@@ -16,6 +16,7 @@
     "snapshot": { "type": "string", "minLength": 1 },
     "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "status": { "enum": ["verified", "needs_verification", "superseded"] },
+    "verified_by": { "type": "string", "minLength": 1 },
     "superseded_by": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "coexists_with": {
       "type": "array",
