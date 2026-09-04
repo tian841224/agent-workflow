@@ -6,7 +6,7 @@ Runtime 依 `risk_flags` 透過 `workflow-policy.json` 的 `require_when` 算出
 
 **交付批次與角色時機**：角色以一個 task 的最終可交付 diff 為單位選取與執行。任務拆成多個實作階段時，各階段只完成其局部測試與必要驗證；待所有階段整合、完成條件與完整 execution path 穩定後，才對整體變更集執行 Review。若某階段會獨立發布、不可逆地寫入外部系統，或其產物已成為後續階段不可回溯的前提，則將它視為獨立交付批次並在該批次完成前執行必要角色。finding 修正後依 §6b 做 delta-first 複查；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。
 
-**內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`task_type`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `task_type: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `task_type: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響最終 capability 是否被選中——最終選取仍以 `workflow_request` 為準。`workflow_facts` 裡沒宣告的欄位一律保留對應的 step（unknown 不等於「不需要」），但已宣告為真的 fact 可以產生 capability 候選建議。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
+**內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`task_type`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `task_type: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `task_type: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響最終 capability 是否被選中——最終選取仍以 `workflow_request` 為準。`workflow_facts` 裡沒宣告的欄位會讓依賴它的 step 停在 unknown：這種 step 既不選取也不丟棄，而是列進 `step_classification_incomplete`，`managed_change: true` 的 task 會因此被 gate 擋下來，直到把 missing 裡點名的欄位補宣告為止（unknown 不等於「不需要」，也不等於「要跑」）。已宣告為真的 fact 可以產生 capability 候選建議。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
 
 Evidence capability 只在影響確實擴散時才登場，一般 code change 的成本很低：
 

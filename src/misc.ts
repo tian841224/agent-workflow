@@ -20,7 +20,7 @@ export function workflowPlan(taskPath = "", policyPath = schemaPath("workflow-po
   const task: JsonObject = resolvedTaskPath ? readJson(resolvedTaskPath) : stdinJson();
   try {
     const plan = resolvedTaskPath && existsSync(resolvedTaskPath) ? compilePlanForTaskPath(task, resolvedTaskPath, policyPath) : compileWorkflowPlan(task, loadPolicy(policyPath));
-    output({ required: plan.required, classification_incomplete: plan.classification_incomplete, suggested: plan.suggested, requested: plan.requested, selected: plan.selected.map((capability) => capability.name), order: plan.order, steps: plan.selected, required_evidence: plan.required_evidence, plan_hash: plan.plan_hash, roles: plan.selected.filter((capability) => capability.kind === "role").map((capability) => capability.name) });
+    output({ required: plan.required, classification_incomplete: plan.classification_incomplete, step_classification_incomplete: plan.step_classification_incomplete, suggested: plan.suggested, requested: plan.requested, selected: plan.selected.map((capability) => capability.name), order: plan.order, steps: plan.selected, required_evidence: plan.required_evidence, plan_hash: plan.plan_hash, roles: plan.selected.filter((capability) => capability.kind === "role").map((capability) => capability.name) });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
-import { Json, JsonObject, normal, now, output, readJson, sha256, stateRoot, writeJson } from "./core.js";
+import { delimiter, join, resolve, sep } from "node:path";
+import { isWithin, Json, JsonObject, normal, now, output, readJson, sha256, stateRoot, writeJson } from "./core.js";
 
 const SKILL_PROOF_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -67,11 +67,19 @@ function touchesProtected(event: CanonicalHookEvent, pattern: RegExp): boolean {
 }
 const READ_ONLY_COMMANDS = new Set([
   "cat", "type", "head", "tail", "more", "less", "nl", "ls", "dir", "tree", "wc", "grep", "rg", "findstr", "select-string",
-  "get-content", "get-childitem", "test-path", "resolve-path", "diff", "cmp", "stat", "file", "awk", "jq", "yq",
-  "sort", "uniq", "cut", "tr", "echo", "printf", "basename", "dirname", "realpath", "pwd", "md5sum", "sha256sum", "certutil"
+  "get-content", "get-childitem", "test-path", "resolve-path", "diff", "cmp", "stat", "file", "jq", "yq",
+  "sort", "uniq", "cut", "tr", "echo", "printf", "basename", "dirname", "realpath", "pwd", "md5sum", "sha256sum"
 ]);
 // A few read tools have a write mode behind a flag; naming the flag is cheaper than dropping the tool.
-const WRITE_FLAGS: Record<string, RegExp> = { sed: /(^|\s)-\S*i/, perl: /(^|\s)-\S*i/, find: /\s-(delete|exec|execdir|ok|fprint)\b/, fd: /\s(-x|--exec)\b/ };
+// awk and sed are not here and not on the allowlist at all: both are general interpreters whose write
+// paths (`print > file`, `w`, `s///w`) no flag check can enumerate.
+const WRITE_FLAGS: Record<string, RegExp> = { perl: /(^|\s)-\S*i/, find: /\s-(delete|exec|execdir|ok|fprint)\b/, fd: /\s(-x|--exec)\b/ };
+// certutil is a general certificate/encoding tool; only its file-hashing mode is a read.
+const HASH_ALGORITHMS = new Set(["sha256", "sha1", "md5"]);
+function isCertutilRead(segment: string): boolean {
+  const tokens = segment.trim().split(/\s+/);
+  return tokens.length === 4 && tokens[1].toLowerCase() === "-hashfile" && HASH_ALGORITHMS.has(tokens[3].toLowerCase());
+}
 
 // Commands whose quoted arguments and heredoc bodies are text they print or match, never text they
 // execute. Only these get their quoted runs and heredoc bodies dropped before parsing — an
@@ -197,6 +205,7 @@ function isReadOnlyShellCommand(command: string): boolean {
     const segment = stripQuotedData(raw);
     const head = commandHead(segment);
     if (head === "git") { const parsed = parseGitInvocation(segment); return !!parsed && gitSubcommandAllowed(parsed.subcommand, parsed.args); }
+    if (head === "certutil") return isCertutilRead(segment);
     if (head in WRITE_FLAGS) return !WRITE_FLAGS[head].test(segment);
     return READ_ONLY_COMMANDS.has(head);
   });
@@ -212,18 +221,25 @@ function isReadOnlyTool(tool: string): boolean {
 // and `install`/`repair` for .agents — so guarding against it would deny the very path the guard's
 // own deny message tells the caller to use.
 //
-// This hook only ever sees the command as text, never a live process it could introspect via its
-// own execPath — so a bare invocation relying on PATH resolution (e.g. "agent-workflow repair") has
-// no stronger identity to check and keeps the name-based trust it always had. When the command text
-// does carry a resolvable path, and this host has an installed managed-runtime.json recording the
-// real bundle's hash, that path's actual file content must match it — a script merely named
-// "agent-workflow.mjs" sitting at some other path no longer passes on name alone.
+// This hook only ever sees the command as text, never a live process it could introspect. The name
+// alone proves nothing, so every invocation — bare or path-qualified — must resolve to a file whose
+// content matches the runtime hash recorded in managed-runtime.json; a bare name is resolved through
+// PATH first. Anything that cannot be resolved and verified is denied fail-closed.
 const AGENT_WORKFLOW_TOKEN = /(?:^|[\s"'\\/])agent-workflow(?:\.mjs)?(?:["']?\s|$)/i;
+const PATH_EXTENSIONS = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat", ".ps1", ".mjs"] : [""];
+function resolveOnPath(name: string): string | undefined {
+  for (const directory of (process.env.PATH || "").split(delimiter).filter(Boolean))
+    for (const extension of PATH_EXTENSIONS) {
+      const candidate = resolve(directory, `${name}${extension}`);
+      if (existsSync(candidate)) return candidate;
+    }
+  return undefined;
+}
 function resolvableAgentWorkflowPath(segment: string): string | undefined {
   const match = segment.match(/(\S*agent-workflow(?:\.mjs)?)(?=["']?(?:\s|$))/i);
   if (!match) return undefined;
   const candidate = match[1].replace(/^["']|["']$/g, "");
-  if (!candidate.includes("/") && !candidate.includes("\\")) return undefined; // a bare name is PATH-resolved; nothing on disk to check yet
+  if (!candidate.includes("/") && !candidate.includes("\\")) return resolveOnPath(candidate);
   const home = process.env.USERPROFILE || process.env.HOME || "";
   return resolve(/^~[\\/]/.test(candidate) ? home + candidate.slice(1) : candidate);
 }
@@ -231,7 +247,7 @@ function isRuntimeInvocation(command: string, root = stateRoot()): boolean {
   return splitShellSegments(command).every((segment) => {
     if (!AGENT_WORKFLOW_TOKEN.test(segment)) return false;
     const resolvedPath = resolvableAgentWorkflowPath(segment);
-    if (!resolvedPath) return true;
+    if (!resolvedPath) return false; // an unresolvable name has no identity to verify; deny fail-closed
     const managedPath = join(root, "managed-runtime.json");
     if (!existsSync(managedPath)) return false; // resolvable path with nothing to verify it against — deny fail-closed
     try {
@@ -245,12 +261,28 @@ function isReadOnly(event: CanonicalHookEvent): boolean {
 }
 // Global options come before the subcommand, so they have to be consumed before it can be read;
 // leaving them in place made `git --no-pager log` parse as the subcommand "--no-pager".
-const GIT_GLOBAL_OPTIONS = /^(?:-C\s+\S+|-c\s+\S+|--git-dir(?:=\S+|\s+\S+)|--work-tree(?:=\S+|\s+\S+)|--exec-path(?:=\S+)?|--namespace(?:=\S+|\s+\S+)|--no-pager|-P|--no-replace-objects|--literal-pathspecs|--bare)\s*/;
-function parseGitInvocation(segment: string): { subcommand: string; args: string[] } | null {
+const GIT_GLOBAL_OPTIONS = /^(?:-C\s+\S+|--no-pager|-P|--no-replace-objects|--literal-pathspecs|--bare)\s*/;
+// These do not merely decorate the invocation, they redirect what git executes: -c can set an alias
+// or a hook path, --exec-path relocates the helper binaries, --namespace re-points ref resolution.
+const GIT_EXECUTION_ALTERING = /^(?:-c(?:\s|=|$)|--exec-path\b|--namespace\b)/;
+// A repository location git is allowed to reach, as long as it stays inside the caller's project.
+const GIT_LOCATION_OPTIONS = /^(?:--git-dir|--work-tree)(?:=(\S+)|\s+(\S+))\s*/;
+function parseGitInvocation(segment: string, boundary = process.cwd()): { subcommand: string; args: string[] } | null {
   // Anchored at the segment head so prose that merely quotes a git command is not parsed as one.
   const match = segment.match(/^(?:\S*[\\/])?git(?:\.exe)?\b\s*(.*)$/i); if (!match) return null;
   let rest = match[1].trim();
-  while (GIT_GLOBAL_OPTIONS.test(rest)) rest = rest.replace(GIT_GLOBAL_OPTIONS, "").trim();
+  for (;;) {
+    if (GIT_EXECUTION_ALTERING.test(rest)) return null;
+    const location = rest.match(GIT_LOCATION_OPTIONS);
+    if (location) {
+      const target = (location[1] ?? location[2]).replace(/^["']|["']$/g, "");
+      if (!isWithin(resolve(boundary, target), boundary)) return null;
+      rest = rest.slice(location[0].length).trim();
+      continue;
+    }
+    if (!GIT_GLOBAL_OPTIONS.test(rest)) break;
+    rest = rest.replace(GIT_GLOBAL_OPTIONS, "").trim();
+  }
   // A slice taken from inside a wrapper's quoted argument keeps its closing quote, so strip the
   // quote characters rather than reading `status"` as an unknown subcommand.
   const tokens = rest.split(/\s+/).map((token) => token.replace(/^["']|["']$/g, "")).filter(Boolean);
@@ -282,14 +314,15 @@ export function gitDecision(event: CanonicalHookEvent): HookDecision {
     if (COMMAND_CARRYING.has(head) || SUBSTITUTION.test(raw)) return { allow: false, reason: "git-guard: git reached through a wrapper, interpreter, remote/container carrier, or command substitution is denied outright; ask the user to run it explicitly." };
     const segment = stripQuotedData(raw);
     if (!/\bgit\b/i.test(segment)) continue; // "git" only appeared inside a data command's quoted argument, e.g. grep "git status"
-    const parsed = parseGitInvocation(segment);
-    if (!parsed || !gitSubcommandAllowed(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: 'git ${parsed?.subcommand || segment}' is not on the read-only allowlist; ask the user to run it explicitly.` };
+    const parsed = parseGitInvocation(segment, event.cwd ? resolve(event.cwd) : process.cwd());
+    if (!parsed || !gitSubcommandAllowed(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: 'git ${parsed?.subcommand || segment}' is not on the read-only allowlist, alters git's execution (-c/--exec-path/--namespace), or points outside the project; ask the user to run it explicitly.` };
   }
   return { allow: true };
 }
 function skillProofPath(root: string, platform: string, sessionId: string): string { return `${root}${sep}skill-guard${sep}${sha256(`${platform}:${sessionId}`)}.json`; }
 function agentsRootOf(resolvedPath: string): string | undefined {
-  const idx = resolvedPath.toLowerCase().lastIndexOf(`${sep}.agents${sep}`);
+  // Same platform rule as normal(): only Windows treats ".Agents" and ".agents" as one directory
+  const idx = (process.platform === "win32" ? resolvedPath.toLowerCase() : resolvedPath).lastIndexOf(`${sep}.agents${sep}`);
   return idx === -1 ? undefined : resolvedPath.slice(0, idx + `${sep}.agents`.length);
 }
 export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
@@ -297,7 +330,7 @@ export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): Ho
   const cwd = event.cwd ? resolve(event.cwd) : ""; const targets = event.paths.map((path) => resolve(cwd || ".", path));
   if (!event.sessionId) return { allow: false, reason: "skill-guard: session proof is unavailable for a .agents mutation." };
   const proof = skillProofPath(root, event.platform, event.sessionId);
-  if (!existsSync(proof)) return { allow: false, reason: "skill-guard: this touches .agents through a command that is not on the read-only allowlist, so it counts as a write. To read, use cat/grep/rg/sed -n; to write, load .agents/skills/writing-for-agents/SKILL.md first." };
+  if (!existsSync(proof)) return { allow: false, reason: "skill-guard: this touches .agents through a command that is not on the read-only allowlist, so it counts as a write. To read, use cat/head/grep/rg; to write, load .agents/skills/writing-for-agents/SKILL.md first." };
   const record = readJson(proof);
   if (typeof record.expires_at !== "number" || Date.now() >= record.expires_at) return { allow: false, reason: "skill-guard: proof has expired; re-read .agents/skills/writing-for-agents/SKILL.md." };
   if (typeof record.skill_path !== "string" || !existsSync(record.skill_path) || sha256(readFileSync(record.skill_path)) !== record.skill_sha256) return { allow: false, reason: "skill-guard: writing-for-agents/SKILL.md has changed since it was read; re-read it before modifying .agents content." };

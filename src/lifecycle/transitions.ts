@@ -88,15 +88,33 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
         if (codeChange) writeLease(root, identity.worktreeId, taskId, path);
         return state;
       };
-      codeChange ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask) : createTask();
+      if (codeChange) withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask); else createTask();
       output({ valid: true, task: path });
       return 0;
     } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
 }
+// Descending severity, matching task.schema.json's impact_confidence enum order.
+const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+// The three classification moves that quietly shrink what the gate can demand. Each is legitimate
+// after a real re-assessment, which is why `reclassify` exists — but never as a silent task-write.
+function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
+  const errors: string[] = [];
+  if (before.managed_change === true && patch.managed_change === false) errors.push("managed_change cannot transition from true back to false");
+  if (Array.isArray(patch.risk_flags)) {
+    const next = patch.risk_flags.map(String);
+    const dropped = (Array.isArray(before.risk_flags) ? before.risk_flags.map(String) : []).filter((flag) => !next.includes(flag));
+    if (dropped.length) errors.push(`risk_flags cannot be removed: ${dropped.join(", ")}`);
+  }
+  const from = CONFIDENCE_RANK[String(before.impact_confidence || "")];
+  const to = CONFIDENCE_RANK[String(patch.impact_confidence || "")];
+  if (from !== undefined && to !== undefined && to < from) errors.push(`impact_confidence cannot be downgraded from ${String(before.impact_confidence)} to ${String(patch.impact_confidence)}`);
+  return errors;
+}
+
 const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision"]);
 const CLASSIFICATION_KEYS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
-export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
+export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
@@ -106,6 +124,10 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     // Once a code task has a base_commit/lease/delivery semantics riding on it, dropping back to
     // false would leave those stale rather than meaningfully "undone" — supersede instead.
     if (before.code_change === true && patch.code_change === false) throw new Error("task-write: code_change cannot transition from true back to false; supersede this task and create a new non-code task instead");
+    if (!reclassification) {
+      const downgrades = downgradeErrors(before, patch);
+      if (downgrades.length) throw new Error(`task-write: ${downgrades.join("; ")}; use \`agent-workflow reclassify --confirmed-by-user <text> --reason <text>\` if the user really re-assessed this task`);
+    }
     // Also re-runs activation for a task that is already code_change: true but predates base_commit
     // tracking (created by an older runtime) — the gate now requires base_commit on every code task,
     // and re-sending code_change: true is the only writable signal left to backfill one.
@@ -130,6 +152,9 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
         // created against the wrong one.
         if (identity) { current.project_id = identity.projectId; current.worktree_id = identity.worktreeId; }
         if (baseCommit) current.base_commit = baseCommit;
+        // Same actor/at/reason/confirmed_by_user shape a waiver records, kept in the existing
+        // workflow_decision prose so a downgrade cannot be performed without leaving a trace.
+        if (reclassification) current.workflow_decision = [String(current.workflow_decision || ""), `reclassify at=${now()} actor=${reclassification.actor} confirmed_by_user=${reclassification.confirmedByUser} reason=${reclassification.reason} fields=${Object.keys(patch).sort().join(",")}`].filter(Boolean).join("\n");
         current.updated_at = now();
         const errors = schemaErrors(current);
         if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
@@ -142,6 +167,12 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     output({ valid: true, task: path, state_revision: state.state_revision, plan_revision: state.plan_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+}
+
+// The only path allowed to drop managed_change, remove a risk flag, or lower impact_confidence.
+export function reclassify(value: string, patch: JsonObject, confirmedByUser: string, reason: string, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd()): number {
+  if (!confirmedByUser || !reason) { output({ valid: false, errors: ["reclassify requires both --confirmed-by-user and --reason"] }); return 1; }
+  return taskWrite(value, patch, stateRootValue, repoRootValue, false, { confirmedByUser, reason, actor });
 }
 
 export function closeTask(value: string, actor: string, confirmation: string, stateRootValue?: string, repoRoot = process.cwd()): number {

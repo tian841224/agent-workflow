@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, option, optionList, output, readJson, schemaPath, sha256, stateRoot, writeAtomic } from "./core.js";
 

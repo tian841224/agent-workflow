@@ -1,0 +1,62 @@
+{
+  "scenario": "financial-mutation",
+  "task": {
+    "workflow_request": [],
+    "task_type": "fix",
+    "impact_scope": "file",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": [
+      "financial"
+    ]
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "data_impact",
+      "mutation_validation",
+      "regression_validation",
+      "reviewer"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "data_impact.DI1",
+      "data_impact.DI5",
+      "mutation_validation.MV1",
+      "mutation_validation.MV2",
+      "mutation_validation.MV3",
+      "mutation_validation.MV4",
+      "regression_validation.RV1",
+      "regression_validation.RV2",
+      "regression_validation.RV3",
+      "role.reviewer"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": [
+      {
+        "capability": "data_impact",
+        "id": "DI3",
+        "missing": [
+          "workflow_facts.has_consumer"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI4",
+        "missing": [
+          "workflow_facts.data_transform"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI6",
+        "missing": [
+          "workflow_facts.destructive_operation"
+        ]
+      }
+    ]
+  }
+}

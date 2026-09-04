@@ -2,6 +2,7 @@ import { JsonObject } from "../core.js";
 
 export type WorkflowContext = {
   facts: JsonObject;
+  managed_change: boolean | undefined;
   risk_flags: string[];
   task_type: string;
   impact_scope: string;
@@ -16,6 +17,7 @@ export function classificationContext(task: JsonObject): WorkflowContext {
   const facts = typeof task.workflow_facts === "string" ? JSON.parse(task.workflow_facts) as JsonObject : (task.workflow_facts || {}) as JsonObject;
   return {
     facts,
+    managed_change: typeof task.managed_change === "boolean" ? task.managed_change : undefined,
     risk_flags: Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [],
     task_type: String(task.task_type || ""),
     impact_scope: String(task.impact_scope || ""),

@@ -2,7 +2,7 @@
 
 `risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag。可用值與機械觸發清單以 `schemas/task.schema.json` 為準。
 
-`behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`、`test_integrity`
+`behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`、`test_integrity`、`security`、`operational`
 
 「只重構內部結構」的判斷改由 `task_type: refactor` 單一入口承載，`## Behavior invariants and before-after evidence` 段落改依 `task_type` 觸發（見 [SKILL.md](SKILL.md) 第 4 節）。
 
@@ -20,12 +20,14 @@
 | `irreversible` | 改動無法簡單回滾（例如刪除資料、發送外部通知） | freeze-required；補 Implementation sequence |
 | `unclear_requirements` | 需求本身不明確，需先與使用者釐清才能動工 | freeze-required |
 | `test_integrity` | 刪除或弱化既有測試斷言、skip／disable 既有測試、或大量改動 snapshot／fixture | 強制 `test_integrity` capability，補 Test integrity |
+| `security` | 修改認證、秘密處理、輸入信任邊界、指令執行或檔案路徑邊界 | 強制 `security_review` capability，補 Security review |
+| `operational` | 修改部署、runtime 設定、服務啟動、網路或 CI/CD 執行路徑 | 強制 `operational_verification` capability，補 Operational verification |
 
 ## 對抗式複查與 Mutation check 觸發
 
 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是主對話在 Review 指令裡加入對抗式複查（推翻資料溯源、底層語意或同型擴散假設）的重要訊號，不會另外觸發獨立角色。
 
-表格右欄的 freeze-required 與額外段落是**單向宣告**：flag 一旦填上就生效，沒有事後解除機制——判斷錯了就編輯 task 拿掉該 flag（連同對應段落一併移除），而不是靠某種證據去抑制它。`financial`／`data_write` 命中時另需 mutation check；觸發集合以 `schemas/task.schema.json` 的 `x_agent_workflow` 為權威來源。
+表格右欄的 freeze-required 與額外段落是**單向宣告**：flag 一旦填上就生效，沒有事後解除機制——判斷錯了就編輯 task 拿掉該 flag（連同對應段落一併移除），而不是靠某種證據去抑制它。`financial`／`data_write`／`irreversible` 命中時 runtime 強制 `mutation_validation`，其中 MV3 就是 mutation check；`authorization`／`security` 強制 `security_review`，`operational` 強制 `operational_verification`。capability 觸發集合以 `schemas/workflow-policy.json` 的 `require_when` 為權威來源，freeze 觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為準。
 
 ## Freeze-required 詳細規則
 

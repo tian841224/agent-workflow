@@ -30,7 +30,7 @@ Test-only 新增測試、強化 assertion 或不降低驗證能力的 refactor �
 - 提煉出的 skill 草稿一律停留在 `skill-drafts/`，只有使用者在對話中明確同意才執行 Promote；agent 不得自行核准。
 - 使用臺灣慣用繁體中文回應；程式碼與技術術語保留原文。
 - Use ASCII to visualize content when explaining concepts.
-- 中文回覆、文件或註解開始前載入 `localization-tw` skill；每次輸出前依已載入的 skill 檢查完整內容，再修正臺灣用語、語氣、標點與中國用語，只有完成檢查後才輸出。遇到不確定詞彙時，再查閱該 skill 的 references，不需每次重讀整份 skill。<!-- skill:localization-tw -->
+- 每一次自然語言輸出前，一律載入並套用 `localization-tw` skill；不得自行判斷本次內容簡單而略過。輸出前必須依 `localization-tw` 檢查完整回覆，修正中國慣用詞、簡體用語、臺灣不常用表達、標點與語氣後才可輸出。遇到不確定詞彙時，再查閱該 skill 的 references，不需每次重讀整份 skill。<!-- skill:localization-tw -->
 - 修改 application source code 前，依 `project-docs` skill 查出涵蓋本次路徑的文件並讀過再動手；改完後依查詢結果建立缺少的文件或更新已失準的內容。<!-- skill:project-docs -->
 - 修改 application source code logic 前，一律載入 `clean-comments` skill；test code、文件、指令、設定、script、除錯、規劃及其他非程式邏輯工作不適用。
 - 修改 `.agents/` 下任何 agent 或 skill 文件時載入 `writing-for-agents` skill。

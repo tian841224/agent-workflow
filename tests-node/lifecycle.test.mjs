@@ -30,7 +30,7 @@ function validTask(overrides = {}) {
 test("task-gate recomputes required evidence at gate time and a matching waiver satisfies one requirement", () => {
   const root = join(tmpdir(), `agent-workflow-gate-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Gate test\n\n## Goal\n\nVerify runtime-compiled required evidence.\n");
+  writeFileSync(join(task, "task.md"), "# Gate test\n\n## Goal\n\nVerify runtime-compiled required evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const write = (state) => writeFileSync(join(task, "task.json"), JSON.stringify(state));
   write(validTask({ workflow_request: ["reviewer"], impact_scope: "file" }));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
@@ -46,7 +46,7 @@ test("task-gate recomputes required evidence at gate time and a matching waiver 
 test("task-gate is a pure read: it never writes to task.json", () => {
   const root = join(tmpdir(), `agent-workflow-gate-pure-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Gate purity\n\n## Goal\n\nVerify task-gate never mutates task.json.\n");
+  writeFileSync(join(task, "task.md"), "# Gate purity\n\n## Goal\n\nVerify task-gate never mutates task.json.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask()));
   const before = readFileSync(path);
@@ -61,7 +61,7 @@ test("task-gate is a pure read: it never writes to task.json", () => {
 test("a waiver recorded against one plan_hash does not satisfy the same requirement_id after the hash shifts", () => {
   const root = join(tmpdir(), `agent-workflow-gate-stale-waiver-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Stale waiver\n\n## Goal\n\nVerify a waiver does not survive a plan_hash shift.\n");
+  writeFileSync(join(task, "task.md"), "# Stale waiver\n\n## Goal\n\nVerify a waiver does not survive a plan_hash shift.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const write = (state) => writeFileSync(path, JSON.stringify(state));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
@@ -217,7 +217,7 @@ test("task-write merges fields through the lock, bumps plan_revision on a classi
 test("managed_change is part of plan identity: flipping it changes plan_hash and bumps plan_revision", () => {
   const root = join(tmpdir(), `agent-workflow-managed-change-plan-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Managed change\n\n## Goal\n\nVerify managed_change reaches plan_hash.\n");
+  writeFileSync(join(task, "task.md"), "# Managed change\n\n## Goal\n\nVerify managed_change reaches plan_hash.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: false })));
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
@@ -246,7 +246,7 @@ test("task-write refuses a patch that would make task.json fail schema", () => {
 test("workflow-plan and task-gate compute the same plan_hash for the same task.json", () => {
   const root = join(tmpdir(), `agent-workflow-gate-hash-parity-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Hash parity\n\n## Goal\n\nVerify plan_hash matches across commands.\n");
+  writeFileSync(join(task, "task.md"), "# Hash parity\n\n## Goal\n\nVerify plan_hash matches across commands.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ workflow_request: ["reviewer"], impact_scope: "file" })));
   const run = (args) => JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" }).stdout);
@@ -324,6 +324,62 @@ test("task-write refuses code_change true -> false", () => {
   assert.notEqual(result.status, 0);
   assert.match(JSON.parse(result.stdout).errors[0], /cannot transition from true back to false/);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).code_change, true);
+});
+
+// A downgrade shrinks what the gate can demand, so it must never be an ordinary task-write. Only
+// reclassify performs one, and only with an explicit user confirmation and a reason on record.
+test("task-write refuses the three classification downgrades; reclassify performs them and records why", () => {
+  const root = join(tmpdir(), `agent-workflow-reclassify-${process.pid}-${Date.now()}`);
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const cases = [
+    [{ managed_change: false }, /managed_change cannot transition from true back to false/],
+    [{ risk_flags: ["ui"] }, /risk_flags cannot be removed: data_write/],
+    [{ impact_confidence: "low" }, /impact_confidence cannot be downgraded from high to low/]
+  ];
+  for (const [index, [patch, expected]] of cases.entries()) {
+    const task = join(root, `case-${index}`); mkdirSync(task, { recursive: true });
+    const path = join(task, "task.json");
+    writeFileSync(path, JSON.stringify(validTask({ managed_change: true, risk_flags: ["data_write", "ui"], impact_confidence: "high" })));
+    const refused = run(["task-write", "--task-path", path], JSON.stringify(patch));
+    assert.notEqual(refused.status, 0, JSON.stringify(patch));
+    assert.match(JSON.parse(refused.stdout).errors[0], expected);
+    const unconfirmed = run(["reclassify", "--task-path", path, "--reason", "re-assessed"], JSON.stringify(patch));
+    assert.notEqual(unconfirmed.status, 0);
+    assert.match(JSON.parse(unconfirmed.stdout).errors[0], /--confirmed-by-user/);
+    const done = run(["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "scope shrank"], JSON.stringify(patch));
+    assert.equal(done.status, 0, done.stdout);
+    const state = JSON.parse(readFileSync(path, "utf8"));
+    for (const [field, value] of Object.entries(patch)) assert.deepEqual(state[field], value);
+    assert.match(state.workflow_decision, /reclassify at=.*actor=cli confirmed_by_user=user re-assessed reason=scope shrank/);
+  }
+});
+
+// The observed-execution counterpart to evidence-record: the runtime runs the command and writes
+// down what it saw, so exit_code and the output digest cannot be asserted by the agent.
+test("evidence-run records runtime-trusted execution evidence, and a failing command is not satisfied evidence", () => {
+  const root = join(tmpdir(), `agent-workflow-evidence-run-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Run\n\n## Goal\n\nVerify evidence-run.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" })));
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const record = (...trailing) => run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "ran the check", "--", ...trailing]);
+  assert.equal(record(process.execPath, "-e", "console.log('ok')").status, 0);
+  const first = JSON.parse(readFileSync(path, "utf8")).evidence.at(-1);
+  assert.equal(first.trust_level, "runtime");
+  assert.equal(first.evidence_kind, "execution");
+  assert.equal(first.exit_code, 0);
+  assert.match(first.output_digest, /^[a-f0-9]{64}$/);
+  // BV2 declares runtime_execution, so an evidence-record claim can never satisfy it.
+  const attested = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "I ran it, honest"]);
+  assert.equal(attested.status, 0, attested.stdout);
+  const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.ok(gated.errors.some((error) => /baseline_validation\.BV2/.test(error)), gated.errors.join("; "));
+  // A recorded non-zero exit is a failure that was written down, not a pass.
+  assert.equal(record(process.execPath, "-e", "process.exit(3)").status, 0);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).exit_code, 3);
+  const failed = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.ok(failed.errors.some((error) => /baseline_validation\.BV2/.test(error)), failed.errors.join("; "));
 });
 
 test("task-init binds project_id/worktree_id to the real repo, not the task's storage directory", () => {

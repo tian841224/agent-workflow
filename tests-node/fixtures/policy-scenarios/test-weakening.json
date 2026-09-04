@@ -1,0 +1,47 @@
+{
+  "scenario": "test-weakening",
+  "task": {
+    "workflow_request": [],
+    "task_type": "fix",
+    "impact_scope": "file",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": [
+      "test_integrity"
+    ],
+    "workflow_facts": {
+      "test_skipped": true
+    }
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "test_integrity"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "test_integrity.TI2"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": [
+      {
+        "capability": "test_integrity",
+        "id": "TI1",
+        "missing": [
+          "workflow_facts.assertion_weakened",
+          "workflow_facts.test_deleted"
+        ]
+      },
+      {
+        "capability": "test_integrity",
+        "id": "TI3",
+        "missing": [
+          "workflow_facts.snapshot_mass_change"
+        ]
+      }
+    ]
+  }
+}

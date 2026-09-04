@@ -26,7 +26,7 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
 test("a schema_version 2 frozen task migrates to schema_version 4 with intent_approval cleared and legacy-unverified evidence", () => {
   const root = join(tmpdir(), `agent-workflow-migration-v3-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "project", "tasks", "frozen-task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Frozen task\n\n## Goal\n\nMigrate this task to schema v4.\n");
+  writeFileSync(join(task, "task.md"), "# Frozen task\n\n## Goal\n\nMigrate this task to schema v4.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   writeFileSync(join(task, "task.json"), JSON.stringify({
     schema_version: 2, id: "frozen-task",
     lifecycle: { status: "frozen", frozen_at: "2026-01-01T00:00:00.000Z", transitions: [] },
@@ -52,7 +52,7 @@ test("a schema_version 2 frozen task migrates to schema_version 4 with intent_ap
 test("re-running migrate-state against an already-migrated task.json produces no further change", () => {
   const root = join(tmpdir(), `agent-workflow-migration-idempotent-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "project", "tasks", "frozen-task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Frozen task\n\n## Goal\n\nMigrate this task to schema v4.\n");
+  writeFileSync(join(task, "task.md"), "# Frozen task\n\n## Goal\n\nMigrate this task to schema v4.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   writeFileSync(join(task, "task.json"), JSON.stringify({
     schema_version: 2, id: "frozen-task",
     lifecycle: { status: "frozen", frozen_at: "2026-01-01T00:00:00.000Z", transitions: [] },

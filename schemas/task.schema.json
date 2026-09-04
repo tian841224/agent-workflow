@@ -23,7 +23,7 @@
     "workflow_request": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
     "workflow_facts": { "$ref": "#/$defs/workflowFacts" },
     "workflow_decision": { "type": "string", "minLength": 2 },
-    "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity"] } },
+    "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity", "security", "operational"] } },
     "independence": { "enum": ["native", "degraded"] },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
@@ -89,7 +89,7 @@
     },
     "waiver": {
       "type": "object",
-      "required": ["at", "actor", "confirmed_by_user", "requirement_id", "plan_hash"],
+      "required": ["at", "actor", "confirmed_by_user", "requirement_id", "plan_hash", "intent_hash"],
       "properties": {
         "at": { "type": "string", "format": "date-time" },
         "actor": { "type": "string", "minLength": 1 },
@@ -111,7 +111,7 @@
     "roleEvidence": {
       "type": "object",
       "description": "One role capability's result, written only by `agent-workflow review-record`. Freshness is scoped to the diff that was actually reviewed, not to the whole workspace: reviewed_base + reviewed_paths + reviewed_diff_sha256 are runtime-computed and the gate recomputes them. delivery_hash additionally fingerprints the task's whole delivery (every changed path from base_commit), for audit use alongside the more precise reviewed_* scoping.",
-      "required": ["kind", "id", "result", "at", "plan_hash", "plan_revision", "reviewed_base", "reviewed_paths", "reviewed_diff_sha256", "delivery_hash"],
+      "required": ["kind", "id", "result", "at", "plan_hash", "intent_hash", "plan_revision", "reviewed_base", "reviewed_paths", "reviewed_diff_sha256", "delivery_hash"],
       "properties": {
         "kind": { "const": "role" },
         "id": { "type": "string", "pattern": "^role\\.[a-z0-9_]+$" },
@@ -131,9 +131,23 @@
     "stepEvidence": {
       "type": "object",
       "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence, written only by `agent-workflow evidence-record`. status: recorded means the agent has completed and recorded this analysis — it is not a cryptographic verification claim.",
-      "required": ["kind", "id", "status", "at", "plan_hash", "summary"],
+      "required": ["kind", "id", "status", "at", "plan_hash", "intent_hash", "summary"],
+      "allOf": [
+        {
+          "if": { "properties": { "evidence_kind": { "const": "analysis" } }, "required": ["evidence_kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["command"] }, { "required": ["cwd"] }, { "required": ["exit_code"] },
+            { "required": ["duration_ms"] }, { "required": ["started_at"] }, { "required": ["output_digest"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "evidence_kind": { "const": "execution" } }, "required": ["evidence_kind"] },
+          "then": { "required": ["command", "cwd", "exit_code", "duration_ms", "started_at", "output_digest"] }
+        }
+      ],
       "properties": {
         "kind": { "const": "step" },
+        "trust_level": { "enum": ["attested", "runtime"], "description": "attested: the agent reported this itself. runtime: `agent-workflow evidence-run` observed the command it records." },
         "id": { "type": "string", "pattern": "^[a-z_]+\\.[A-Za-z0-9]+$" },
         "status": { "const": "recorded" },
         "at": { "type": "string", "format": "date-time" },
@@ -164,8 +178,6 @@
     }
   },
   "x_agent_workflow": {
-    "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"],
-    "contract_impact_required": ["contract", "schema", "data_write", "financial", "migration"],
-    "mutation_check_required": ["financial", "data_write"]
+    "freeze_required": ["contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"]
   }
 }

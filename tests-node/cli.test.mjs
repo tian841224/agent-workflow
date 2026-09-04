@@ -35,7 +35,9 @@ test("project-resolver reproduces the legacy project_id formula for a git repo w
   const gitRoot = resolve(spawnSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).stdout.trim());
   const commonRaw = spawnSync("git", ["-C", root, "rev-parse", "--git-common-dir"], { encoding: "utf8" }).stdout.trim();
   const commonDir = isAbsolute(commonRaw) ? resolve(commonRaw) : resolve(gitRoot, commonRaw);
-  const normalizedCommonDir = commonDir.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  // normal() folds case only on Windows, so a macOS tmpdir like /var/folders/AB... must keep its case here
+  const slashed = commonDir.replaceAll("\\", "/").replace(/\/+$/, "");
+  const normalizedCommonDir = process.platform === "win32" ? slashed.toLowerCase() : slashed;
   const expected = crypto.createHash("sha256").update(`${normalizedCommonDir}|http://example.com/repo.git|${rootCommit.toLowerCase()}`).digest("hex").slice(0, 16);
   const resolved = JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "project-resolver", "--path", root, "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8" }).stdout);
   assert.equal(resolved.project_id, expected);

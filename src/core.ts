@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -82,7 +83,9 @@ export function projectIdentity(path: string): ProjectIdentity {
 }
 
 export function normal(path: string): string {
-  return resolve(path).replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  const normalized = resolve(path).replaceAll("\\", "/").replace(/\/+$/, "");
+  // Case-sensitive filesystems (ext4, APFS) treat two spellings as distinct files; folding there would merge real identities
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 export function isWithin(path: string, parent: string): boolean {
@@ -213,21 +216,34 @@ export function canonicalJson(value: Json): string {
 
 // Lock dir create is atomic on NTFS and POSIX alike (mkdirSync throws EEXIST if held), so this
 // needs no extra dependency. Atomics.wait gives a real synchronous sleep between retries.
-// The lock dir carries an "owner" token file: a stale-timeout reclaim renames the whole dir aside
+// The lock dir carries an "owner" record file (token, pid, hostname): a stale reclaim renames the whole dir aside
 // (atomic) before removing it, and release only unlinks the dir if its owner token still matches —
 // this stops a just-finished slow owner from deleting a newer claimant's lock (both were racing
 // unconditional rmSync of the same path before this).
+// A timeout alone cannot tell a crashed holder from a slow one, so a same-machine lock is reclaimed
+// only once its pid is confirmed dead; another host's liveness is unknowable here, so it falls back
+// to the timeout on its own.
+function ownerIsGone(ownerFile: string): boolean {
+  let record: JsonObject;
+  try { record = readJson(ownerFile); } catch { return true; } // no readable owner record left to protect
+  if (String(record.hostname || "") !== hostname()) return true;
+  const pid = Number(record.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "EPERM"; } // EPERM: alive, just not ours to signal
+}
+
 export function withFileLock<T>(lockPath: string, fn: () => T, staleMs = 5 * 60 * 1000): T {
   const owner = randomUUID();
   const ownerFile = join(lockPath, "owner");
   mkdirSync(dirname(lockPath), { recursive: true }); // the lock can be the first thing ever written under a fresh state root
 
   for (;;) {
-    try { mkdirSync(lockPath); writeFileSync(ownerFile, owner); break; }
+    try { mkdirSync(lockPath); writeJson(ownerFile, { token: owner, pid: process.pid, hostname: hostname(), acquired_at: now() }); break; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       try {
-        if (Date.now() - statSync(lockPath).mtimeMs > staleMs) {
+        if (Date.now() - statSync(lockPath).mtimeMs > staleMs && ownerIsGone(ownerFile)) {
           const stale = `${lockPath}.stale.${process.pid}.${Date.now()}`;
           renameSync(lockPath, stale); // atomic hand-off: any late original owner now targets an orphaned path
           rmSync(stale, { recursive: true, force: true });
@@ -238,7 +254,7 @@ export function withFileLock<T>(lockPath: string, fn: () => T, staleMs = 5 * 60 
   }
   try { return fn(); }
   finally {
-    try { if (readFileSync(ownerFile, "utf8") === owner) rmSync(lockPath, { recursive: true, force: true }); }
+    try { if (readJson(ownerFile).token === owner) rmSync(lockPath, { recursive: true, force: true }); }
     catch { /* lock was reclaimed as stale while we held it; nothing left of ours to remove */ }
   }
 }

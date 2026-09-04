@@ -1,0 +1,31 @@
+{
+  "scenario": "deployment-config",
+  "task": {
+    "workflow_request": [],
+    "task_type": "config",
+    "impact_scope": "file",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": [
+      "operational"
+    ]
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "operational_verification"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "operational_verification.OV1",
+      "operational_verification.OV2",
+      "operational_verification.OV3",
+      "operational_verification.OV4"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": []
+  }
+}

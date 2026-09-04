@@ -1,0 +1,41 @@
+{
+  "scenario": "cross-module-refactor",
+  "task": {
+    "workflow_request": [],
+    "task_type": "refactor",
+    "impact_scope": "multi_module",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": []
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "execution_path_review",
+      "impact_discovery",
+      "regression_validation",
+      "reviewer"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "execution_path_review.EP1",
+      "execution_path_review.EP2",
+      "execution_path_review.EP4",
+      "execution_path_review.EP5",
+      "impact_discovery.ID1",
+      "impact_discovery.ID2",
+      "impact_discovery.ID3",
+      "regression_validation.RV1",
+      "regression_validation.RV2",
+      "regression_validation.RV3",
+      "regression_validation.RV4",
+      "regression_validation.RV5",
+      "role.reviewer"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": []
+  }
+}

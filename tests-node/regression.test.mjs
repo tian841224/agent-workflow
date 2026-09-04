@@ -14,7 +14,7 @@ test("a v2 task carrying retired fields and no transition history migrates into 
   const root = join(tmpdir(), `agent-workflow-migrate-roundtrip-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "p", "tasks", "20260101-000000-legacy");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Legacy\n\n## Goal\n\nMigrated task.\n");
+  writeFileSync(join(task, "task.md"), "# Legacy\n\n## Goal\n\nMigrated task.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   writeFileSync(join(task, "task.json"), JSON.stringify({
     schema_version: 2,
     id: "20260101-000000-legacy",
@@ -62,19 +62,43 @@ test("a read tool pointed at protected content is still allowed", () => {
 });
 
 test("git global options are consumed before the subcommand, and quoted prose is not an invocation", () => {
-  for (const command of ["git --no-pager log --oneline -5", "git -c core.pager=cat status", "git --git-dir=.git rev-parse HEAD", `grep -n "git push" README.md`]) {
+  for (const command of ["git --no-pager log --oneline -5", "git --git-dir=.git rev-parse HEAD", `grep -n "git push" README.md`]) {
     const result = guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } });
     assert.doesNotMatch(result.stdout, /permissionDecision":"deny/, command);
   }
   assert.match(guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command: "git --no-pager push origin main" } }).stdout, /permissionDecision":"deny/);
 });
 
+// -c can point git at an arbitrary alias, hook or pager; --exec-path relocates the helper binaries;
+// --namespace re-points ref resolution. None can be stripped and ignored, so the subcommand behind
+// them is never reached. --git-dir/--work-tree stay parseable but may not leave the project.
+test("git options that alter execution are denied outright, and a repository location outside the project is too", () => {
+  for (const command of [
+    "git -c core.pager=cat status",
+    "git -c include.path=/tmp/evil status",
+    "git --exec-path=/tmp/fake status",
+    "git --namespace=other log",
+    "git --git-dir=/tmp/elsewhere/.git status",
+    "git --work-tree /tmp/elsewhere status"
+  ]) {
+    assert.match(guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } }).stdout, /permissionDecision":"deny/, command);
+  }
+});
+
 test("the read-only allowlist covers the usual inspection tools but not their writing modes", () => {
   const probe = (command) => guard("skill-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } }).stdout;
-  for (const command of ["sed -n 1,20p .agents/skills/workflow/SKILL.md", "awk 'NR<5' .agents/skills/workflow/SKILL.md", "jq . .agents/x.json", "less .agents/skills/workflow/SKILL.md"]) {
+  for (const command of ["jq . .agents/x.json", "less .agents/skills/workflow/SKILL.md", "head -20 .agents/skills/workflow/SKILL.md", "certutil -hashfile .agents/skills/workflow/SKILL.md SHA256"]) {
     assert.doesNotMatch(probe(command), /permissionDecision":"deny/, command);
   }
-  for (const command of ["sed -i s/a/b/ .agents/skills/workflow/SKILL.md", "find .agents -name '*.md' -delete"]) {
+  // awk and sed are general interpreters with write paths no flag check can enumerate (`print > f`,
+  // `w`, `s///w`), and certutil is a general certificate tool — only its -hashfile mode is a read.
+  for (const command of [
+    "sed -n 1,20p .agents/skills/workflow/SKILL.md",
+    "sed -i s/a/b/ .agents/skills/workflow/SKILL.md",
+    "awk 'NR<5' .agents/skills/workflow/SKILL.md",
+    "certutil -decode .agents/in.b64 .agents/skills/workflow/SKILL.md",
+    "find .agents -name '*.md' -delete"
+  ]) {
     assert.match(probe(command), /permissionDecision":"deny/, command);
   }
 });
@@ -83,7 +107,7 @@ test("evidence recency is compared as instants, not as strings", () => {
   const root = join(tmpdir(), `agent-workflow-evidence-tz-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Timezone\n\n## Goal\n\nVerify instant comparison.\n");
+  writeFileSync(join(task, "task.md"), "# Timezone\n\n## Goal\n\nVerify instant comparison.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const base = {
     schema_version: 4, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
@@ -97,7 +121,7 @@ test("evidence recency is compared as instants, not as strings", () => {
   // "09:00+08:00" is 01:00Z — earlier than the 05:00Z entry, but later as a plain string. The stale
   // (wrong plan_hash) entry is the chronologically later one; if recency were compared as strings
   // the fresh matching entry would wrongly win instead.
-  const step = (planHash, at) => ({ kind: "step", id: "impact_discovery.ID1", status: "recorded", at, plan_hash: planHash, summary: "entry" });
+  const step = (planHash, at) => ({ kind: "step", id: "impact_discovery.ID1", status: "recorded", at, plan_hash: planHash, intent_hash: "1".repeat(64), summary: "entry" });
   writeFileSync(path, JSON.stringify({ ...base, evidence: [step(hash, "2026-01-01T09:00:00.000+08:00"), step("0".repeat(64), "2026-01-01T05:00:00.000Z")] }));
   const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(gated.errors.some((error) => error.includes("impact_discovery.ID1")), gated.errors.join("; "));
@@ -132,7 +156,7 @@ test("a waiver naming a requirement the plan does not have is refused", () => {
   const root = join(tmpdir(), `agent-workflow-waive-unknown-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Waiver\n\n## Goal\n\nVerify waiver ids are checked.\n");
+  writeFileSync(join(task, "task.md"), "# Waiver\n\n## Goal\n\nVerify waiver ids are checked.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify({
     schema_version: 3, id: "20260101-000000-waive", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",

@@ -2,7 +2,7 @@ import { Ajv } from "ajv";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { JsonObject, mutateJsonState, now, option, output, readJson, schemaPath, stateRoot } from "./core.js";
+import { JsonObject, mutateJsonState, now, option, output, readJson, schemaPath, stateRoot } from "../core.js";
 
 // orchestration.schema.json declares 2020-12, same workaround as lifecycle.ts's task validator.
 const Ajv2020 = createRequire(import.meta.url)("ajv/dist/2020.js") as unknown as typeof Ajv;
