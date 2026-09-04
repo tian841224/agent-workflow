@@ -9,7 +9,7 @@ const cli = join(process.cwd(), "dist", "agent-workflow.mjs");
 const run = (args, options = {}) => spawnSync(process.execPath, [cli, ...args], { cwd: process.cwd(), encoding: "utf8", ...options });
 const vcs = (repo, args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
 
-test("execution-packet bundles intent, classification, selected capabilities and their procedure pointers", () => {
+test("execution-packet is the complete worker execution contract", () => {
   const root = join(tmpdir(), `agent-workflow-execution-packet-${process.pid}-${Date.now()}`);
   const repo = join(root, "repo");
   mkdirSync(repo, { recursive: true });
@@ -21,20 +21,41 @@ test("execution-packet bundles intent, classification, selected capabilities and
   vcs(repo, ["commit", "-q", "-m", "init"]);
   const task = join(root, "20260101-000000-execution-packet");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nVerify the execution packet end to end.\n");
+  writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nVerify the execution packet end to end.\n\n## Scope\n\nChange the payment module only.\n\n## Completion criteria\n\n- [ ] payment behavior is preserved\n- [ ] regression tests pass\n");
   const init = run(["task-init", "--task-path", task, "--repo-root", repo], {
-    input: JSON.stringify({ code_change: true, managed_change: true, task_type: "refactor", impact_scope: "multi_module", impact_effect: "shared_behavior", impact_confidence: "high", risk_flags: [], workflow_request: ["reviewer"] })
+    input: JSON.stringify({
+      code_change: true, managed_change: true, workflow_mode: "main",
+      task_type: "refactor", impact_scope: "multi_module", impact_effect: "shared_behavior", impact_confidence: "high",
+      risk_flags: [], workflow_facts: { testable_behavior_change: true }, workflow_request: ["reviewer"],
+      subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/payment/", "tests/payment/"]
+    })
   });
   assert.equal(init.status, 0, init.stdout);
-  const packet = JSON.parse(run(["execution-packet", "--task-path", task]).stdout);
+  const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
   assert.equal(packet.intent.goal, "Verify the execution packet end to end.");
-  assert.deepEqual(packet.classification, { task_type: "refactor", impact_scope: "multi_module", impact_effect: "shared_behavior", risk_flags: [] });
+  assert.equal(packet.intent.scope, "Change the payment module only.");
+  assert.match(packet.intent.completion_criteria, /payment behavior is preserved/);
+  assert.equal(packet.classification.code_change, true);
+  assert.equal(packet.classification.managed_change, true);
+  assert.equal(packet.classification.workflow_mode, "main");
+  assert.equal(packet.classification.impact_confidence, "high");
+  assert.equal(packet.classification.workflow_facts.testable_behavior_change, true);
+  assert.equal(packet.constraints.repo_root, repo);
+  assert.deepEqual(packet.constraints.file_ownership, ["src/payment/", "tests/payment/"]);
+  assert.equal(packet.constraints.subtask_role, "worker");
+  assert.equal(packet.constraints.parent_task_id, "20260101-000000-parent-task");
+  assert.match(packet.constraints.base_commit, /^[a-f0-9]{40}$/);
   assert.ok(packet.workflow.selected.includes("reviewer"));
   assert.ok(packet.workflow.selected.includes("execution_path_review"));
+  assert.ok(packet.workflow.capabilities.some((capability) => capability.name === "execution_path_review"));
   // reviewer has a named pointer; execution_path_review falls back to the policy itself.
   assert.ok(packet.procedures.includes(".agents/skills/workflow/SKILL.md"));
   assert.ok(packet.procedures.includes("schemas/workflow-policy.json"));
   assert.ok(packet.required_evidence.includes("role.reviewer"));
+  assert.match(packet.plan_hash, /^[a-f0-9]{64}$/);
+  assert.equal(packet.plan_revision, 1);
 });
 
 test("execution-packet reports a missing task state instead of throwing", () => {

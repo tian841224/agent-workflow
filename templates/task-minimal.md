@@ -1,6 +1,6 @@
 <!-- This file only holds the human-readable intent (Goal/Scope/Completion criteria and the
-     sections below). `id`/`project_id`/`worktree_id`/`code_change`/`workflow_mode`/`task_type`/
-     `risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/`workflow_request`/
+     sections below). `id`/`project_id`/`worktree_id`/`code_change`/`managed_change`/
+     `workflow_mode`/`task_type`/`risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/`workflow_request`/
      `workflow_facts`/`model_profile`/`intent_approval` all live in the sibling `task.json`
      (schemas/task.schema.json), written only through `agent-workflow task-init` / `task-write`. -->
 

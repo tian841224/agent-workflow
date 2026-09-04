@@ -15,10 +15,14 @@ function orchestrationSchemaErrors(state: JsonObject): string[] {
 
 type Phase = "planned" | "split" | "executing" | "integrating" | "integrated" | "failed" | "cleaned";
 const transitions: Record<Phase, Phase[]> = { planned: ["split", "failed"], split: ["executing", "failed"], executing: ["integrating", "failed"], integrating: ["integrated", "failed"], integrated: ["cleaned"], failed: ["cleaned"], cleaned: [] };
-const aliases: Record<string, Phase> = { Init: "split", RegisterNative: "split", WorkerReady: "executing", Collect: "integrating", Integrate: "integrating", Apply: "integrated", WorkerFailed: "failed", Cleanup: "cleaned" };
-const EXPERIMENTAL_NOTICE = "orchestrate: this subsystem is Experimental — it tracks phase state only and does not implement the documented worktree snapshot / patch collect-apply flow; set AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1 to proceed anyway, or dispatch workers manually.";
+// Phase names only. The retired aliases here named a worker handshake this runtime never
+// implemented; orchestration-invariants.test.mjs keeps them rejected.
+const aliases: Record<string, Phase> = { Init: "split", StartExecution: "executing", Integrate: "integrating", Apply: "integrated", Fail: "failed", Cleanup: "cleaned" };
+const EXPERIMENTAL_NOTICE = "orchestrate: Experimental phase tracker only — automatic worker dispatch, worktree creation, worker completion tracking, patch collection and patch application are not implemented. Set AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1 only when explicitly testing the phase tracker.";
 
 function initialState(id: string): JsonObject {
+  // workers/integration are reserved placeholders for a future worker-level contract; nothing in
+  // this runtime gives them operational semantics.
   return { schema_version: 2, id, experimental: true, phase: "planned", workers: [], integration: [], history: [] };
 }
 
@@ -32,10 +36,9 @@ export function orchestrate(options: Map<string, string | boolean | string[]>): 
     output(action === "Assess" ? { eligible: state.phase === "planned", experimental: true, state } : state);
     return 0;
   }
-  // Guard the phase, not one action name: Init, a raw --action split and any future alias all reach
-  // the same runtime-created-worktree path. RegisterNative is exempt because the host, not the
-  // runtime, creates those worktrees.
-  if (action !== "RegisterNative" && (aliases[action] || action.toLowerCase()) === "split" && process.env.AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL !== "1") throw new Error(EXPERIMENTAL_NOTICE);
+  // Every mutating action is gated, not just the entry one: the whole phase tracker is a prototype,
+  // so no path through it may be reached by a normal workflow run.
+  if (process.env.AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL !== "1") throw new Error(EXPERIMENTAL_NOTICE);
   // Every phase change is a read-modify-write on state shared by the coordinator and each worker
   // process, which is exactly where an unlocked readJson/writeJson pair loses a concurrent update.
   const state = mutateJsonState<JsonObject>(path, (current) => {
@@ -43,7 +46,6 @@ export function orchestrate(options: Map<string, string | boolean | string[]>): 
     const phase = String(current.phase) as Phase;
     const target = aliases[action] || action.toLowerCase() as Phase;
     if (!(transitions[phase] || []).includes(target)) throw new Error(`invalid OrchestrationEngine transition: ${phase} -> ${target}`);
-    if (target === "cleaned" && phase !== "integrated" && phase !== "failed") throw new Error("cleanup requires integrated or failed state");
     current.phase = target;
     const history = Array.isArray(current.history) ? current.history : [];
     history.push({ at: now(), from: phase, to: target, action });

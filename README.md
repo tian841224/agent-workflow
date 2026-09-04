@@ -59,10 +59,10 @@ npx --yes @tian/agent-workflow@latest
 
 是否進入 workflow 由 `managed_change` 決定，不是「有沒有改到程式碼」的 `code_change`：`managed_change` 判準是這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果，因此 CI/CD、Dockerfile、migration script 等非 application source code 的高風險修改一樣要走 workflow。
 
-1. **Managed change**：`managed_change: true` 時建立 task、載入 `workflow` skill；isolated 且無明確風險的修改採最小驗證。
-2. **純測試程式碼變更**：一律 `managed_change: true`，但走 lightweight 路徑——沒有刪除／弱化既有測試、沒有 skip 測試、沒有大量改動 snapshot 時 `selected` 為空清單，成本接近零；命中才加 `test_integrity` risk flag，強制對應 capability。
-3. **非程式碼任務**：設定、文件、註解、script、除錯、review、規劃、問答與翻譯等 `managed_change: false` 任務一律 bypass，不建立 task、不啟動角色。
-4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務，使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
+1. **Managed change**：`managed_change: true` 時建立 task 並載入 `workflow` skill；capability 由 policy 與主對話依實際 impact／risk 選擇。
+2. **Test-only change**：新增測試、強化 assertion 或安全 test refactor 可 `managed_change: false` 直接 bypass；刪除／skip 測試、弱化 assertion 或大量重寫 snapshot／fixture baseline 時改為 `managed_change: true`，並加入 `test_integrity` risk flag。
+3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
+4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 推導，不由 agent 自由選擇。Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
 
 流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
@@ -71,12 +71,16 @@ npx --yes @tian/agent-workflow@latest
 ### Review 與角色化品質檢查
 
 - **Review**：檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境，並從 real entrypoint 確認完成條件。Review 由主對話依 `workflow` skill 第 6 節直接執行，不再啟動獨立角色；需要對抗式複查或額外驗證時，把要推翻的假設或要測試的情境直接寫進 Review 指令。
-- **Worker**：專案唯一允許寫入的原生開發角色，僅用於平行開發時處理隔離 worktree 中的子任務。
+- **Worker**：僅用於 host-native／manual isolated parallel development 的 implementation role；Worker 只執行 coordinator 提供的 ExecutionPacket，不自行重新選 capability 或 workflow。
 - **Reader**：專案唯讀檢查角色，僅用於讀取、分析與審查，不可修改檔案或 repository 狀態。
 
 ### 平行開發
 
-當一個任務可以拆成兩個以上互不重疊、可獨立驗收的子功能時，專案可以透過 coordinator／worker 建立隔離的 worktree，讓不同子功能平行處理，再由主流程整合與驗證。
+目前 automatic orchestration runtime 仍是 Experimental phase tracker，尚未提供正式的 worker dispatch、worktree creation、patch collect／apply 或 multi-worker completion protocol。
+
+正式 workflow 預設使用 sequential execution；如果 host 平台本身支援 isolated sub-agent／worktree，可由主對話手動拆分互不重疊的子任務、建立或綁定各自 worktree，並以 ExecutionPacket dispatch Worker。所有 worker 結果由主對話統一整合後，再執行 final validation、Review 與 task gate。
+
+Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 automatic parallel engine。
 
 ### 記憶與自動學習
 
@@ -100,7 +104,7 @@ npx --yes @tian/agent-workflow@latest
 
 | Skill | 類型 | 用途與適用時機 |
 | --- | --- | --- |
-| [`workflow`](.agents/skills/workflow/SKILL.md) | 必裝 | 修改 application source code logic 時，由主對話依實際觀察到的 impact 與 risk 決定是否建立 task、寫入 `workflow_request` 啟用哪些 capability；isolated 且無明確風險的修改可採最小驗證。純 test code 與 non-code 任務直接 bypass。 |
+| [`workflow`](.agents/skills/workflow/SKILL.md) | 必裝 | 由 `managed_change` 決定是否建立 task，再依實際 impact／risk 決定 `workflow_request` 與 required capability；安全 test-only、文件與 read-only 任務可 bypass，高風險設定／script 與 test-integrity 修改仍進 workflow。 |
 | [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 必裝 | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／interface／depth／seam／adapter 等設計標準；選取 `codebase_design` capability 時主動載入。 |
 | [`planning`](.agents/skills/planning/SKILL.md) | 必裝 | 進行架構設計、功能規劃、重構策略、技術方案比較或遇到模糊需求（unclear_requirements）時，先釐清目標、限制與完成條件。 |
 | [`push-back`](.agents/skills/push-back/SKILL.md) | 必裝 | 使用者選定實作或設計方向後，評估是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度；主動提出具體意見與替代方案。 |
@@ -281,7 +285,7 @@ install.cmd --action Uninstall --target-agent All
 - 新增 `task.json.managed_change`：決定是否進入 workflow 的欄位，`code_change` 降級為純描述用途（是否修改 application source code）。既有 v3 task 遷移時 fail-safe 預設為 `managed_change: true`。
 - `model_profile` enum 新增 `deep_read`，由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導（`src/classification/model-profile.ts`），`task-init` 建立 `read_only` task 時自動套用，不再由 agent 自由指定。
 - 新增 `test_integrity` capability 與同名 risk flag：純測試變更預設 `selected` 為空清單，只有實際刪除／弱化 assertion、skip 測試或大量改動 snapshot 時才加旗標、才強制這個 capability。
-- 新增 `agent-workflow execution-packet`：把一個 task 的 intent（task.md Goal）、classification 與 compiled workflow plan 打包成單一物件，並把 `selected` 的每個 capability 對應到它的 procedure 文件（有獨立 skill 的指向該 skill，其餘指向 `schemas/workflow-policy.json` 作為 single source of truth）。
+- 新增 `agent-workflow execution-packet`：把 task.md 的 Goal／Scope／Completion criteria、完整 classification、repo／ownership execution constraints、compiled capability／step、procedure pointer、required evidence 與 plan revision 打包成 Worker 的單一執行 contract。Worker 不再自行重讀 workflow 做第二次 capability 決策。
 - 新增 `agent-workflow skill`（`--action List／Verify／Install／Update／Remove`）：`List` 合併 `adapters/managed-manifest.json` 的必裝／選擇性 catalog 與 `skills-lock.json` 的來源資訊；`Verify` 離線比對已 vendor 的 skill 目前雜湊是否仍等於上次鎖定的雜湊；`Install`／`Update` 從本機目錄 vendor 一份 skill 並寫回 `skills-lock.json`，不會替你連網抓取。
 - `src/lifecycle.ts` 拆成 `src/lifecycle/` 底下 8 個檔案（transitions／task-store／task-schema／task-gate／evidence／intent／ownership／worktree-lease），對外行為不變。
 - 新增 `tests-node/adapters/parity.test.mjs`：同一個操作以 Claude／Codex／Antigravity 三種平台原生 payload 形狀送進 `git-guard`／`skill-guard`，驗證正規化後的 allow／deny 決策一致。

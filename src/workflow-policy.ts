@@ -172,7 +172,7 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   // (see intent.ts). A task.md typo no longer invalidates evidence/waivers recorded against this plan.
   const plan_hash = sha256(canonicalJson({
     policy_version, policy_sha256: options.policySha256 ?? null,
-    code_change: task.code_change ?? null, workflow_mode: task.workflow_mode ?? null,
+    code_change: task.code_change ?? null, managed_change: task.managed_change ?? null, workflow_mode: task.workflow_mode ?? null,
     task_type: ctx.task_type, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
     risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
     required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), selected_step_ids
