@@ -214,6 +214,24 @@ test("task-write merges fields through the lock, bumps plan_revision on a classi
   assert.match(JSON.parse(blocked.stdout).errors[0], /not writable via task-write/);
 });
 
+test("managed_change is part of plan identity: flipping it changes plan_hash and bumps plan_revision", () => {
+  const root = join(tmpdir(), `agent-workflow-managed-change-plan-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Managed change\n\n## Goal\n\nVerify managed_change reaches plan_hash.\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: false })));
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const before = JSON.parse(readFileSync(path, "utf8"));
+  const beforePlan = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
+  const changed = run(["task-write", "--task-path", path], JSON.stringify({ managed_change: true }));
+  assert.equal(changed.status, 0, changed.stderr);
+  const after = JSON.parse(readFileSync(path, "utf8"));
+  const afterPlan = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
+  assert.equal(after.managed_change, true);
+  assert.equal(after.plan_revision, before.plan_revision + 1);
+  assert.notEqual(beforePlan.plan_hash, afterPlan.plan_hash);
+});
+
 test("task-write refuses a patch that would make task.json fail schema", () => {
   const root = join(tmpdir(), `agent-workflow-task-write-invalid-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });

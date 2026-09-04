@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: 實際修改 application source code logic 時，由主對話依觀察到的 impact 與 risk 判斷是否建立 task、選擇要跑的 capability 與角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改與其他非程式碼邏輯任務 bypass workflow，但仍應執行相關測試或必要驗證。
+description: 由 managed_change 決定是否進入 managed workflow，再由主對話依實際 impact 與 risk 選擇 capability。純文件、唯讀分析與不降低驗證能力的 test-only 修改 bypass；可能影響執行、資料、契約、安全性、部署、交付或 test integrity 的修改進入 workflow。
 ---
 
 # agent-workflow
@@ -12,11 +12,60 @@ task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_ch
 
 ## 適用範圍
 
-`code_change` 與 `managed_change`是兩個獨立欄位：`code_change` 只描述這次是否修改「目標專案」的 application source code，`managed_change` 才決定是否進入本 workflow（task gate 只看 `managed_change`）。`managed_change` 判準是「這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果」——CI/CD、Dockerfile、nginx 設定、SQL migration、shell deploy script、Terraform 等非 application source code 的高風險修改，`code_change: false` 但 `managed_change: true`，一樣要建立 task 並跑分類。純文件、註解或純 read-only 分析才是 `managed_change: false`，直接 bypass：不建立 task、不啟動角色。
+`code_change` 與 `managed_change` 是兩個獨立欄位。
 
-純 test code 修改一律 `managed_change: true`，但採 lightweight 路徑：正常新增或調整測試不加 `risk_flags`，`workflow_request` 留空即可（`selected` 為空清單，成本接近零，只需在 `## Impact surface` 說明判斷依據）。只有實際刪除或弱化既有 assertion、skip／disable 既有測試、或大量改動 snapshot／fixture 時才加 `test_integrity` risk flag——加了才會被 runtime 強制 `required` 含 `test_integrity` capability，並依 `workflow_facts.test_deleted`／`test_skipped`／`assertion_weakened`／`snapshot_mass_change` 展開對應 step，記錄判斷依據才能過 gate。
+`code_change` 只描述這次是否修改「目標專案」的 application source code；它不決定是否進入 workflow。
 
-既有或匯入的 `managed_change: false` task 僅作相容性資料，不啟動角色。判斷為 unmanaged 後若在處理過程中發現實際需要進入 workflow（原判斷有誤），用 `task-write` 把同一個 task 的 `managed_change` 改成 `true`；若同時涉及 application source code，一併把 `code_change` 改成 `true`——runtime 會在這次寫入時自動執行 worktree lease 檢查、dirty check 與 `base_commit` 綁定（見 `activateCodeTask`），之後依 §1 補齊 `workflow_mode: main` 與 `workflow_request` 走完整流程。`code_change` 只能單向從 `false` 轉為 `true`；已經是 `true` 的 task 不能再改回 `false`——發現整個 task 選錯方向、需要放棄現有 delivery 時才 `supersede` 並另建新 task。
+`managed_change` 是 managed workflow 唯一 entry gate。
+
+以下情況通常是 `managed_change: true`：
+
+- 修改 application source code 並可能改變實際行為。
+- 修改資料、schema、migration 或持久化行為。
+- 修改公開契約、授權、安全性或跨功能行為。
+- 修改 CI/CD、Dockerfile、nginx、Terraform、deploy script 或其他可能改變部署／執行結果的設定。
+- 修改測試時降低或重新定義既有驗證可信度。
+
+以下情況通常是 `managed_change: false`：
+
+- 純文件或註解。
+- 純 read-only 分析、review、規劃、問答或翻譯。
+- 只新增測試。
+- 只強化既有 assertion。
+- 不降低驗證能力的 test refactor、fixture 維護或測試結構整理。
+
+Config、script 或其他 non-application-source change 依是否可能改變部署、執行、資料或交付結果判斷，不以「不是程式碼」作為 unmanaged 的依據。
+
+Test-only change 只有在降低或大幅改變既有驗證可信度時才進 managed workflow，包括：
+
+- 刪除既有測試。
+- skip／disable 既有測試。
+- 弱化 assertion。
+- 大量重寫 snapshot／fixture，使既有 regression baseline 被重新定義。
+
+這類 task 使用：
+
+- `code_change: false`
+- `managed_change: true`
+- `task_type: chore`
+- `risk_flags: ["test_integrity"]`
+
+並依實際情況設定：
+
+- `workflow_facts.test_deleted`
+- `workflow_facts.test_skipped`
+- `workflow_facts.assertion_weakened`
+- `workflow_facts.snapshot_mass_change`
+
+runtime 再依 `test_integrity` capability 展開對應 evidence step。
+
+既有或匯入的 `managed_change: false` task 僅作相容性資料，不啟動 capability 或角色。
+
+如果原先判定為 unmanaged，但處理過程中發現實際會改變 runtime behavior、delivery behavior 或 verification integrity，使用 `task-write` 將同一 task 的 `managed_change` 改為 `true`。
+
+若同時涉及 application source code，再一併把 `code_change` 改為 `true`。`code_change: false -> true` 時 runtime 會執行 worktree lease、dirty check 與 `base_commit` 綁定。
+
+`code_change` 只能由 `false -> true`；已經是 `true` 就維持 `true`。如果整個 task 分類錯誤，需要放棄目前 delivery，使用 `supersede` 後建立新 task。
 
 ### 流程層級
 
@@ -34,7 +83,7 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。十二個 capability：
 2. 若同一 worktree 已有一個 `in_progress` task，確認是續作，需要時用 `resume` 接回。不是續作時，`paused` 與 `blocked` 仍持續佔用該 worktree 的 code task lease（下一個 code task 無法在同一 worktree 建立），要讓另一個 code task 使用同一 worktree，須先對舊 task 執行 `close-task` 或 `supersede`；否則改用不同的 worktree。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則；project docs 讀寫時機另見 [project-docs skill](../project-docs/SKILL.md)。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同一目錄執行 `agent-workflow task-init --task-path <dir>`（stdin 傳初始欄位的 JSON，`id` 自動取目錄名）建立 `task.json`；預設 `status: in_progress`，欄位需符合 `schemas/task.schema.json`。
-5. 用 `task-write` 明確填寫 `code_change: true | false`：只有修改「目標專案」application source code 邏輯，且達到 workflow 觸發條件時為 `true`。純 test code 修改不建立 workflow task。新 code task 填 `workflow_mode: main` 與由主對話選定的 `workflow_request`。`task_type` 是唯一的變更分類欄位，`code_change: true` 結案時必填。
+5. 建立 task 前先判斷 `managed_change`。若為 `false`，直接 bypass，不建立 task。若為 `true`，建立 task 時一次填入目前已知的 classification。`code_change` 只表示是否修改 application source code，不再負責 workflow entry。Test-only 的 `test_integrity` task 使用 `code_change: false`、`managed_change: true`；application source code task 通常使用 `code_change: true`、`managed_change: true`。所有新 managed task 使用 `workflow_mode: main`，並填入主對話選定的 `workflow_request`。`task_type` 是唯一的變更分類欄位，`code_change: true` 結案時必填。
 6. 命中 freeze-required flag 時 `intent_approval` 先留空，取得使用者對目標、非目標與完成條件的確認後才執行 `approve-intent --confirmed-by <who> --as-user`（見 [risk-flags.md](risk-flags.md)）；runtime 只算 task.md 的 Goal／Scope／Completion criteria 三段內容的 hash（`intent_hash`），改錯字或補其他 section 不影響既有 approval，改動這三段才會讓它失效，task-gate 憑此放行。命中 `unclear_requirements` 時，先用 `planning` skill 釐清目標與限制，必要時加開 `grill-me` skill 壓力測試計畫（見 [risk-flags.md](risk-flags.md)）。
 
 ## 2. 記憶
@@ -53,7 +102,7 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。十二個 capability：
 
 依實際風險判斷是否加入 `risk_flags`，不為湊流程加 flag。允許值、各值定義與對應要求見 [risk-flags.md](risk-flags.md)。
 
-角色啟動規則（`workflow_request` 選取、三者互相獨立、舊 task legacy fallback）見「流程層級」一節；non-code task 永遠不進入本流程。
+角色與 capability 啟動規則見「流程層級」一節。是否進入本流程只看 `managed_change`。
 
 ## 4. 實作
 
@@ -72,7 +121,7 @@ Elevated task 另有建立前與實作前規則見 [elevated.md](elevated.md)（
 
 ## 5. Pre-review
 
-Standard source-code task 在 diff 完成後執行相關測試與必要的 `agent-workflow pre-review --path <repo-root>`；Elevated task 再依 risk flag 執行完整 deterministic checks。`pre-review` 本身只跑 `git diff --check`（whitespace 與 conflict marker），專案自己的 lint、build 與測試仍由主對話依實際 stack 決定並執行，結果一併寫入 `Validation results`。純 test code 與其他 non-code 任務不因本 skill 建立 task 或執行 pre-review。
+Standard source-code task 在 diff 完成後執行相關測試與必要的 `agent-workflow pre-review --path <repo-root>`；Elevated task 再依 risk flag 執行完整 deterministic checks。`pre-review` 本身只跑 `git diff --check`（whitespace 與 conflict marker），專案自己的 lint、build 與測試仍由主對話依實際 stack 決定並執行，結果一併寫入 `Validation results`。`managed_change: false` 的任務不因本 skill 建立 task 或執行 pre-review。
 
 - FAIL：停止，不得送 Reviewer 或設為 done；修正後重跑。
 - SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。

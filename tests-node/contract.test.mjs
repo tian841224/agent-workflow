@@ -119,5 +119,5 @@ test("orchestration state records its experimental status and revisions each loc
   const split = step("Init");
   assert.equal(split.experimental, true);
   assert.equal(split.state_revision, 1);
-  assert.equal(step("WorkerReady").state_revision, 2);
+  assert.equal(step("StartExecution").state_revision, 2);
 });

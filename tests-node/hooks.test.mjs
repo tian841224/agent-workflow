@@ -11,7 +11,7 @@ test("hook policy rejects an unlocatable mutation and orchestration rejects dupl
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.match(guarded.stdout, /denied fail-closed/);
   const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", action, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL: "1" } });
-  for (const action of ["Init", "WorkerReady", "Integrate", "Apply"]) assert.equal(run(action).status, 0, action);
+  for (const action of ["Init", "StartExecution", "Integrate", "Apply"]) assert.equal(run(action).status, 0, action);
   assert.notEqual(run("Apply").status, 0);
 });
 

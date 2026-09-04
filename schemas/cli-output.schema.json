@@ -30,6 +30,93 @@
       },
       "additionalProperties": false
     },
+    "execution-packet": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["task_id", "intent", "classification", "constraints", "workflow", "procedures", "required_evidence", "plan_hash", "plan_revision"],
+          "properties": {
+            "task_id": { "type": "string" },
+            "intent": {
+              "type": "object",
+              "required": ["goal", "scope", "completion_criteria"],
+              "properties": { "goal": { "type": "string" }, "scope": { "type": "string" }, "completion_criteria": { "type": "string" } },
+              "additionalProperties": false
+            },
+            "classification": {
+              "type": "object",
+              "required": ["code_change", "managed_change", "workflow_mode", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts"],
+              "properties": {
+                "code_change": { "type": "boolean" },
+                "managed_change": { "type": "boolean" },
+                "workflow_mode": { "type": "string" },
+                "task_type": { "type": "string" },
+                "impact_scope": { "type": "string" },
+                "impact_effect": { "type": "string" },
+                "impact_confidence": { "type": "string" },
+                "risk_flags": { "type": "array", "items": { "type": "string" } },
+                "workflow_facts": { "type": "object" }
+              },
+              "additionalProperties": false
+            },
+            "constraints": {
+              "type": "object",
+              "required": ["repo_root", "file_ownership"],
+              "properties": {
+                "repo_root": { "type": "string" },
+                "file_ownership": { "type": "array", "items": { "type": "string" } },
+                "subtask_role": { "type": "string" },
+                "parent_task_id": { "type": "string" },
+                "base_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+              },
+              "additionalProperties": false
+            },
+            "workflow": {
+              "type": "object",
+              "required": ["required", "requested", "selected", "capabilities"],
+              "properties": {
+                "required": { "type": "array", "items": { "type": "string" } },
+                "requested": { "type": "array", "items": { "type": "string" } },
+                "selected": { "type": "array", "items": { "type": "string" } },
+                "capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["name", "kind", "steps"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "kind": { "type": "string" },
+                      "steps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": ["id", "title"],
+                          "properties": { "id": { "type": "string" }, "title": { "type": "string" } },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "procedures": { "type": "array", "items": { "type": "string" } },
+            "required_evidence": { "type": "array", "items": { "type": "string" } },
+            "plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "plan_revision": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["valid", "errors"],
+          "properties": { "valid": { "const": false }, "errors": { "type": "array", "items": { "type": "string" } } },
+          "additionalProperties": false
+        }
+      ]
+    },
     "approve-intent": {
       "type": "object",
       "required": ["valid"],

@@ -4,9 +4,19 @@
 
 ## 分流
 
-是否進入 workflow 由 `managed_change` 決定，不是 `code_change`：`managed_change` 判準是這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果，涵蓋 application source code 以外的 CI/CD、Dockerfile、nginx 設定、SQL migration、shell deploy script、Terraform 等高風險修改。純文件、註解、script、除錯、review、規劃、問答與翻譯等一律 `managed_change: false`，bypass，不建立 task、不啟動角色。純 test code 修改一律 `managed_change: true` 但走 lightweight 路徑：沒命中 test integrity 相關 fact（`test_deleted`／`test_skipped`／`assertion_weakened`／`snapshot_mass_change`）時 `selected` 為空清單，成本接近零；命中才強制 `test_integrity` capability。判斷細節與 Standard／Elevated 分流見 workflow skill。
+是否進入 workflow 只由 `managed_change` 決定，不是 `code_change`。
 
-單純讀取、檢查或解釋任務可使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。Codex／Claude 應選用已安裝的 read-only reader agent，不啟動 implementation worker。
+`managed_change: true` 表示這次修改可能影響系統實際行為、資料、契約、安全性、部署、執行結果、交付行為或 verification integrity。這包含 application source code 以外的 CI/CD、Dockerfile、nginx、SQL migration、deploy script、Terraform 等變更。
+
+純文件、註解、read-only 分析、review、規劃、問答與翻譯通常為 `managed_change: false`。
+
+Config、script 或其他 non-application-source change 依實際影響判斷。
+
+Test-only 新增測試、強化 assertion 或不降低驗證能力的 refactor 可使用 `managed_change: false`。只有刪除／skip 測試、弱化 assertion 或大量重寫 snapshot／fixture baseline 時使用 `managed_change: true` 並加入 `test_integrity` risk flag。
+
+`code_change` 只描述是否修改 application source code，不負責 workflow entry。詳細分類、Standard／Elevated 與 capability 選取規則以 workflow skill 為準。
+
+單純讀取、檢查或解釋任務可使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。Codex／Claude 應選用已安裝的 read-only reader agent，不啟動 implementation worker。Implementation Worker 只執行 coordinator 提供的 ExecutionPacket，不自行重新分類任務或選 capability。
 
 ## 硬護欄
 

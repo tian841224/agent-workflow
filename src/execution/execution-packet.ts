@@ -15,36 +15,67 @@ export const PROCEDURE_POINTERS: Record<string, string> = {
 };
 export const DEFAULT_PROCEDURE = "schemas/workflow-policy.json";
 
+type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };
+
 export type ExecutionPacket = {
   task_id: string;
-  intent: { goal: string };
-  classification: { task_type: string; impact_scope: string; impact_effect: string; risk_flags: string[] };
-  workflow: { required: string[]; requested: string[]; selected: string[] };
+  intent: { goal: string; scope: string; completion_criteria: string };
+  classification: {
+    code_change: boolean; managed_change: boolean; workflow_mode: string; task_type: string;
+    impact_scope: string; impact_effect: string; impact_confidence: string;
+    risk_flags: string[]; workflow_facts: JsonObject;
+  };
+  constraints: { repo_root: string; file_ownership: string[]; subtask_role?: string; parent_task_id?: string; base_commit?: string };
+  workflow: { required: string[]; requested: string[]; selected: string[]; capabilities: ExecutionCapability[] };
   procedures: string[];
   required_evidence: string[];
   plan_hash: string;
   plan_revision: number;
 };
 
-// Bundles one task's intent, classification and compiled workflow plan into the single object an
-// implementing agent needs, so it can load only the procedures its selected capabilities name
-// instead of re-reading the whole policy and skill.
-export function buildExecutionPacket(task: JsonObject, taskJsonPath: string): ExecutionPacket {
+function asObject(value: Json | undefined): JsonObject {
+  return !value || Array.isArray(value) || typeof value !== "object" ? {} : value as JsonObject;
+}
+
+function asStrings(value: Json | undefined): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+// The single execution contract a dispatched worker runs from: intent, already-decided
+// classification, the compiled capabilities and their steps, the workspace boundary it may write
+// in, and the procedures those capabilities name. A worker reads this instead of re-reading the
+// workflow policy and making a second capability decision of its own.
+export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, repoRoot = process.cwd()): ExecutionPacket {
   const plan = compilePlanForTaskPath(task, taskJsonPath);
   const taskMdPath = join(dirname(taskJsonPath), "task.md");
-  const goal = existsSync(taskMdPath) ? (sections(readFileSync(taskMdPath, "utf8")).get("goal") || "").trim() : "";
-  const selectedNames = plan.selected.map((capability) => String(capability.name));
+  const intent = existsSync(taskMdPath) ? sections(readFileSync(taskMdPath, "utf8")) : new Map<string, string>();
+  const section = (name: string): string => (intent.get(name) || "").trim();
+  const capabilities: ExecutionCapability[] = plan.selected.map((capability) => ({
+    name: String(capability.name), kind: String(capability.kind),
+    steps: (capability.steps as JsonObject[]).map((step) => ({ id: String(step.id), title: String(step.title) }))
+  }));
+  const selectedNames = capabilities.map((capability) => capability.name);
   const procedures = [...new Set(selectedNames.map((name) => PROCEDURE_POINTERS[name] || DEFAULT_PROCEDURE))].sort();
+  const constraints: ExecutionPacket["constraints"] = { repo_root: resolve(repoRoot), file_ownership: asStrings(task.file_ownership) };
+  if (typeof task.subtask_role === "string") constraints.subtask_role = task.subtask_role;
+  if (typeof task.parent_task_id === "string") constraints.parent_task_id = task.parent_task_id;
+  if (typeof task.base_commit === "string") constraints.base_commit = task.base_commit;
   return {
     task_id: String(task.id || ""),
-    intent: { goal },
+    intent: { goal: section("goal"), scope: section("scope"), completion_criteria: section("completion criteria") },
     classification: {
+      code_change: task.code_change === true,
+      managed_change: task.managed_change === true,
+      workflow_mode: String(task.workflow_mode || ""),
       task_type: String(task.task_type || ""),
       impact_scope: String(task.impact_scope || ""),
       impact_effect: String(task.impact_effect || ""),
-      risk_flags: Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : []
+      impact_confidence: String(task.impact_confidence || ""),
+      risk_flags: asStrings(task.risk_flags),
+      workflow_facts: asObject(task.workflow_facts)
     },
-    workflow: { required: plan.required, requested: plan.requested, selected: selectedNames },
+    constraints,
+    workflow: { required: plan.required, requested: plan.requested, selected: selectedNames, capabilities },
     procedures,
     required_evidence: plan.required_evidence,
     plan_hash: plan.plan_hash,
@@ -52,11 +83,11 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string): Ex
   };
 }
 
-export function executionPacketCommand(value: string): number {
+export function executionPacketCommand(value: string, repoRoot = process.cwd()): number {
   const path = value.endsWith(".json") ? resolve(value) : join(resolve(value), "task.json");
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
-    output(buildExecutionPacket(readJson(path) as JsonObject, path) as unknown as Json);
+    output(buildExecutionPacket(readJson(path) as JsonObject, path, repoRoot) as unknown as Json);
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

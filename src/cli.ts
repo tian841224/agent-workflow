@@ -26,7 +26,7 @@ export const commandOptions: Record<string, string[]> = {
   "skill-guard": ["platform", "event", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd"],
   "workflow-plan": ["task-path", "policy-path"],
-  "execution-packet": TASK_TARGET_OPTIONS,
+  "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
   skill: ["action", "name", "from", "source", "source-type", "skill-path", "root"],
   "task-init": [...TASK_TARGET_OPTIONS, "actor", "state-root", "repo-root", "adopt-current-diff"],
   "task-write": [...TASK_TARGET_OPTIONS, "state-root", "repo-root", "adopt-current-diff"],
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
   else if (command === "knowledge-verify") process.exitCode = knowledgeVerify(parsed.values);
   else if (command === "orchestrate") process.exitCode = orchestrate(parsed.values);
   else if (command === "workflow-plan") process.exitCode = workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
-  else if (command === "execution-packet") process.exitCode = executionPacketCommand(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")));
+  else if (command === "execution-packet") process.exitCode = executionPacketCommand(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "skill") process.exitCode = skillCommand(option(parsed.values, "action", "List"), option(parsed.values, "name"), option(parsed.values, "from"), option(parsed.values, "source"), option(parsed.values, "source-type"), option(parsed.values, "skill-path"), option(parsed.values, "root"));
   else if (command === "project-resolver") process.exitCode = projectResolver(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "state-root", stateRoot()));
   else if (command === "worktree-fingerprint") process.exitCode = fingerprint(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "base"), optionList(parsed.values, "paths"));

@@ -13,7 +13,7 @@
     "state_revision": { "type": "integer", "minimum": 1 },
     "plan_revision": { "type": "integer", "minimum": 1 },
     "code_change": { "type": "boolean", "description": "Whether this task modifies application source code. Descriptive only — does not decide whether the managed workflow applies; see managed_change." },
-    "managed_change": { "type": "boolean", "description": "Whether this task can change executable behavior, data, contracts, security, delivery, deployment, or runtime results. The entry gate for the managed workflow: false bypasses it regardless of code_change." },
+    "managed_change": { "type": "boolean", "description": "Whether this task enters the managed workflow. True when the change can affect executable behavior, data, contracts, security, deployment/runtime results, delivery behavior, or verification integrity. False bypasses the managed workflow regardless of code_change. Safe test-only additions, assertion strengthening, and test refactors that do not weaken verification may remain false." },
     "workflow_mode": { "enum": ["main", "legacy"] },
     "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
     "model_profile": { "enum": ["cheap_read", "deep_read"] },

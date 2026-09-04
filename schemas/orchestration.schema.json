@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/orchestration.schema.json",
-  "title": "agent-workflow orchestration state (experimental)",
-  "description": "The state file for `agent-workflow orchestrate`'s phase tracking, kept separate from task.schema.json: this describes the experimental worker/coordinator engine's own index, not any individual task's fields. Gated behind AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL; see src/orchestration.ts.",
+  "title": "agent-workflow orchestration phase state (experimental)",
+  "description": "Experimental phase-tracker state for agent-workflow orchestrate. It does not define or implement an automatic worker protocol, worktree lifecycle, worker completion aggregation, patch collection, or patch application. The workers and integration arrays are reserved placeholders only. All mutating actions are gated behind AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1; see src/orchestration.ts.",
   "type": "object",
   "required": ["schema_version", "id", "experimental", "phase", "workers", "integration", "history"],
   "properties": {

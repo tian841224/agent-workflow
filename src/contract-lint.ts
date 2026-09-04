@@ -52,9 +52,6 @@ function codeSpans(text: string, insideFence: boolean): string[] {
 const VOCABULARY_ALLOWLIST = [
   "agent_workflow", "task_json", "task_md", "node_modules",
   "AGENT_WORKFLOW_STATE_ROOT", "AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL", "GIT_INDEX_FILE",
-  // The orchestration subsystem is experimental and its worker handshake has no schema yet; these
-  // stay allowlisted until it does, rather than being invented into cli-output.schema.json.
-  "worker_id", "worker_root", "ownership_request",
   "x_agent_workflow" // the annotation keyword itself; its contents are collected below
 ];
 // Every name the contract actually defines: schema properties and enum values across schemas/,

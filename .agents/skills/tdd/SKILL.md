@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Test-driven development standard. Use when source code behavior changes, a bug fix needs test-first, or the user requests red-green-refactor / integration tests; pure test-code edits still bypass workflow.
+description: Test-driven development procedure. Load only when the compiled workflow plan selects the tdd capability. This skill defines red-green-refactor execution and does not decide whether a task enters the managed workflow.
 ---
 
 # Test-Driven Development
@@ -9,11 +9,16 @@ TDD is a development method that drives behavior changes through red â†’ green â
 
 ## When to use
 
-- Adding or fixing testable source code behavior.
-- A bug fix, behavior change, or an explicit user request for test-first.
-- A feature that needs integration behavior verified from a real entrypoint.
+Load this skill only when the compiled workflow plan selects `tdd`.
 
-Pure test code refactoring, test fixture adjustments, and documentation, config, or script changes do not create a workflow task under this skill, but applicable tests or verification must still run.
+The coordinator may select `tdd` for:
+
+- Adding or fixing testable source-code behavior.
+- A bug fix or behavior change where test-first provides useful evidence.
+- An explicit user request for red -> green -> refactor.
+- A feature whose observable behavior should first be guarded from a public seam.
+
+Whether a change enters the managed workflow is decided by the [workflow skill](../workflow/SKILL.md): normal test-only additions, assertion strengthening, and safe test refactors may bypass it, while deleting tests, skipping tests, weakening assertions, or mass-changing snapshots/fixtures is handled by the `test_integrity` capability, and config, script, deployment and schema changes are classified there by their actual impact.
 
 Before starting, read the project instructions, relevant project docs, and any `CONTEXT.md` or ADRs, following the project's existing domain vocabulary, public interfaces, and test conventions.
 

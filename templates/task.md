@@ -1,5 +1,5 @@
 <!-- This file only holds the human-readable intent (Goal/Scope/Completion criteria and the
-     evidence sections below). `id`/`project_id`/`worktree_id`/`code_change`/`workflow_mode`/
+     evidence sections below). `id`/`project_id`/`worktree_id`/`code_change`/`managed_change`/`workflow_mode`/
      `task_type`/`risk_flags`/`impact_scope`/`impact_effect`/`impact_confidence`/
      `workflow_request`/`workflow_facts`/`workflow_decision`/`model_profile`/`independence`/
      `intent_approval`/`lifecycle.stop_reason` all live in the sibling `task.json`

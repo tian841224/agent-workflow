@@ -57,6 +57,19 @@ test("workflow-plan output matches its declared shape in cli-output.schema.json"
   assert.ok(validate(plan), JSON.stringify(validate.errors));
 });
 
+test("execution-packet output matches its declared shape in cli-output.schema.json", () => {
+  const root = join(tmpdir(), `agent-workflow-output-packet-${process.pid}-${Date.now()}`);
+  const task = join(root, "20260101-000000-output-packet");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Packet shape\n\n## Goal\n\nVerify execution packet output.\n\n## Scope\n\nNo source change.\n\n## Completion criteria\n\n- [ ] output validates\n");
+  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false }) });
+  assert.equal(init.status, 0, init.stderr);
+  const result = run(["execution-packet", "--task-path", task]);
+  assert.equal(result.status, 0, result.stderr);
+  const validate = validatorFor("execution-packet");
+  assert.ok(validate(JSON.parse(result.stdout)), JSON.stringify(validate.errors));
+});
+
 test("task-gate and contract-lint output match their declared shapes", () => {
   const root = join(tmpdir(), `agent-workflow-output-gate-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
