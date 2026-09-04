@@ -109,8 +109,9 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask(classification)));
   const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
+  const intentHash = JSON.parse(run(["approve-intent", "--task-path", path, "--confirmed-by", "test"]).stdout).intent_hash;
   writeFileSync(join(repo, "reviewed.txt"), "two");
-  const evidence = [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest(), delivery_hash: "0".repeat(64) }];
+  const evidence = [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, intent_hash: intentHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest(), delivery_hash: "0".repeat(64) }];
   writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence })));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.equal(gate().valid, true, JSON.stringify(gate().errors));
@@ -144,11 +145,12 @@ test("role evidence that skips a delivered path is rejected even when its own di
   const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
   writeFileSync(path, JSON.stringify(validTask(classification)));
   const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
+  const intentHash = JSON.parse(run(["approve-intent", "--task-path", path, "--confirmed-by", "test"]).stdout).intent_hash;
   writeFileSync(join(repo, "skipped.txt"), "two");
   const digest = JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", "reviewed.txt"]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask({
     ...classification,
-    evidence: [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest, delivery_hash: "0".repeat(64) }]
+    evidence: [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, intent_hash: intentHash, plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest, delivery_hash: "0".repeat(64) }]
   })));
   const gated = JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.equal(gated.valid, false);

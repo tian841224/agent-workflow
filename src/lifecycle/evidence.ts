@@ -1,9 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { changedPaths, deliveryHash, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity } from "../core.js";
+import { intentHash } from "../intent.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { covers } from "./ownership.js";
 import { schemaErrors } from "./task-schema.js";
 import { task, taskPath } from "./task-store.js";
+
+// Reads the sibling task.md's current intent_hash so evidence can be stamped with the requirement
+// version it was actually recorded against, not just the policy plan.
+function currentIntentHash(taskJsonPath: string): string {
+  const taskMd = join(dirname(taskJsonPath), "task.md");
+  if (!existsSync(taskMd)) throw new Error("sibling task.md is missing; cannot determine intent_hash");
+  return intentHash(readFileSync(taskMd, "utf8"));
+}
 
 // The newest entry wins outright: an older PASS must never mask a later FAIL for the same
 // requirement, which a "first verified entry" lookup would happily do.
@@ -38,20 +48,30 @@ export function evidenceSatisfied(item: JsonObject): boolean {
   return false;
 }
 
-// Records that the agent completed one evidence-capability step's analysis. plan_hash/at are
-// computed here, not accepted from the caller — an agent can no longer backdate a step or attach it
-// to a plan it wasn't actually run against.
-export function evidenceRecord(value: string, requirementId: string, summary: string, actor = "agent"): number {
+// A step is "analysis" (summary only) unless the caller reports it actually ran a command — command
+// and exit_code together are what distinguish a claim from execution proof; the rest is optional detail.
+export type ExecutionProof = { command: string; cwd: string; exitCode: number; startedAt: string; durationMs: number; outputDigest: string };
+
+// Records that the agent completed one evidence-capability step. plan_hash/at are computed here, not
+// accepted from the caller — an agent can no longer backdate a step or attach it to a plan it wasn't
+// actually run against. `execution`, when given, upgrades the record from an analysis claim to proof
+// that a specific command actually ran (test/build/lint/migration-dry-run/operational-verification).
+export function evidenceRecord(value: string, requirementId: string, summary: string, actor = "agent", execution?: ExecutionProof): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
+  if (execution && (!execution.cwd || !execution.startedAt || !execution.outputDigest || !Number.isInteger(execution.exitCode))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, --started-at, and --output-digest together"] }); return 1; }
   try {
     const plan = compilePlanForTaskPath(task(path), path);
     const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
     if (!selectedStepIds.has(requirementId)) throw new Error(`evidence-record: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+    const intent_hash = currentIntentHash(path);
     const state = mutateJsonState<JsonObject>(path, (current) => {
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
-      evidence.push({ kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, actor, summary });
+      evidence.push({
+        kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, intent_hash, actor, summary,
+        ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest } : { evidence_kind: "analysis" })
+      });
       current.evidence = evidence;
       current.updated_at = now();
       const errors = schemaErrors(current);
@@ -86,9 +106,10 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
     if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
     const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
     const delivery = deliveryHash(repoRoot, base);
+    const intent_hash = currentIntentHash(path);
     const state = mutateJsonState<JsonObject>(path, (current) => {
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
-      evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, delivery_hash: delivery, summary });
+      evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, intent_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, delivery_hash: delivery, summary });
       current.evidence = evidence;
       current.updated_at = now();
       const errors = schemaErrors(current);

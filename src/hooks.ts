@@ -233,11 +233,11 @@ function isRuntimeInvocation(command: string, root = stateRoot()): boolean {
     const resolvedPath = resolvableAgentWorkflowPath(segment);
     if (!resolvedPath) return true;
     const managedPath = join(root, "managed-runtime.json");
-    if (!existsSync(managedPath)) return true; // no installed identity recorded on this host to check against
+    if (!existsSync(managedPath)) return false; // resolvable path with nothing to verify it against — deny fail-closed
     try {
       const runtimeHash = String((readJson(managedPath) as JsonObject).runtime_hash || "");
       return !!runtimeHash && existsSync(resolvedPath) && sha256(readFileSync(resolvedPath)) === runtimeHash;
-    } catch { return true; } // cannot establish stronger identity; fall back to trusting the name
+    } catch { return false; } // resolvedPath could not be verified against the recorded identity; deny fail-closed
   });
 }
 function isReadOnly(event: CanonicalHookEvent): boolean {

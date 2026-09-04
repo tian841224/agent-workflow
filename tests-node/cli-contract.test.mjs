@@ -25,8 +25,8 @@ function validatorFor(command) {
 test("a repeated multi-value option accumulates instead of keeping only the last value", () => {
   const root = join(tmpdir(), `agent-workflow-dup-multi-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
-  const first = run(["knowledge", "--action", "Upsert", "--scope", "Global", "--approved-by-user", "--topic", "dup-a", "--content", "A", "--status", "verified", "--state-root", state]);
-  const second = run(["knowledge", "--action", "Upsert", "--scope", "Global", "--approved-by-user", "--topic", "dup-b", "--content", "B", "--status", "verified", "--state-root", state]);
+  const first = run(["knowledge", "--action", "Upsert", "--scope", "Global", "--approved-by-user", "--topic", "dup-a", "--content", "A", "--state-root", state]);
+  const second = run(["knowledge", "--action", "Upsert", "--scope", "Global", "--approved-by-user", "--topic", "dup-b", "--content", "B", "--state-root", state]);
   const ids = [first, second].map((result) => JSON.parse(result.stdout).path);
   const forgotten = run(["learn", "--action", "Forget", "--scope", "Global", "--reason", "test", "--state-root", state,
     "--id", ids[0].replace(/^.*[\\/]/, "").replace(/\.md$/, ""), "--id", ids[1].replace(/^.*[\\/]/, "").replace(/\.md$/, "")]);

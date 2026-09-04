@@ -35,7 +35,8 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
     // task never reaches the capabilities these fields gate, so demanding them would leave it with
     // no way to close. code_change no longer decides this — see managed_change in task.schema.json.
     if (state.managed_change === true) for (const entry of plan.classification_incomplete) errors.push(`workflow classification is incomplete: ${String(entry.name)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
-    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan.plan_hash).map((item) => String(item.requirement_id || "")));
+    const liveIntentHash = taskMdBuffer ? intentHash(taskMdBuffer.toString("utf8")) : undefined;
+    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan.plan_hash && String(item.intent_hash || "") === liveIntentHash).map((item) => String(item.requirement_id || "")));
     // The task directory normally lives in the state root, not in the repo, so the worktree to
     // fingerprint has to come from the caller's location rather than from the task's own path.
     const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
@@ -45,6 +46,7 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       const item = latestEvidence(evidence, key);
       if (!item || !evidenceSatisfied(item)) { errors.push(`required evidence is not recorded/passed or waived: ${key}`); continue; }
       if (String(item.plan_hash || "") !== plan.plan_hash) { errors.push(`evidence was recorded against a different plan, re-verification required: ${key}`); continue; }
+      if (String(item.intent_hash || "") !== liveIntentHash) { errors.push(`evidence was recorded against a different intent (task.md Goal/Scope/Completion criteria changed), re-verification required: ${key}`); continue; }
       if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state));
     }
   } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }

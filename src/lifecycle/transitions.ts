@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, stateRoot, withFileLock, writeJson } from "../core.js";
 import { deriveModelProfile } from "../classification/model-profile.js";
+import { intentHash } from "../intent.js";
 import { memoryReviewPrompt } from "../memory-review.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { evaluateTaskGate } from "./task-gate.js";
@@ -29,7 +30,10 @@ function applyTransition(state: JsonObject, path: string, action: Transition, ac
     // A typo would otherwise record a waiver the gate can never match, leaving the user believing a
     // requirement was waived while it silently still blocks.
     if (!plan.required_evidence.includes(requirementId)) throw new Error(`waive: '${requirementId}' is not a required evidence id for this task; expected one of: ${plan.required_evidence.join(", ") || "(none)"}`);
-    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, plan_hash: plan.plan_hash });
+    const taskMd = join(dirname(path), "task.md");
+    if (!existsSync(taskMd)) throw new Error("waive: sibling task.md is missing; cannot determine intent_hash");
+    const intent_hash = intentHash(readFileSync(taskMd, "utf8"));
+    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, plan_hash: plan.plan_hash, intent_hash });
     state.waivers = waivers;
   }
   // Every write path funnels through here, so validating once here keeps task.schema.json the only
@@ -117,6 +121,10 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
         const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
         const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
         for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
+        // model_profile is derived from task_type/risk_flags/impact_*, which task-write can change
+        // after creation — recompute here so it never goes stale relative to the fields it derives from.
+        if (current.task_type === "read_only") current.model_profile = deriveModelProfile(current);
+        else delete current.model_profile;
         // Activation rebinds identity/base_commit here rather than trusting whatever task-init
         // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
         // created against the wrong one.
