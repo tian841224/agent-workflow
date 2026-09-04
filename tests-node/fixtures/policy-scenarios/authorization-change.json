@@ -1,0 +1,40 @@
+{
+  "scenario": "authorization-change",
+  "task": {
+    "workflow_request": [],
+    "task_type": "fix",
+    "impact_scope": "file",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": [
+      "authorization"
+    ]
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "execution_path_review",
+      "regression_validation",
+      "reviewer",
+      "security_review"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "execution_path_review.EP1",
+      "regression_validation.RV1",
+      "regression_validation.RV2",
+      "regression_validation.RV3",
+      "role.reviewer",
+      "security_review.SR1",
+      "security_review.SR2",
+      "security_review.SR3",
+      "security_review.SR4",
+      "security_review.SR5"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": []
+  }
+}

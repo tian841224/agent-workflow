@@ -8,7 +8,7 @@ const TASK_TYPES = ["fix", "feature", "refactor", "chore", "schema", "migration"
 const IMPACT_SCOPES = ["file", "module", "multi_module", "cross_project"];
 const IMPACT_EFFECTS = ["none", "local_behavior", "shared_behavior", "data", "contract", "destructive"];
 const IMPACT_CONFIDENCES = ["high", "low"];
-const RISK_SETS: string[][] = [[], ["behavior_change"], ["schema", "migration"], ["financial", "data_write", "contract"]];
+const RISK_SETS: string[][] = [[], ["behavior_change"], ["schema", "migration"], ["financial", "data_write", "contract"], ["security", "authorization", "operational"]];
 const BOOLEAN_FACTS = ["has_consumer", "schema_constraint_change", "data_transform", "destructive_operation", "changes_module_interface", "improves_testability", "introduces_adapter", "testable_behavior_change", "debug_requested", "flaky_failure", "performance_anomaly"];
 // Three fact sets, because tri-state makes them three different questions: undeclared (unknown, the
 // step is kept), declared true, and declared false. Only the all-false set isolates what the other

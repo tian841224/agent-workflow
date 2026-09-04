@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { changedPaths, deliveryHash, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity } from "../core.js";
@@ -42,8 +44,16 @@ export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: str
   } catch (error) { return [`role evidence freshness cannot be recomputed for ${key}: ${String((error as Error).message || error)}`]; }
   return [];
 }
-export function evidenceSatisfied(item: JsonObject): boolean {
-  if (item.kind === "step") return item.status === "recorded";
+export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): boolean {
+  if (item.kind === "step") {
+    if (item.status !== "recorded") return false;
+    // An agent-reported claim is never proof that a command ran, so a runtime_execution step only
+    // counts when evidence-run observed the process itself.
+    if (runtimeRequired && item.trust_level !== "runtime") return false;
+    // A recorded execution that exited non-zero is a failure that was written down, not a pass.
+    if (item.evidence_kind === "execution" && Number(item.exit_code) !== 0) return false;
+    return true;
+  }
   if (item.kind === "role") return item.result === "pass";
   return false;
 }
@@ -60,26 +70,56 @@ export function evidenceRecord(value: string, requirementId: string, summary: st
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
-  if (execution && (!execution.cwd || !execution.startedAt || !execution.outputDigest || !Number.isInteger(execution.exitCode))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, --started-at, and --output-digest together"] }); return 1; }
+  if (execution && (!execution.cwd || !execution.startedAt || !execution.outputDigest || !Number.isInteger(execution.exitCode) || !Number.isInteger(execution.durationMs))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, --started-at, --duration-ms, and --output-digest together"] }); return 1; }
+  return appendStepEvidence("evidence-record", path, requirementId, summary, actor, "attested", execution);
+}
+
+// The one write path both evidence commands funnel through, so the plan/intent stamping, the
+// selected-step check and the schema validation cannot drift between an attested and a runtime record.
+function appendStepEvidence(command: string, path: string, requirementId: string, summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string }): number {
   try {
     const plan = compilePlanForTaskPath(task(path), path);
     const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
-    if (!selectedStepIds.has(requirementId)) throw new Error(`evidence-record: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+    if (!selectedStepIds.has(requirementId)) throw new Error(`${command}: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
     const intent_hash = currentIntentHash(path);
+    if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
     const state = mutateJsonState<JsonObject>(path, (current) => {
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       evidence.push({
-        kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, intent_hash, actor, summary,
+        kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, intent_hash, actor, summary, trust_level: trustLevel,
         ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest } : { evidence_kind: "analysis" })
       });
       current.evidence = evidence;
       current.updated_at = now();
       const errors = schemaErrors(current);
-      if (errors.length) throw new Error(`evidence-record: resulting task.json fails schema: ${errors.join("; ")}`);
+      if (errors.length) throw new Error(`${command}: resulting task.json fails schema: ${errors.join("; ")}`);
     });
     output({ valid: true, task: path, id: requirementId, state_revision: state.state_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+}
+
+// Runs the command itself and records what it observed, so command/exit_code/duration/output digest
+// are measurements rather than caller assertions.
+export function evidenceRun(value: string, requirementId: string, summary: string, actor: string, argv: string[], cwdValue = process.cwd()): number {
+  const path = taskPath(value);
+  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-run requires --requirement-id and --summary"] }); return 1; }
+  if (!argv.length) { output({ valid: false, errors: ["evidence-run requires a command after `--`"] }); return 1; }
+  let expected: { plan_hash: string; intent_hash: string };
+  try { expected = { plan_hash: compilePlanForTaskPath(task(path), path).plan_hash, intent_hash: currentIntentHash(path) }; }
+  catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+  // Nothing holds the task lock across the spawn: a long command must not block every other writer.
+  // appendStepEvidence re-checks both hashes afterwards, so a task edited meanwhile is rejected.
+  const startedAt = new Date();
+  const result = spawnSync(argv[0], argv.slice(1), { cwd: cwdValue, encoding: "buffer" });
+  if (result.error) { output({ valid: false, errors: [`evidence-run: command could not be started: ${String(result.error.message)}`] }); return 1; }
+  const execution: ExecutionProof = {
+    command: argv.join(" "), cwd: cwdValue, exitCode: result.status ?? 1, startedAt: startedAt.toISOString(),
+    durationMs: Date.now() - startedAt.getTime(),
+    outputDigest: createHash("sha256").update(result.stdout || Buffer.alloc(0)).update(result.stderr || Buffer.alloc(0)).digest("hex")
+  };
+  return appendStepEvidence("evidence-run", path, requirementId, summary, actor, "runtime", execution, expected);
 }
 
 // Records one role capability's review result. reviewed_base/reviewed_paths/reviewed_diff_sha256/

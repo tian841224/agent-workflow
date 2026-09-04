@@ -1,0 +1,99 @@
+{
+  "scenario": "migration",
+  "task": {
+    "workflow_request": [],
+    "task_type": "migration",
+    "impact_scope": "file",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": [
+      "migration"
+    ]
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "data_impact",
+      "migration_safety",
+      "regression_validation",
+      "reviewer",
+      "schema_compatibility"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "data_impact.DI1",
+      "migration_safety.MS1",
+      "migration_safety.MS2",
+      "migration_safety.MS3",
+      "migration_safety.MS6",
+      "regression_validation.RV1",
+      "regression_validation.RV2",
+      "regression_validation.RV3",
+      "role.reviewer",
+      "schema_compatibility.SC1",
+      "schema_compatibility.SC2"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": [
+      {
+        "capability": "schema_compatibility",
+        "id": "SC3",
+        "missing": [
+          "workflow_facts.has_consumer"
+        ]
+      },
+      {
+        "capability": "schema_compatibility",
+        "id": "SC4",
+        "missing": [
+          "workflow_facts.schema_constraint_change"
+        ]
+      },
+      {
+        "capability": "schema_compatibility",
+        "id": "SC5",
+        "missing": [
+          "workflow_facts.schema_operation"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI3",
+        "missing": [
+          "workflow_facts.has_consumer"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI4",
+        "missing": [
+          "workflow_facts.data_transform"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI6",
+        "missing": [
+          "workflow_facts.destructive_operation"
+        ]
+      },
+      {
+        "capability": "migration_safety",
+        "id": "MS4",
+        "missing": [
+          "workflow_facts.data_transform"
+        ]
+      },
+      {
+        "capability": "migration_safety",
+        "id": "MS5",
+        "missing": [
+          "workflow_facts.destructive_operation"
+        ]
+      }
+    ]
+  }
+}

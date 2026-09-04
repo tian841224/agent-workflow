@@ -158,4 +158,6 @@ description: 正體中文（臺灣）在地化與翻譯技能。當專案需要 
 | [translation-challenges.md](./translation-challenges.md) | 常見翻譯挑戰的詳細範例與解法 |
 | [tools-resources.md](./tools-resources.md) | 辭典、語料庫、文法參考、驗證工具彙整 |
 
+> **別名檔：** `references/terminology.md`、`references/technical-terms.md`、`references/punctuation.md`、`references/writing-style.md` 只是指回上表與本文件對應章節的指標檔，本身不存放規則。
+
 > **注意：** `linguipedia-cross-strait.md` 檔案較大（~4,800 筆），不建議全文載入上下文。遇到不確定的兩岸用詞差異時，可用 Grep 工具搜尋該檔案中的特定詞彙。

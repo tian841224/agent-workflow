@@ -74,7 +74,7 @@ test("task-gate and contract-lint output match their declared shapes", () => {
   const root = join(tmpdir(), `agent-workflow-output-gate-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Shape\n\n## Goal\n\nVerify the declared output shape.\n");
+  writeFileSync(join(task, "task.md"), "# Shape\n\n## Goal\n\nVerify the declared output shape.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   writeFileSync(join(task, "task.json"), JSON.stringify({
     schema_version: 3, id: "20260101-000000-shape", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
     code_change: false, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
@@ -88,6 +88,27 @@ test("task-gate and contract-lint output match their declared shapes", () => {
   const lintValidator = validatorFor("contract-lint");
   const lint = JSON.parse(run(["contract-lint", "--root", process.cwd()]).stdout);
   assert.ok(lintValidator(lint), JSON.stringify(lintValidator.errors));
+});
+
+test("next categorizes the gate's blockers and names the command that clears the first one", () => {
+  const root = join(tmpdir(), `agent-workflow-output-next-${process.pid}-${Date.now()}`);
+  const task = join(root, "20260101-000000-output-next");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Next shape\n\n## Goal\n\nVerify next output.\n\n## Scope\n\nNo source change.\n\n## Completion criteria\n\n- [ ] output validates\n");
+  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({
+    code_change: false, managed_change: true, workflow_mode: "main", task_type: "fix",
+    impact_scope: "module", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"]
+  }) });
+  assert.equal(init.status, 0, init.stderr);
+  const result = run(["next", "--task-path", task]);
+  const plan = JSON.parse(result.stdout);
+  const validate = validatorFor("next");
+  assert.ok(validate(plan), JSON.stringify(validate.errors));
+  assert.deepEqual(plan.required_roles, ["reviewer"]);
+  assert.ok(plan.pending_evidence.includes("baseline_validation.BV1"), result.stdout);
+  // The role blocker carries a different category from the evidence ones it is mixed in with.
+  assert.deepEqual([...new Set(plan.blocking_reasons.map((reason) => reason.category))].sort(), ["evidence", "role"]);
+  assert.match(plan.next_action, /^run: agent-workflow evidence-record .*baseline_validation\.BV1/);
 });
 
 test("contract-lint rejects a documented option the named command does not accept", () => {

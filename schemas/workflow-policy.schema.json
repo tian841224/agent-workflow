@@ -73,6 +73,12 @@
         "suggest_reason": {
           "type": "string"
         },
+        "runtime_execution": {
+          "description": "When \"required\", this capability's evidence only counts if it was produced by `agent-workflow evidence-run` (trust_level: runtime); an attested analysis claim does not satisfy it.",
+          "enum": [
+            "required"
+          ]
+        },
         "steps": {
           "type": "array",
           "items": {
@@ -100,6 +106,12 @@
         },
         "when": {
           "$ref": "#/$defs/conditionGroups"
+        },
+        "runtime_execution": {
+          "description": "Same contract as the capability-level field, narrowed to this one step.",
+          "enum": [
+            "required"
+          ]
         }
       },
       "additionalProperties": false
@@ -220,6 +232,17 @@
               "items": {
                 "type": "string"
               }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": [
+            "managed_change"
+          ],
+          "properties": {
+            "managed_change": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false

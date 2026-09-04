@@ -41,7 +41,7 @@ When the task requires a path outside `constraints.file_ownership`, stop before 
 
 ## Validation
 
-Run focused validation for the worker-owned change only. Final cross-worker integration validation, Reviewer, task-gate, close-task and orchestration lifecycle actions belong to the main conversation after integration.
+Run focused validation for the worker-owned change only. Final cross-worker integration validation, reviewer dispatch, task-gate, close-task and orchestration lifecycle actions belong to the main conversation after integration.
 
 ## Result
 

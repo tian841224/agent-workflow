@@ -35,6 +35,7 @@ export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, r
   if (Array.isArray(condition.impact_scope)) return member(ctx.impact_scope, condition.impact_scope);
   if (Array.isArray(condition.impact_effect)) return member(ctx.impact_effect, condition.impact_effect);
   if (Array.isArray(condition.impact_confidence)) return member(ctx.impact_confidence, condition.impact_confidence);
+  if (typeof condition.managed_change === "boolean") return ctx.managed_change === undefined ? "unknown" : ctx.managed_change === condition.managed_change ? "match" : "no_match";
   if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope);
   // Reachable only if a condition bypassed loadPolicy's schema validation (e.g. a hand-built
   // policy object in a test) — schema-valid policies always match one of the branches above.
@@ -65,6 +66,7 @@ function undeclaredFields(groups: JsonObject[][], ctx: WorkflowContext): string[
     if (Array.isArray(condition.impact_effect) && !ctx.impact_effect) missing.add("impact_effect");
     if (Array.isArray(condition.impact_confidence) && !ctx.impact_confidence) missing.add("impact_confidence");
     if (Array.isArray(condition.task_type) && !ctx.task_type) missing.add("task_type");
+    if (typeof condition.managed_change === "boolean" && ctx.managed_change === undefined) missing.add("managed_change");
   };
   for (const group of groups) for (const condition of group) visit(condition);
   return [...missing].sort();
@@ -99,9 +101,18 @@ export function compilePlanForTaskPath(task: JsonObject, taskJsonPath: string, p
   return compileWorkflowPlan(task, loadPolicy(policyPath), { policySha256: sha256(readFileSync(policyPath)) });
 }
 
-export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject }): JsonObject[] {
+// Mirrors the capability-level split: only a proven match selects a step, while an undecidable
+// `when` is reported instead of being resolved either way by default.
+export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject }): { steps: JsonObject[]; incomplete: JsonObject[] } {
   const steps = Array.isArray(capability.steps) ? capability.steps as JsonObject[] : [];
-  return steps.filter((step) => evaluateGroups(step.when as JsonObject[][] | undefined, ctx, ranks) !== "no_match");
+  const evaluated = steps.map((step) => ({ step, result: evaluateGroups(step.when as JsonObject[][] | undefined, ctx, ranks) }));
+  return {
+    steps: evaluated.filter((entry) => entry.result === "match").map((entry) => entry.step),
+    incomplete: evaluated.filter((entry) => entry.result === "unknown").map((entry) => ({
+      capability: capability.name, id: entry.step.id,
+      missing: undeclaredFields((entry.step.when as JsonObject[][] | undefined) || [], ctx)
+    }))
+  };
 }
 
 export function orderCapabilities(requested: string[], capabilities: JsonObject[]): string[] {
@@ -124,12 +135,14 @@ export function orderCapabilities(requested: string[], capabilities: JsonObject[
 export type CompiledWorkflowPlan = {
   required: string[];
   classification_incomplete: JsonObject[];
+  step_classification_incomplete: JsonObject[];
   suggested: JsonObject[];
   requested: string[];
   effective: string[];
   order: string[];
   selected: JsonObject[];
   required_evidence: string[];
+  runtime_required_evidence: string[];
   policy_version: number;
   policy_sha256?: string;
   plan_hash: string;
@@ -157,10 +170,14 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   }));
   const effective = [...new Set([...required, ...requested])];
   const order = orderCapabilities(effective, capabilities);
-  const selected = order.map((name) => capabilities.find((capability) => String(capability.name) === name)!).map((capability) => ({
-    name: capability.name, kind: capability.kind, section: capability.section,
-    steps: selectSteps(capability, ctx, ranks).map((step) => ({ id: step.id, title: step.title }))
-  }));
+  const step_classification_incomplete: JsonObject[] = [];
+  const runtime_required_evidence: string[] = [];
+  const selected = order.map((name) => capabilities.find((capability) => String(capability.name) === name)!).map((capability) => {
+    const selection = selectSteps(capability, ctx, ranks);
+    step_classification_incomplete.push(...selection.incomplete);
+    for (const step of selection.steps) if (capability.runtime_execution === "required" || step.runtime_execution === "required") runtime_required_evidence.push(`${String(capability.name)}.${String(step.id)}`);
+    return { name: capability.name, kind: capability.kind, section: capability.section, steps: selection.steps.map((step) => ({ id: step.id, title: step.title })) };
+  });
   const required_evidence = [
     ...selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => capability.steps.map((step) => `${capability.name}.${String(step.id)}`)),
     ...selected.filter((capability) => capability.kind === "role").map((capability) => `role.${capability.name}`)
@@ -177,5 +194,5 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
     risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
     required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), selected_step_ids
   }));
-  return { required, classification_incomplete, suggested, requested, effective, order, selected, required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), plan_hash };
+  return { required, classification_incomplete, step_classification_incomplete, suggested, requested, effective, order, selected, required_evidence, runtime_required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), plan_hash };
 }

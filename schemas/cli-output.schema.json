@@ -7,7 +7,7 @@
   "$defs": {
     "workflow-plan": {
       "type": "object",
-      "required": ["required", "classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "plan_hash", "roles"],
+      "required": ["required", "classification_incomplete", "step_classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "plan_hash", "roles"],
       "properties": {
         "required": { "type": "array", "items": { "type": "string" } },
         "classification_incomplete": {
@@ -16,6 +16,16 @@
             "type": "object",
             "required": ["name", "missing"],
             "properties": { "name": { "type": "string" }, "missing": { "type": "array", "items": { "type": "string" } } },
+            "additionalProperties": false
+          }
+        },
+        "step_classification_incomplete": {
+          "description": "Steps of a selected capability whose `when` could not be decided from the declared facts. They are neither selected nor dropped; a managed_change task fails the gate until the fields named in `missing` are declared.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["capability", "id", "missing"],
+            "properties": { "capability": { "type": "string" }, "id": { "type": "string" }, "missing": { "type": "array", "items": { "type": "string" } } },
             "additionalProperties": false
           }
         },
@@ -168,6 +178,41 @@
         "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
+    },
+    "next": {
+      "description": "The same evaluation task-gate runs, re-presented as the next action: blockers categorized by the kind of work each demands, the still-unsatisfied evidence keys and roles, and one suggested command. An unreadable task falls back to the { valid, errors } shape.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["task", "blocking_reasons", "required_skills", "pending_evidence", "required_roles", "next_action"],
+          "properties": {
+            "task": { "type": "string" },
+            "blocking_reasons": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["category", "detail"],
+                "properties": {
+                  "category": { "enum": ["classification", "evidence", "role", "intent", "lifecycle", "task"] },
+                  "detail": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required_skills": { "type": "array", "items": { "type": "string" } },
+            "pending_evidence": { "type": "array", "items": { "type": "string" } },
+            "required_roles": { "type": "array", "items": { "type": "string" } },
+            "next_action": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["valid", "errors"],
+          "properties": { "valid": { "const": false }, "errors": { "type": "array", "items": { "type": "string" } } },
+          "additionalProperties": false
+        }
+      ]
     },
     "project-doc-lookup": {
       "type": "object",

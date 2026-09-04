@@ -44,9 +44,11 @@ test("a delivery reaching outside file_ownership is an ownership violation, not 
   const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
   const task = join(root, "state", "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Ownership\n\n## Goal\n\nVerify the ownership boundary is enforced.\n");
+  writeFileSync(join(task, "task.md"), "# Ownership\n\n## Goal\n\nVerify the ownership boundary is enforced.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  const state = validTask({ workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", file_ownership: ["src/payment/"], base_commit: head });
+  // managed_change: false keeps the gate focused on ownership — a managed task additionally owes
+  // baseline_validation evidence and a decidable classification for every selected step.
+  const state = validTask({ managed_change: false, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", file_ownership: ["src/payment/"], base_commit: head });
   writeFileSync(path, JSON.stringify(state));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   writeFileSync(join(repo, "src", "payment", "service.ts"), "two");
@@ -73,7 +75,7 @@ test("a renamed or deleted path counts as delivered even though it is no longer 
   const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
   const task = join(root, "state", "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Rename\n\n## Goal\n\nVerify renames and deletes are delivered paths.\n");
+  writeFileSync(join(task, "task.md"), "# Rename\n\n## Goal\n\nVerify renames and deletes are delivered paths.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "refactor", file_ownership: ["owned/"], base_commit: head })));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
@@ -102,9 +104,11 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   // The task directory lives in the state root, outside the repo, exactly as a real one does.
   const task = join(root, "state", "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify diff-scoped role evidence.\n");
+  writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify diff-scoped role evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
+  // managed_change: false so the gate turns only on role-evidence freshness, not on the evidence a
+  // managed task additionally owes.
+  const classification = { managed_change: false, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
   const reviewedPaths = "reviewed.txt,unrelated.txt";
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask(classification)));
@@ -140,7 +144,7 @@ test("role evidence that skips a delivered path is rejected even when its own di
   const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
   const task = join(root, "state", "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Coverage\n\n## Goal\n\nVerify the reviewed scope must cover the delivery.\n");
+  writeFileSync(join(task, "task.md"), "# Coverage\n\n## Goal\n\nVerify the reviewed scope must cover the delivery.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
   writeFileSync(path, JSON.stringify(validTask(classification)));
@@ -171,13 +175,13 @@ test("a later failing role evidence entry overrides an earlier passing one for t
   const head = vcsHere(["rev-parse", "HEAD"]).stdout.trim();
   const task = join(root, "state", "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Latest evidence\n\n## Goal\n\nVerify newest-wins evidence selection.\n");
+  writeFileSync(join(task, "task.md"), "# Latest evidence\n\n## Goal\n\nVerify newest-wins evidence selection.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const classification = { workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" };
   writeFileSync(path, JSON.stringify(validTask(classification)));
   const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
   const digest = JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", "reviewed.txt"]).stdout).reviewed_diff_sha256;
-  const role = (result, at) => ({ kind: "role", id: "role.reviewer", result, at, plan_hash: planHash, plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest, delivery_hash: "0".repeat(64) });
+  const role = (result, at) => ({ kind: "role", id: "role.reviewer", result, at, plan_hash: planHash, intent_hash: "1".repeat(64), plan_revision: 1, reviewed_base: head, reviewed_paths: ["reviewed.txt"], reviewed_diff_sha256: digest, delivery_hash: "0".repeat(64) });
   writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence: [role("pass", "2026-01-01T00:00:00.000Z"), role("fail", "2026-01-02T00:00:00.000Z")] })));
   const gated = JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.ok(gated.errors.some((error) => error.includes("role.reviewer")), gated.errors.join("; "));
@@ -200,7 +204,7 @@ test("task-gate rejects a task.json whose evidence entry does not match any evid
   const root = join(tmpdir(), `agent-workflow-evidence-shape-gate-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Shape\n\n## Goal\n\nVerify a malformed evidence entry fails schema at gate time.\n");
+  writeFileSync(join(task, "task.md"), "# Shape\n\n## Goal\n\nVerify a malformed evidence entry fails schema at gate time.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ evidence: [{ kind: "role", id: "role.reviewer", verified: true }] })));
   const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
@@ -224,7 +228,7 @@ test("a declared impact_scope that clears the threshold still forces the capabil
   const root = join(tmpdir(), `agent-workflow-known-scope-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });
   const path = join(root, "task.json");
-  writeFileSync(path, JSON.stringify({ workflow_request: [], risk_flags: [], task_type: "fix", impact_scope: "cross_project", impact_effect: "local_behavior", impact_confidence: "high" }));
+  writeFileSync(path, JSON.stringify({ workflow_request: [], managed_change: true, risk_flags: [], task_type: "fix", impact_scope: "cross_project", impact_effect: "local_behavior", impact_confidence: "high" }));
   const plan = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
   assert.ok(plan.required.includes("reviewer"));
   assert.deepEqual(plan.classification_incomplete, []);
@@ -234,7 +238,7 @@ test("task-gate blocks on an incomplete classification and names the missing fie
   const root = join(tmpdir(), `agent-workflow-gate-incomplete-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Incomplete\n\n## Goal\n\nVerify the gate reports incomplete classification.\n");
+  writeFileSync(join(task, "task.md"), "# Incomplete\n\n## Goal\n\nVerify the gate reports incomplete classification.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ task_type: "fix", impact_effect: "local_behavior", impact_confidence: "high" })));
   const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
@@ -246,7 +250,7 @@ test("a waiver without a requirement id is refused", () => {
   const root = join(tmpdir(), `agent-workflow-waiver-id-${process.pid}-${Date.now()}`);
   const task = join(root, "task");
   mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Waiver\n\n## Goal\n\nVerify waivers name a requirement.\n");
+  writeFileSync(join(task, "task.md"), "# Waiver\n\n## Goal\n\nVerify waivers name a requirement.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" })));
   const result = run(["waive", "--task", path, "--confirmed-by-user", "user approved"]);

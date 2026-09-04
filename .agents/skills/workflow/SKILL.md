@@ -8,7 +8,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
-task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`managed_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`managed_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`managed_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`managed_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`task-write` 拒絕三種降級——`managed_change` 由 `true` 改回 `false`、移除既有 `risk_flags`、調低 `impact_confidence`——確實重新評估過才改用 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason`，並把這筆決定記進 `workflow_decision`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
 
 ## 適用範圍
 
@@ -69,7 +69,11 @@ runtime 再依 `test_integrity` capability 展開對應 evidence step。
 
 ### 流程層級
 
-Workflow 沒有固定 pipeline，也沒有預設檔位。十二個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`、`test_integrity`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`（`kind: role`，由主對話依 §6 執行）。`required`／`suggested`／`selected` 如何算出、step 如何依 `when` 展開、以及各情境的典型組合與成本，見 [capability-selection.md](capability-selection.md)。
+Workflow 沒有固定 pipeline，也沒有預設檔位。十六個 capability：`baseline_validation`、`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`、`test_integrity`、`mutation_validation`、`security_review`、`operational_verification`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`（`kind: role`，獨立唯讀複審，定義與執行方式見 §6）。`required`／`suggested`／`selected` 如何算出、step 如何依 `when` 展開、以及各情境的典型組合與成本，見 [capability-selection.md](capability-selection.md)。
+
+`baseline_validation` 是唯一無條件 required 的 capability：只要 `managed_change: true` 就會選取，不看 `task_type`、`impact_*` 或 `risk_flags`。BV1 指出實際被執行到的 entrypoint 與受影響執行路徑，BV2 用 `evidence-run` 跑最小可重現驗證（該 step 宣告 `runtime_execution`，只接受 runtime 觀測到的 evidence，agent 自述的分析結論不算數），BV3 列出已知限制與本次未驗證的項目。
+
+`mutation_validation`（`financial`／`data_write`／`irreversible` 觸發）確認 mutation target、失敗與回滾行為、破壞性路徑的測試是否真的守得住，MV4 宣告 `runtime_execution`。`security_review`（`security`／`authorization` 觸發）走 SR1–SR5：授權邊界、輸入信任邊界、秘密處理、指令執行、檔案系統路徑。`operational_verification`（`operational` 觸發）走 OV1–OV4：部署與 runtime 設定、服務啟動與網路可達（OV2 宣告 `runtime_execution`）、CI/CD 路徑、目標環境實際行為。
 
 `codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷，選取後載入 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
 
@@ -127,30 +131,34 @@ Standard source-code task 在 diff 完成後執行相關測試與必要的 `agen
 - SKIP：在 task 記錄原因與未驗證限制，不宣稱檢查通過。
 - PASS：將命令與實際 checks 寫入 `Validation results`。
 - Review 前確認 diff 已經穩定的做法見 [elevated.md](elevated.md)；一般 task 以最後一次驗證與角色結果為準。
-- `financial` 或 `data_write` 命中時另做一次 mutation check：把本次最關鍵的 1–2 個判斷人為改壞，確認守住它的測試真的變紅，再還原，於 `- mutation check:` 記 PASS 或 SKIP＋理由。測試全綠但斷言恆真、或 fixture 寫死成通過形狀，只有這一步抓得到。權威清單是 `schemas/task.schema.json` 的 `x_agent_workflow.mutation_check_required`。
+- `financial`、`data_write` 或 `irreversible` 命中時 runtime 會強制 `mutation_validation` capability，MV3 就是那次 mutation check：把本次最關鍵的 1–2 個判斷人為改壞，確認守住它的測試真的變紅，再還原。測試全綠但斷言恆真、或 fixture 寫死成通過形狀，只有這一步抓得到。觸發集合的權威來源是 `schemas/workflow-policy.json` 的 `require_when`。
 
 ## 6. Review
 
-選了 `reviewer` 時由主對話執行，不啟動獨立角色。bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
+`reviewer` 是獨立的唯讀複審角色：只讀 diff 與相關程式碼並回報結論，本身不改動任何檔案，可以派成 subagent 執行。主對話是 coordinator，負責整合複審結果並做最後一次合理性核對；coordinator 這一趟屬於整合工作，不算第二位 reviewer。
+
+預設每個 task 只跑一位 reviewer。只有 `risk_flags` 命中 `security`、`authorization`、`financial`、`migration` 或 `irreversible`，或第一位 reviewer 回報 blocker 時，才另外加開一位對抗式 reviewer。
+
+bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
 
 ### Review 的執行方式
 
-Review 跑兩趟，兩趟的盲點互補：獨立 subagent 抓得到主對話因為熟悉而略過的死碼與慣例偏離，主對話抓得到 subagent 缺少專案脈絡而串不起來的跨檔案語意問題。
+Review 由 reviewer 走一趟、coordinator 再整合核對一趟，兩者盲點互補：獨立 reviewer 抓得到主對話因為熟悉而略過的死碼與慣例偏離，coordinator 抓得到 reviewer 缺少專案脈絡而串不起來的跨檔案語意問題。
 
-第一趟派一般 subagent（`general-purpose`），指令載明這兩項要求：
+reviewer 這一趟派一般 subagent（`general-purpose`），指令載明這兩項要求：
 
 - 實際執行既有的相關測試。數值、邊界與併發行為若現有測試沒有涵蓋，列為測試缺口並指出應補的具體案例，由實作者依 TDD 補齊。
 - 對改動的欄位與資料流，往上下游追到 repository 與 entity，確認欄位映射、呼叫端與程式宣稱的行為一致。
 
-需要對抗式複查（推翻資料溯源、底層語意、同型擴散或多輪交互假設）時，把要推翻的假設直接寫進這一趟的指令，不另外啟動角色。
+命中 §6 開頭列的五個 risk flag，或第一位 reviewer 回報 blocker 時，另派一位對抗式 reviewer，把要推翻的假設（資料溯源、底層語意、同型擴散、多輪交互）寫成它的指令；其餘情況把這些假設併進第一位 reviewer 的指令即可。
 
-第二趟由主對話自己對照完整 diff 走一次，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。
+coordinator 這一趟由主對話自己對照完整 diff 走一次，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。
 
-兩趟結果合併寫入 `## Reviewer result`：`- result:` 記 PASS 或 FAIL，`- findings:` 只列 blocker，每項附 path、symbol／hunk、可觸發情境、影響與最小修正方向；沒有 blocker 時 findings 記 none。
+各趟結果合併寫入 `## Reviewer result`：`- result:` 記 PASS 或 FAIL，`- findings:` 只列 blocker，每項附 path、symbol／hunk、可觸發情境、影響與最小修正方向；沒有 blocker 時 findings 記 none。
 
 - Review 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task；不得為了避開 gate 而不加 flag。
 - 回填後的 task 路徑即為唯一版本，後續複審與 knowledge 回寫都以它為準；差異只存在於審查當下，不留到下游。
-- Review 有 blocker：主 agent 修正，重新執行相關驗證，再重跑上述兩趟。
+- Review 有 blocker：主 agent 修正，重新執行相關驗證，再重跑上述各趟。
 - 行為正確但沒有測試守住時記為測試缺口：專案已有可用測試基礎設施且補測試落在本次範圍內時退回補齊，重跑 pre-review 與相關驗證；缺少測試基礎設施、或需新增框架或重構才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，並依第 8 節寫入 knowledge。是否另開任務補齊由使用者決定，不得逕自結案或悄悄降低完成條件。
 
 ### 6b. Review round 與增量錨定
@@ -173,7 +181,7 @@ subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制
 ## 8. 完成
 
 1. 對照 task 完成條件，填入 pre-review、其他實際指令、結果與未驗證限制。
-2. 對每個 evidence-capability step 執行 `evidence-record --requirement-id <capability.step> --summary <結論與依據>`；step 實際跑過指令（測試／build／lint／migration dry-run／operational verification）時，另加 `--command --cwd --exit-code --started-at --duration-ms --output-digest` 把它記成 execution evidence，而非單純分析結論；對 `workflow_request` 選中的角色（如 `reviewer`）執行 `review-record --role <name> --result pass|fail --summary <結論>`——`plan_hash`／`at`／`reviewed_base`／`reviewed_paths`／`reviewed_diff_sha256`／`delivery_hash` 一律由 runtime 現算現寫，不再手動跑 `worktree-fingerprint` 後拼進 patch。分類一改或審查範圍內的檔案再變動，gate 就要求重驗。coordinator／worker 或 legacy completion gate 另需 `independence` 狀態，見 [elevated.md](elevated.md)。
+2. 對每個 evidence-capability step 執行 `evidence-record --requirement-id <capability.step> --summary <結論與依據>`；step 實際跑過指令（測試／build／lint／migration dry-run／operational verification）時，另加 `--command --cwd --exit-code --started-at --duration-ms --output-digest` 把它記成 execution evidence，而非單純分析結論；宣告 `runtime_execution` 的 step（如 `baseline_validation.BV2`）改用 `agent-workflow evidence-run --requirement-id <capability.step> --summary <結論> -- <指令>`，由 runtime 實際執行該指令並記下 exit code、耗時與輸出 digest，agent 不能自行填寫；對 `workflow_request` 選中的角色（如 `reviewer`）執行 `review-record --role <name> --result pass|fail --summary <結論>`——`plan_hash`／`at`／`reviewed_base`／`reviewed_paths`／`reviewed_diff_sha256`／`delivery_hash` 一律由 runtime 現算現寫，不再手動跑 `worktree-fingerprint` 後拼進 patch。分類一改或審查範圍內的檔案再變動，gate 就要求重驗。coordinator／worker 或 legacy completion gate 另需 `independence` 狀態，見 [elevated.md](elevated.md)。
 3. Review 打回的歸因已在 §6b 每輪記錄。只有疑似 regression、同一問題反覆修正或使用者要求時，另由主對話做回歸歸因，結果寫入 `## Retrospective result`：查不到引入點就寫 `unknown` 並列出跑過的搜尋，framework change 需指名哪個檔案的哪一條規則要改成什麼。確認 regression 才執行 `agent-workflow retro --action Record`。
 4. Standard task 在完成條件、驗證與 Review 都完成後執行 `agent-workflow close-task` 把 `lifecycle.status` 轉為 `closed`（`lifecycle.status` 沒有 `done` 這個值，唯一的終態是 `closed`，且只能透過 `close-task` 寫入，不得直接編輯 task.json）；coordinator／worker 或 Elevated task 走同一個 `close-task`，另需重跑完整 legacy gate（見 [elevated.md](elevated.md)）。工作停在半途用 `paused`，缺外部條件用 `blocked`。
 5. 回報改了什麼、驗證證據、剩餘風險與可重現的複驗方式。

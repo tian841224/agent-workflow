@@ -69,15 +69,26 @@ test("a require_when-backed capability's evidence is required even with an empty
   assert.ok(plan.required_evidence.some((id) => id.startsWith("schema_compatibility.")), JSON.stringify(plan.required_evidence));
 });
 
-test("an unknown workflow_facts key keeps a step whose when-clause references that fact (tri-state unknown)", () => {
+test("an unknown workflow_facts key reports a step as classification-incomplete instead of selecting it", () => {
   const root = join(tmpdir(), `agent-workflow-plan-unknown-fact-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });
-  const path = join(root, "task.json");
-  // SC4 的 when 只看 fact "schema_constraint_change"；沒有帶這個 fact 時應保持在 unknown（保留該步驟）
-  writeFileSync(path, JSON.stringify({ workflow_request: [], risk_flags: ["schema"], impact_scope: "file", impact_effect: "local_behavior", task_type: "fix", workflow_facts: {} }));
-  const plan = JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path], { cwd: process.cwd(), encoding: "utf8" }).stdout);
-  const schemaCompatibility = plan.steps.find((capability) => capability.name === "schema_compatibility");
-  assert.ok(schemaCompatibility.steps.some((step) => step.id === "SC4"));
+  const planFor = (workflow_facts, name) => {
+    const path = join(root, `${name}.json`);
+    writeFileSync(path, JSON.stringify({ workflow_request: [], risk_flags: ["schema"], impact_scope: "file", impact_effect: "local_behavior", task_type: "fix", workflow_facts }));
+    return JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path], { cwd: process.cwd(), encoding: "utf8" }).stdout);
+  };
+  // SC4 的 when 只看 fact "schema_constraint_change"；沒有帶這個 fact 時無法判定，既不選取也不丟棄，
+  // 而是列進 step_classification_incomplete 讓 managed task 在 gate 被擋下來補宣告
+  const undeclared = planFor({}, "undeclared");
+  const selected = undeclared.steps.find((capability) => capability.name === "schema_compatibility").steps.map((step) => step.id);
+  assert.ok(!selected.includes("SC4"), selected.join(","));
+  const incomplete = undeclared.step_classification_incomplete.find((entry) => entry.capability === "schema_compatibility" && entry.id === "SC4");
+  assert.ok(incomplete, JSON.stringify(undeclared.step_classification_incomplete));
+  assert.deepEqual(incomplete.missing, ["workflow_facts.schema_constraint_change"]);
+  // 宣告之後同一個 step 就能判定，回到一般的選取／不選取
+  const declared = planFor({ schema_constraint_change: true }, "declared");
+  assert.ok(declared.steps.find((capability) => capability.name === "schema_compatibility").steps.some((step) => step.id === "SC4"));
+  assert.ok(!declared.step_classification_incomplete.some((entry) => entry.id === "SC4"));
 });
 
 test("changing task_type between two otherwise-identical workflow-plan calls changes plan_hash", () => {
