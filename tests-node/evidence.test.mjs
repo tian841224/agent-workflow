@@ -15,6 +15,7 @@ function validTask(overrides = {}) {
     project_id: "0123456789abcdef",
     worktree_id: "0123456789abcdef",
     code_change: true,
+    managed_change: true,
     risk_flags: [],
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { JsonObject, output, readJson } from "./core.js";
+import { DEFAULT_PROCEDURE, PROCEDURE_POINTERS } from "./execution/execution-packet.js";
 
 // Retired names that a schema/CLI reference check cannot catch on its own, because nothing in the
 // current contract is shaped like them any more. Each entry says what replaced it so the finding is
@@ -180,6 +181,16 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
   walk(policy.capabilities);
   for (const fact of usedFacts) if (!declaredFacts.has(fact)) findings.push({ file: "schemas/task.schema.json", line: 0, rule: "undeclared-fact", detail: `workflow-policy.json uses fact '${fact}' that task.schema.json does not allow` });
   for (const fact of declaredFacts) if (!usedFacts.has(fact)) findings.push({ file: "schemas/workflow-policy.json", line: 0, rule: "unused-fact", detail: `task.schema.json declares fact '${fact}' that no policy condition reads` });
+
+  // DEFAULT_PROCEDURE is the fallback every capability resolves to, so it must always exist. The
+  // per-skill pointers in PROCEDURE_POINTERS are checked only when that skill is actually present —
+  // an install that did not select an optional skill legitimately lacks its pointer target.
+  if (!existsSync(join(root, DEFAULT_PROCEDURE))) findings.push({ file: "src/execution/execution-packet.ts", line: 0, rule: "missing-procedure-pointer", detail: `procedure pointer '${DEFAULT_PROCEDURE}' does not exist` });
+  for (const [capability, pointer] of Object.entries(PROCEDURE_POINTERS)) {
+    const skillRoot = join(root, ".agents", "skills");
+    if (!existsSync(skillRoot)) continue;
+    if (existsSync(dirname(join(root, pointer))) && !existsSync(join(root, pointer))) findings.push({ file: "src/execution/execution-packet.ts", line: 0, rule: "missing-procedure-pointer", detail: `procedure pointer for '${capability}' points to '${pointer}', which does not exist` });
+  }
 
   output({ valid: findings.length === 0, root, scanned: SCANNED, findings });
   return findings.length ? 1 : 0;

@@ -5,7 +5,7 @@ const TRACKED_SECTIONS = ["goal", "scope", "completion criteria"];
 
 // Splits task.md into its "## Heading" sections, keyed lowercase so callers don't have to care
 // about heading capitalization.
-function sections(markdown: string): Map<string, string> {
+export function sections(markdown: string): Map<string, string> {
   const result = new Map<string, string>();
   let current: string | null = null;
   let buffer: string[] = [];

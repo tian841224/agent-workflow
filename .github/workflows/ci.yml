@@ -8,7 +8,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -17,3 +17,25 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm run ci
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - run: npm pack
+      - run: mkdir smoke
+      - working-directory: smoke
+        run: npm init -y
+      - working-directory: smoke
+        run: npm install ../tian-agent-workflow-*.tgz
+      - working-directory: smoke
+        run: npx agent-workflow --help
+      - working-directory: smoke
+        run: npx agent-workflow contract-lint --root node_modules/@tian/agent-workflow
+      - working-directory: smoke
+        run: npx agent-workflow policy-matrix --policy-path node_modules/@tian/agent-workflow/schemas/workflow-policy.json

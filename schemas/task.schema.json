@@ -4,7 +4,7 @@
   "title": "agent-workflow task state (v4)",
   "description": "The single machine contract for task.json. Every runtime write path validates against this file before the state lands on disk; the sibling task.md holds human intent only.",
   "type": "object",
-  "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "risk_flags", "created_at", "updated_at", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
+  "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "managed_change", "risk_flags", "created_at", "updated_at", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
   "properties": {
     "schema_version": { "const": 4 },
     "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
@@ -12,17 +12,18 @@
     "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
     "state_revision": { "type": "integer", "minimum": 1 },
     "plan_revision": { "type": "integer", "minimum": 1 },
-    "code_change": { "type": "boolean" },
+    "code_change": { "type": "boolean", "description": "Whether this task modifies application source code. Descriptive only — does not decide whether the managed workflow applies; see managed_change." },
+    "managed_change": { "type": "boolean", "description": "Whether this task can change executable behavior, data, contracts, security, delivery, deployment, or runtime results. The entry gate for the managed workflow: false bypasses it regardless of code_change." },
     "workflow_mode": { "enum": ["main", "legacy"] },
     "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
-    "model_profile": { "enum": ["cheap_read"] },
+    "model_profile": { "enum": ["cheap_read", "deep_read"] },
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
     "workflow_request": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
     "workflow_facts": { "$ref": "#/$defs/workflowFacts" },
     "workflow_decision": { "type": "string", "minLength": 2 },
-    "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements"] } },
+    "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity"] } },
     "independence": { "enum": ["native", "degraded"] },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
@@ -67,7 +68,8 @@
         "enum": [
           "changes_module_interface", "data_transform", "debug_requested", "destructive_operation",
           "flaky_failure", "has_consumer", "improves_testability", "introduces_adapter",
-          "performance_anomaly", "schema_constraint_change", "schema_operation", "testable_behavior_change"
+          "performance_anomaly", "schema_constraint_change", "schema_operation", "testable_behavior_change",
+          "test_deleted", "test_skipped", "assertion_weakened", "snapshot_mass_change"
         ]
       },
       "additionalProperties": { "type": ["boolean", "string", "number"] }

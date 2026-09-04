@@ -1071,6 +1071,113 @@
         ]
       ],
       "steps": []
+    },
+    {
+      "name": "test_integrity",
+      "kind": "evidence",
+      "section": "Test integrity",
+      "order_after": [],
+      "require_when": [
+        [
+          {
+            "risk_flags": [
+              "test_integrity"
+            ]
+          }
+        ]
+      ],
+      "steps": [
+        {
+          "id": "TI1",
+          "title": "確認沒有刪除或弱化原有 assertion",
+          "when": [
+            [
+              {
+                "fact": "test_deleted",
+                "equals": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "not": {
+                  "fact": "test_deleted",
+                  "equals": [
+                    false
+                  ]
+                }
+              }
+            ],
+            [
+              {
+                "fact": "assertion_weakened",
+                "equals": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "not": {
+                  "fact": "assertion_weakened",
+                  "equals": [
+                    false
+                  ]
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "id": "TI2",
+          "title": "確認沒有 skip／disable 原有測試",
+          "when": [
+            [
+              {
+                "fact": "test_skipped",
+                "equals": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "not": {
+                  "fact": "test_skipped",
+                  "equals": [
+                    false
+                  ]
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "id": "TI3",
+          "title": "確認 snapshot／fixture 大幅更新有合理原因",
+          "when": [
+            [
+              {
+                "fact": "snapshot_mass_change",
+                "equals": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "not": {
+                  "fact": "snapshot_mass_change",
+                  "equals": [
+                    false
+                  ]
+                }
+              }
+            ]
+          ]
+        }
+      ]
     }
   ]
 }

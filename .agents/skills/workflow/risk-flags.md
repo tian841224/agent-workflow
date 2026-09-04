@@ -2,7 +2,7 @@
 
 `risk_flags` 只能使用以下值，依實際風險加入，不為湊流程加 flag。可用值與機械觸發清單以 `schemas/task.schema.json` 為準。
 
-`behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`
+`behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`、`test_integrity`
 
 「只重構內部結構」的判斷改由 `task_type: refactor` 單一入口承載，`## Behavior invariants and before-after evidence` 段落改依 `task_type` 觸發（見 [SKILL.md](SKILL.md) 第 4 節）。
 
@@ -19,6 +19,7 @@
 | `migration` | 需要資料或版本遷移 | freeze-required；補 Contract and data impact、Implementation sequence |
 | `irreversible` | 改動無法簡單回滾（例如刪除資料、發送外部通知） | freeze-required；補 Implementation sequence |
 | `unclear_requirements` | 需求本身不明確，需先與使用者釐清才能動工 | freeze-required |
+| `test_integrity` | 刪除或弱化既有測試斷言、skip／disable 既有測試、或大量改動 snapshot／fixture | 強制 `test_integrity` capability，補 Test integrity |
 
 ## 對抗式複查與 Mutation check 觸發
 

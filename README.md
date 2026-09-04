@@ -57,10 +57,12 @@ npx --yes @tian/agent-workflow@latest
 
 任務處理遵循精確的分流原則：
 
-1. **程式邏輯變更**：實際修改目標專案的 application source code logic、且達到 workflow 觸發條件時才建立 task、載入 `workflow` skill；isolated 且無明確風險的修改採最小驗證。
-2. **純測試程式碼變更**：純 test code 修改仍執行相關測試，但 bypass workflow，不建立 task。
-3. **非程式碼任務**：設定、文件、註解、script、除錯、review、規劃、問答與翻譯等任務一律 bypass，不建立 task、不啟動角色。
-4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務，使用 `task_type: read_only` 與 `model_profile: cheap_read`；Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
+是否進入 workflow 由 `managed_change` 決定，不是「有沒有改到程式碼」的 `code_change`：`managed_change` 判準是這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果，因此 CI/CD、Dockerfile、migration script 等非 application source code 的高風險修改一樣要走 workflow。
+
+1. **Managed change**：`managed_change: true` 時建立 task、載入 `workflow` skill；isolated 且無明確風險的修改採最小驗證。
+2. **純測試程式碼變更**：一律 `managed_change: true`，但走 lightweight 路徑——沒有刪除／弱化既有測試、沒有 skip 測試、沒有大量改動 snapshot 時 `selected` 為空清單，成本接近零；命中才加 `test_integrity` risk flag，強制對應 capability。
+3. **非程式碼任務**：設定、文件、註解、script、除錯、review、規劃、問答與翻譯等 `managed_change: false` 任務一律 bypass，不建立 task、不啟動角色。
+4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務，使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
 
 流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
@@ -186,12 +188,16 @@ agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](do
 | --- | --- |
 | `.agents/skills/` | 共用 skills、workflow policy、風險與平行編排規則 |
 | `.agents/agents/` | 角色定義（Worker 處理隔離子任務；Reader 處理唯讀分析） |
-| `src/` | workflow 選取評估、installer、guard、task、knowledge、learn、distill 與驗證邏輯 |
+| `src/lifecycle/` | task.json 的 transition、gate、evidence、intent approval 與 worktree lease |
+| `src/classification/` | 從 task.json 讀出 workflow policy 條件評估用的分類 context、read-only 任務的 model profile 推導 |
+| `src/execution/` | 把 intent、classification 與 compiled workflow plan 打包成單一 execution packet 給實作 agent |
+| `src/` 其餘 | workflow policy 編譯、installer、guard、skill manifest、knowledge、learn、distill 與驗證邏輯 |
 | `adapters/` | 各 AI 平台的設定、manifest 與 hooks |
 | `schemas/` | task、workflow、knowledge、project、retro、review-cause 等資料契約 |
+| `skills-lock.json` | 從外部來源 vendor 進來的 optional skill 的來源與雜湊紀錄 |
 | `templates/` | Standard、Minimal 與其他 task 範本 |
 | `runtime/` | Node runtime contract 與執行限制 |
-| `tests/` | runtime、installer、hook、task、knowledge、orchestrate 與 migration 完整驗證 |
+| `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity 與 migration 完整驗證 |
 
 ## 四、安裝方法
 
@@ -272,3 +278,11 @@ install.cmd --action Uninstall --target-agent All
 - `install`／`repair` 會自動跑 v2→v3 migration：既有 `task.json` 的 evidence／waiver 一律標成 stale，需要重新驗證才能通過新版 `task-gate`。
 - `workflow-plan` 遇到未知 capability 或損壞 facts 時改為非零結束。
 - `Verify` 從入口存在檢查提升為完整 runtime integrity contract。
+- 新增 `task.json.managed_change`：決定是否進入 workflow 的欄位，`code_change` 降級為純描述用途（是否修改 application source code）。既有 v3 task 遷移時 fail-safe 預設為 `managed_change: true`。
+- `model_profile` enum 新增 `deep_read`，由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導（`src/classification/model-profile.ts`），`task-init` 建立 `read_only` task 時自動套用，不再由 agent 自由指定。
+- 新增 `test_integrity` capability 與同名 risk flag：純測試變更預設 `selected` 為空清單，只有實際刪除／弱化 assertion、skip 測試或大量改動 snapshot 時才加旗標、才強制這個 capability。
+- 新增 `agent-workflow execution-packet`：把一個 task 的 intent（task.md Goal）、classification 與 compiled workflow plan 打包成單一物件，並把 `selected` 的每個 capability 對應到它的 procedure 文件（有獨立 skill 的指向該 skill，其餘指向 `schemas/workflow-policy.json` 作為 single source of truth）。
+- 新增 `agent-workflow skill`（`--action List／Verify／Install／Update／Remove`）：`List` 合併 `adapters/managed-manifest.json` 的必裝／選擇性 catalog 與 `skills-lock.json` 的來源資訊；`Verify` 離線比對已 vendor 的 skill 目前雜湊是否仍等於上次鎖定的雜湊；`Install`／`Update` 從本機目錄 vendor 一份 skill 並寫回 `skills-lock.json`，不會替你連網抓取。
+- `src/lifecycle.ts` 拆成 `src/lifecycle/` 底下 8 個檔案（transitions／task-store／task-schema／task-gate／evidence／intent／ownership／worktree-lease），對外行為不變。
+- 新增 `tests-node/adapters/parity.test.mjs`：同一個操作以 Claude／Codex／Antigravity 三種平台原生 payload 形狀送進 `git-guard`／`skill-guard`，驗證正規化後的 allow／deny 決策一致。
+- CI 新增 macOS 與 `package-smoke` job：把打包出的 tarball 安裝進一個乾淨的 scratch 專案，驗證 `npx agent-workflow` 系列指令在「裝進 node_modules 之後」而非只在「原始碼 checkout」下也能跑。

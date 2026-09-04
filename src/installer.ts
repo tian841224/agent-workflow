@@ -224,6 +224,9 @@ function taskSchemaV3toV4Migration(root: string): number {
     // safely recomputed here without re-reading and reinterpreting task.md the same way approve-intent
     // does, so approval is cleared and must be redone rather than silently reinterpreted.
     if (state.intent_approval !== null && state.intent_approval !== undefined) state.intent_approval = null;
+    // v3 predates managed_change; a pre-existing task is fail-safe defaulted to managed (matches the
+    // legacy-fallback rule that a task without workflow_mode: main always requires reviewer).
+    if (state.managed_change === undefined) state.managed_change = true;
     state.schema_version = 4;
     writeJson(taskJson, state);
     migrated += 1;

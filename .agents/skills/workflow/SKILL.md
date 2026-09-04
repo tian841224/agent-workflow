@@ -8,45 +8,25 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
-task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`managed_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`managed_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
 
 ## 適用範圍
 
-實際修改「目標專案」的 application source code logic 時，由主對話根據觀察到的 impact 與 risk 判斷是否建立 task、選擇要跑的 capability 或角色；isolated 且無明確風險的修改可採最小驗證。純 test code 修改仍應執行相關測試，但直接 bypass：不建立 task、不啟動角色，由主對話處理。既有或匯入的 `code_change: false` task 僅作相容性資料，不啟動角色。判斷為 non-code 後若在處理過程中發現實際需要改 application source code 邏輯（原判斷有誤），用 `task-write` 把同一個 task 的 `code_change` 改成 `true`：runtime 會在這次寫入時自動執行 worktree lease 檢查、dirty check 與 `base_commit` 綁定（見 `activateCodeTask`），之後依 §1 補齊 `workflow_mode: main` 與 `workflow_request` 走完整流程。`code_change` 只能單向從 `false` 轉為 `true`；已經是 `true` 的 task 不能再改回 `false`——發現整個 task 選錯方向、需要放棄現有 delivery 時才 `supersede` 並另建新 task。
+`code_change` 與 `managed_change`是兩個獨立欄位：`code_change` 只描述這次是否修改「目標專案」的 application source code，`managed_change` 才決定是否進入本 workflow（task gate 只看 `managed_change`）。`managed_change` 判準是「這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果」——CI/CD、Dockerfile、nginx 設定、SQL migration、shell deploy script、Terraform 等非 application source code 的高風險修改，`code_change: false` 但 `managed_change: true`，一樣要建立 task 並跑分類。純文件、註解或純 read-only 分析才是 `managed_change: false`，直接 bypass：不建立 task、不啟動角色。
+
+純 test code 修改一律 `managed_change: true`，但採 lightweight 路徑：正常新增或調整測試不加 `risk_flags`，`workflow_request` 留空即可（`selected` 為空清單，成本接近零，只需在 `## Impact surface` 說明判斷依據）。只有實際刪除或弱化既有 assertion、skip／disable 既有測試、或大量改動 snapshot／fixture 時才加 `test_integrity` risk flag——加了才會被 runtime 強制 `required` 含 `test_integrity` capability，並依 `workflow_facts.test_deleted`／`test_skipped`／`assertion_weakened`／`snapshot_mass_change` 展開對應 step，記錄判斷依據才能過 gate。
+
+既有或匯入的 `managed_change: false` task 僅作相容性資料，不啟動角色。判斷為 unmanaged 後若在處理過程中發現實際需要進入 workflow（原判斷有誤），用 `task-write` 把同一個 task 的 `managed_change` 改成 `true`；若同時涉及 application source code，一併把 `code_change` 改成 `true`——runtime 會在這次寫入時自動執行 worktree lease 檢查、dirty check 與 `base_commit` 綁定（見 `activateCodeTask`），之後依 §1 補齊 `workflow_mode: main` 與 `workflow_request` 走完整流程。`code_change` 只能單向從 `false` 轉為 `true`；已經是 `true` 的 task 不能再改回 `false`——發現整個 task 選錯方向、需要放棄現有 delivery 時才 `supersede` 並另建新 task。
 
 ### 流程層級
 
-Workflow 沒有固定 pipeline，也沒有預設檔位。runtime 依 `risk_flags` 透過 `workflow-policy.json` 的 `require_when` 算出一組 `required` capability，這是不可省略的下限；主對話依已知需求與程式脈絡，在 `workflow_request` 裡疊加想額外執行的 capability，只能加、不能拿掉 `required` 命中的項目。單純不把某個 capability 寫進 `workflow_request` 並不會讓它從 gate 消失——`required` 由 risk flags 直接算出，要移除只能明確執行 `waive`（需 `--requirement-id <被豁免的 requirement>` 與 `--confirmed-by-user`），而這個 waiver 綁定當下的 `plan_hash`，task 的分類一變（risk flags、`impact_scope`、`impact_effect` 等任何進到 hash 的欄位改變）就自動失效，需重新確認。
+Workflow 沒有固定 pipeline，也沒有預設檔位。十二個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`、`test_integrity`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`（`kind: role`，由主對話依 §6 執行）。`required`／`suggested`／`selected` 如何算出、step 如何依 `when` 展開、以及各情境的典型組合與成本，見 [capability-selection.md](capability-selection.md)。
 
-**外層選取（跑哪些 capability）**：Planner 先依 task metadata 與 `workflow_facts` 產生 `suggested` 候選，主對話再確認、覆寫或補充，寫入 `workflow_request`；runtime 再把 `required` 與 `workflow_request` 合併成最終 `selected`。`required` 為空時任何組合都合法——只跑 evidence capability 而沒有 `reviewer`、或一個都不跑（此時 `## Impact surface` 必填，說明為何判斷這個 task 不需要任何 capability），都是正常結果；`required` 非空時，`selected` 至少涵蓋這些項目，`workflow_request` 只能疊加、不能覆寫。
+`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷，選取後載入 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
 
-**交付批次與角色時機**：角色以一個 task 的最終可交付 diff 為單位選取與執行。任務拆成多個實作階段時，各階段只完成其局部測試與必要驗證；待所有階段整合、完成條件與完整 execution path 穩定後，才對整體變更集執行 Review。若某階段會獨立發布、不可逆地寫入外部系統，或其產物已成為後續階段不可回溯的前提，則將它視為獨立交付批次並在該批次完成前執行必要角色。finding 修正後依 §6b 做 delta-first 複查；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。
-
-**內層選取（跑該 capability 的哪些 step）**：capability 一旦被選中，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`task_type`／`risk_flags`／`workflow_facts` 這組宣告值決定。例如 `execution_path_review` 在 `impact_scope: file` 且 `task_type: fix` 時只需要 EP1，在 `impact_scope: cross_project` 且 `task_type: refactor` 時展開 EP1–EP5。這一層只會**減少**要寫的 evidence 行數，不會影響最終 capability 是否被選中——最終選取仍以 `workflow_request` 為準。`workflow_facts` 裡沒宣告的欄位一律保留對應的 step（unknown 不等於「不需要」），但已宣告為真的 fact 可以產生 capability 候選建議。
-
-十一個 capability：`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`（`kind: role`，由主對話依 §6 執行）。`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷；`bug_diagnosis` 用於重現、最小化與假設驗證；`tdd` 用於 red → green → refactor、seam 與測試缺口證據。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發。`order_after` 只決定順序，不會把缺席的前置補回來。完整的 step 清單與 `when` 條件見 `schemas/workflow-policy.json`。
-
-選取 `codebase_design` 後，角色依自己的責任載入同一份 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
-
-選取 `bug_diagnosis` 時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)，以 task 的 `Bug diagnosis` section 記錄 feedback loop、repro、假設、probe 與回歸結果；選取 `tdd` 時載入 [TDD skill](../tdd/SKILL.md)，以 `TDD evidence` section 記錄 red、green、seam 與測試缺口。`bug_diagnosis` 通常用於 `task_type: fix`、效能異常或明確的 debug／diagnose 任務；`tdd` 通常用於 feature、fix、行為變更或使用者要求 test-first 的任務，是否選取仍由主對話根據實際影響決定。
+`bug_diagnosis` 用於重現、最小化與假設驗證，選取時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)，以 task 的 `Bug diagnosis` section 記錄 feedback loop、repro、假設、probe 與回歸結果；`tdd` 用於 red → green → refactor、seam 與測試缺口證據，選取時載入 [TDD skill](../tdd/SKILL.md)，以 `TDD evidence` section 記錄 red、green、seam 與測試缺口。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發；`bug_diagnosis` 通常用於 `task_type: fix`、效能異常或明確的 debug／diagnose 任務，`tdd` 通常用於 feature、fix、行為變更或使用者要求 test-first 的任務，是否選取仍由主對話根據實際影響決定。
 
 前置決策 skill 不建立獨立 task section：架構設計、feature planning、refactor 策略或 `unclear_requirements` 先載入 [planning skill](../planning/SKILL.md)；使用者已選定的方案涉及新增 abstraction、interface、adapter、wrapper、cross-layer seam 或可疑複雜度時，先載入 [push-back skill](../push-back/SKILL.md) 檢查最小方案。遇到高風險且不可逆的未決取捨，再載入 [grill-me skill](../grill-me/SKILL.md) 逐題釐清。
-
-Evidence capability 只在影響確實擴散時才登場，一般 code change 的成本很低：
-
-| 情境 | 典型組合 | evidence step 數 |
-|---|---|---|
-| 單檔 bug fix、模組內小功能 | `reviewer` | 0 |
-| 判斷為 isolated 的小改動（例如無 consumer 的 additive 欄位） | 無 capability ＋ `Impact surface` 說明判斷依據 | 0 |
-| 邏輯單純但需實測、無呼叫端 | `reviewer` | 0 |
-| 跨模組 refactor | `execution_path_review` → `regression_validation` → `reviewer` | 10 |
-| 金流狀態機 | `data_impact` → `execution_path_review` → `regression_validation` → `reviewer` | 14 |
-| 大表 migration + backfill | `execution_path_review` → `schema_compatibility` → `data_impact` → `migration_safety` → `reviewer` | 20 |
-| coordinator／worker | 依上列規則，另加 orchestration 與 legacy close gate（見 [elevated.md](elevated.md)） | 依上列規則 |
-
-Reviewer 用於判斷完整 diff 是否符合需求、影響面與失敗模式，並從 real entrypoint 確認完成條件與可觀察結果。命中 `financial`、`data_write`、`migration`、`irreversible`、`schema`、`contract` 時，在 §6 第一趟的指令裡明寫要推翻的資料溯源、底層語意或同型擴散假設。每列都是最終交付批次的典型組合，不是逐一實作階段的 pipeline。
-
-`workflow-plan` 會輸出 `required`、`classification_incomplete`、`suggested`、`requested`、`selected` 與 `order`，供主對話在建立或更新 task 前檢查候選。`classification_incomplete` 列出「因為某個分類欄位還沒填，所以無法判斷該不該強制」的 capability 與缺的欄位名稱；它不會被自動加進 `required`，但 task gate 會擋下來，要求先補齊分類再判斷。`workflow_request` 是主對話寫入、疊加在 `required` 之上的 capability 清單（例如 `[reviewer]`）；名稱 authority 是 `schemas/workflow-policy.json`，未知 capability 或無效 `workflow_facts` 直接回報 contract error。runtime 驗證的是 `required` ∪ `workflow_request` 合併後的 `selected` 清單執行結果是否齊全。沒有 `workflow_mode: main` 的既有 task（早於本機制的舊 task）不再走獨立的相容判斷：一律視為 `code_change: true` 就要求 `reviewer`，同樣沒有分別的流程分支。Retrospective 只在疑似 regression、同一問題反覆修正或使用者要求時啟動，不因每個 `fix` 自動加入。
 
 ## 1. 建立 Task
 

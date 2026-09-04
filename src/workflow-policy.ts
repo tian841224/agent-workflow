@@ -1,32 +1,14 @@
 import { Ajv } from "ajv";
 import { readFileSync } from "node:fs";
 import { canonicalJson, Json, JsonObject, schemaPath, sha256 } from "./core.js";
+import { classificationContext, WorkflowContext } from "./classification/change-classifier.js";
+
+export type { WorkflowContext };
 
 // workflow-policy.schema.json is draft-07 (no 2020-12 features needed here), so the default ajv
 // export already carries its meta-schema — unlike task.schema.json's Ajv2020 workaround in lifecycle.ts.
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validatePolicySchema = ajv.compile(JSON.parse(readFileSync(schemaPath("workflow-policy.schema.json"), "utf8")) as JsonObject);
-
-export type WorkflowContext = {
-  facts: JsonObject;
-  risk_flags: string[];
-  task_type: string;
-  impact_scope: string;
-  impact_effect: string;
-  impact_confidence: string;
-};
-
-function contextOf(task: JsonObject): WorkflowContext {
-  const facts = typeof task.workflow_facts === "string" ? JSON.parse(task.workflow_facts) as JsonObject : (task.workflow_facts || {}) as JsonObject;
-  return {
-    facts,
-    risk_flags: Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [],
-    task_type: String(task.task_type || ""),
-    impact_scope: String(task.impact_scope || ""),
-    impact_effect: String(task.impact_effect || ""),
-    impact_confidence: String(task.impact_confidence || "")
-  };
-}
 
 export type MatchResult = "match" | "no_match" | "unknown";
 
@@ -159,7 +141,7 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const requested = Array.isArray(task.workflow_request) ? task.workflow_request.map(String) : [];
   const unknown = requested.filter((name) => !names.has(name));
   if (unknown.length) throw new Error(`workflow-plan: unknown capability: ${unknown.join(", ")}`);
-  const ctx = contextOf(task);
+  const ctx = classificationContext(task);
   const ranks = { scope: policy.scope_rank as JsonObject };
   // Two different decisions, deliberately not collapsed into one: a capability is forced only on a
   // proven match, while an undecidable require_when means the task's classification is still

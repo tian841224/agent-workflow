@@ -5,10 +5,14 @@ import { dirname, join } from "node:path";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const testDir = join(root, "tests-node");
-const files = readdirSync(testDir)
-  .filter((name) => name.endsWith(".test.mjs"))
-  .sort()
-  .map((name) => join("tests-node", name));
+function testFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) return testFiles(full);
+    return entry.name.endsWith(".test.mjs") ? [full] : [];
+  });
+}
+const files = testFiles(testDir).sort();
 
 if (!files.length) {
   console.error("run-tests: no *.test.mjs files found under tests-node/");

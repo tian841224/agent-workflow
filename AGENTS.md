@@ -4,9 +4,9 @@
 
 ## 分流
 
-實際修改「目標專案」application source code logic、且達到 workflow 觸發條件時才建立 task、載入 workflow skill；純 test code 修改仍執行相關測試但 bypass workflow；設定、文件、註解、script、除錯、review、規劃、問答與翻譯等非程式碼任務一律 bypass，不建立 task、不啟動角色。判斷細節與 Standard／Elevated 分流見 workflow skill。
+是否進入 workflow 由 `managed_change` 決定，不是 `code_change`：`managed_change` 判準是這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果，涵蓋 application source code 以外的 CI/CD、Dockerfile、nginx 設定、SQL migration、shell deploy script、Terraform 等高風險修改。純文件、註解、script、除錯、review、規劃、問答與翻譯等一律 `managed_change: false`，bypass，不建立 task、不啟動角色。純 test code 修改一律 `managed_change: true` 但走 lightweight 路徑：沒命中 test integrity 相關 fact（`test_deleted`／`test_skipped`／`assertion_weakened`／`snapshot_mass_change`）時 `selected` 為空清單，成本接近零；命中才強制 `test_integrity` capability。判斷細節與 Standard／Elevated 分流見 workflow skill。
 
-單純讀取、檢查或解釋任務可使用 `task_type: read_only` 與 `model_profile: cheap_read`；Codex／Claude 應選用已安裝的 read-only reader agent，不啟動 implementation worker。
+單純讀取、檢查或解釋任務可使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。Codex／Claude 應選用已安裝的 read-only reader agent，不啟動 implementation worker。
 
 ## 硬護欄
 
