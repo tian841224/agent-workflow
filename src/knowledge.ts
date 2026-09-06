@@ -1,16 +1,16 @@
-import { Ajv } from "ajv";
-import { createRequire } from "node:module";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import addFormatsRaw from "ajv-formats";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { frontmatterBody, Json, JsonObject, now, option, output, parseFrontmatter, projectIdentity, schemaPath, sha256, stateRoot, writeAtomic } from "./core.js";
 type Options = Map<string, string | boolean | string[]>;
 
-// knowledge.schema.json declares 2020-12; ajv's default export only ships the draft-07
-// meta-schema, and ajv/dist/2020 has no "exports" entry NodeNext can resolve statically
-const Ajv2020 = createRequire(import.meta.url)("ajv/dist/2020.js") as unknown as typeof Ajv;
+// ajv-formats' CJS default export types as an uncallable namespace under NodeNext; the cast
+// restores the real runtime shape (a plugin function) without a bundler-opaque dynamic require.
+const addFormats = addFormatsRaw as unknown as (instance: InstanceType<typeof Ajv2020>) => void;
+// knowledge.schema.json declares 2020-12, which ajv's default (draft-07) export can't validate
 const ajv = new Ajv2020({ allErrors: true, strict: false });
-// ajv-formats ships only a CJS default export with no "exports" map, which NodeNext can't type as callable via a static import
-(createRequire(import.meta.url)("ajv-formats") as (instance: Ajv) => void)(ajv);
+addFormats(ajv);
 const validateRecord = ajv.compile(JSON.parse(readFileSync(schemaPath("knowledge.schema.json"), "utf8")) as JsonObject);
 
 export function entries(root: string): string[] { if (!existsSync(root)) return []; const result: string[] = []; for (const item of readdirSync(root, { withFileTypes: true })) { const path = join(root, item.name); if (item.isDirectory()) result.push(...entries(path)); else if (item.isFile() && path.endsWith(".md")) result.push(path); } return result; }

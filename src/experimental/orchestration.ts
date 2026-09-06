@@ -1,13 +1,15 @@
-import { Ajv } from "ajv";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import addFormatsRaw from "ajv-formats";
 import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { JsonObject, mutateJsonState, now, option, output, readJson, schemaPath, stateRoot } from "../core.js";
 
-// orchestration.schema.json declares 2020-12, same workaround as lifecycle.ts's task validator.
-const Ajv2020 = createRequire(import.meta.url)("ajv/dist/2020.js") as unknown as typeof Ajv;
+// ajv-formats' CJS default export types as an uncallable namespace under NodeNext; the cast
+// restores the real runtime shape (a plugin function) without a bundler-opaque dynamic require.
+const addFormats = addFormatsRaw as unknown as (instance: InstanceType<typeof Ajv2020>) => void;
+// orchestration.schema.json declares 2020-12, same as lifecycle.ts's task validator.
 const ajv = new Ajv2020({ allErrors: true, strict: false });
-(createRequire(import.meta.url)("ajv-formats") as (instance: Ajv) => void)(ajv);
+addFormats(ajv);
 const validateOrchestration = ajv.compile(JSON.parse(readFileSync(schemaPath("orchestration.schema.json"), "utf8")) as JsonObject);
 function orchestrationSchemaErrors(state: JsonObject): string[] {
   return validateOrchestration(state) ? [] : (validateOrchestration.errors || []).map((error: { instancePath?: string; message?: string }) => `orchestration${error.instancePath || ""} ${error.message}`.trim());
