@@ -50,14 +50,22 @@ export function transitionTask(value: string, action: Transition, actor = "cli",
   return mutateJsonState<JsonObject>(path, (state) => applyTransition(state, path, action, actor, confirmation, requirementId));
 }
 
-const CREATE_MANAGED_KEYS = new Set(["schema_version", "state_revision", "plan_revision", "created_at", "updated_at", "lifecycle", "waivers", "project_id", "worktree_id", "base_commit"]);
+// Allowlist rather than a blocklist of runtime-managed keys: an unrecognized field (including any
+// future task.schema.json addition) is rejected by default instead of silently passing through.
+const TASK_INIT_WRITABLE_FIELDS = new Set([
+  "code_change", "managed_change", "workflow_mode", "task_type",
+  "impact_scope", "impact_effect", "impact_confidence", "risk_flags",
+  "workflow_facts", "workflow_request", "workflow_decision",
+  "independence", "subtask_role", "parent_task_id", "file_ownership",
+  "delivery_status", "integration_status"
+]);
 export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
     if (existsSync(path)) { output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
     try {
-      const blocked = Object.keys(patch).filter((key) => CREATE_MANAGED_KEYS.has(key));
-      if (blocked.length) throw new Error(`task-init: field(s) are runtime-managed and cannot be set directly: ${blocked.join(", ")}`);
+      const disallowed = Object.keys(patch).filter((key) => !TASK_INIT_WRITABLE_FIELDS.has(key));
+      if (disallowed.length) throw new Error(`task-init: field(s) are not writable via task-init: ${disallowed.join(", ")} (identity/evidence/intent_approval/model_profile/lifecycle are runtime-managed)`);
       // Task identity always comes from the real repository being worked in (repoRootValue), never
       // from the task directory itself — that directory normally lives in the state root, not the
       // repo, so hashing it would produce a project_id/worktree_id no gate or lease could match.
@@ -71,7 +79,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       // by task.json path, so it actually serializes against a concurrent task in a different
       // task.json (the outer `${path}.lock` above only serializes against itself).
       const createTask = (): JsonObject => {
-        const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff) : undefined;
+        const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff, path) : undefined;
         const stamp = now();
         const state: JsonObject = {
           schema_version: 4, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
@@ -121,13 +129,9 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
     if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / resume / supersede / waive / close-task instead)`);
     const before = task(path);
-    // Once a code task has a base_commit/lease/delivery semantics riding on it, dropping back to
-    // false would leave those stale rather than meaningfully "undone" — supersede instead.
-    if (before.code_change === true && patch.code_change === false) throw new Error("task-write: code_change cannot transition from true back to false; supersede this task and create a new non-code task instead");
-    if (!reclassification) {
-      const downgrades = downgradeErrors(before, patch);
-      if (downgrades.length) throw new Error(`task-write: ${downgrades.join("; ")}; use \`agent-workflow reclassify --confirmed-by-user <text> --reason <text>\` if the user really re-assessed this task`);
-    }
+    // Only used to decide whether activation needs to run at all; the actual downgrade/code_change
+    // authorization check below re-reads state inside the task lock, since this pre-lock read can be
+    // stale under concurrent writers (see the in-lock checks in applyWrite).
     // Also re-runs activation for a task that is already code_change: true but predates base_commit
     // tracking (created by an older runtime) — the gate now requires base_commit on every code task,
     // and re-sending code_change: true is the only writable signal left to backfill one.
@@ -138,8 +142,16 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     // different tasks against the same worktree can both pass the conflict check before either
     // lease write lands, letting both end up "active" at once.
     const applyWrite = (): JsonObject => {
-      const baseCommit = root && identity ? activateCodeTask("task-write", String(before.id || ""), root, identity, repoRootValue, adoptCurrentDiff) : undefined;
+      const baseCommit = root && identity ? activateCodeTask("task-write", String(before.id || ""), root, identity, repoRootValue, adoptCurrentDiff, path) : undefined;
       const state = mutateJsonState<JsonObject>(path, (current) => {
+        // Checked against `current` (read inside this task's file lock), not the pre-lock `before`:
+        // a stale writer racing another write must not be able to slip a downgrade past this check
+        // just because its own read happened before the other writer's change landed.
+        if (current.code_change === true && patch.code_change === false) throw new Error("task-write: code_change cannot transition from true back to false; supersede this task and create a new non-code task instead");
+        if (!reclassification) {
+          const downgrades = downgradeErrors(current, patch);
+          if (downgrades.length) throw new Error(`task-write: ${downgrades.join("; ")}; use \`agent-workflow reclassify --confirmed-by-user <text> --reason <text>\` if the user really re-assessed this task`);
+        }
         const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
         const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
         for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;

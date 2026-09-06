@@ -106,16 +106,20 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify diff-scoped role evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  // managed_change: false so the gate turns only on role-evidence freshness, not on the evidence a
-  // managed task additionally owes.
-  const classification = { managed_change: false, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
+  // managed_change: true (baseline_validation is unconditionally required whenever it is) with its
+  // three steps stubbed as satisfied below, so the only thing left to go stale is role.reviewer.
+  const classification = { managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
   const reviewedPaths = "reviewed.txt,unrelated.txt";
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask(classification)));
   const planHash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
   const intentHash = JSON.parse(run(["approve-intent", "--task-path", path, "--confirmed-by", "test"]).stdout).intent_hash;
   writeFileSync(join(repo, "reviewed.txt"), "two");
-  const evidence = [{ kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, intent_hash: intentHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest(), delivery_hash: "0".repeat(64) }];
+  const baselineStep = (id, trustLevel) => ({ kind: "step", id: `baseline_validation.${id}`, status: "recorded", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, plan_revision: 1, intent_hash: intentHash, actor: "test", summary: "stub", trust_level: trustLevel });
+  const evidence = [
+    baselineStep("BV1", "attested"), baselineStep("BV2", "runtime"), baselineStep("BV3", "attested"),
+    { kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, intent_hash: intentHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest(), delivery_hash: "0".repeat(64) }
+  ];
   writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence })));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.equal(gate().valid, true, JSON.stringify(gate().errors));

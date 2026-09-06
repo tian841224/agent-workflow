@@ -76,17 +76,22 @@ export function evidenceRecord(value: string, requirementId: string, summary: st
 
 // The one write path both evidence commands funnel through, so the plan/intent stamping, the
 // selected-step check and the schema validation cannot drift between an attested and a runtime record.
+// The plan/intent freshness check (and, for evidence-run, the pre-spawn `expected` comparison) is
+// done again here against `current` — read fresh inside the file lock — rather than trusting the
+// pre-lock computation the caller passed in: a task concurrently rewritten between that pre-lock read
+// and this callback actually running must reject the write outright, not just let task-gate catch it
+// afterward and leave a stale entry sitting in evidence history.
 function appendStepEvidence(command: string, path: string, requirementId: string, summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string }): number {
   try {
-    const plan = compilePlanForTaskPath(task(path), path);
-    const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
-    if (!selectedStepIds.has(requirementId)) throw new Error(`${command}: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
-    const intent_hash = currentIntentHash(path);
-    if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
     const state = mutateJsonState<JsonObject>(path, (current) => {
+      const plan = compilePlanForTaskPath(current, path);
+      const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
+      if (!selectedStepIds.has(requirementId)) throw new Error(`${command}: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+      const intent_hash = currentIntentHash(path);
+      if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       evidence.push({
-        kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, intent_hash, actor, summary, trust_level: trustLevel,
+        kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: trustLevel,
         ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest } : { evidence_kind: "analysis" })
       });
       current.evidence = evidence;
@@ -131,23 +136,26 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
   if (!["pass", "fail"].includes(result)) { output({ valid: false, errors: ["review-record requires --result pass or fail"] }); return 1; }
   if (!summary) { output({ valid: false, errors: ["review-record requires --summary"] }); return 1; }
   try {
-    const state0 = task(path);
-    const plan = compilePlanForTaskPath(state0, path);
     const roleKey = roleId.startsWith("role.") ? roleId : `role.${roleId}`;
-    const selectedRoles = new Set(plan.selected.filter((capability) => capability.kind === "role").map((capability) => `role.${String(capability.name)}`));
-    if (!selectedRoles.has(roleKey)) throw new Error(`review-record: '${roleKey}' is not a selected role for this task; expected one of: ${[...selectedRoles].join(", ") || "(none)"}`);
     const repoRoot = projectIdentity(repoRootValue).root;
-    // No HEAD fallback: a code task always gets base_commit from activation (task-init or
-    // task-write), so a missing one means activation was skipped or the state predates it, not
-    // something safe to paper over with the working tree's current HEAD.
-    const base = String(state0.base_commit || "");
-    if (!base) throw new Error("review-record: task has no base_commit; the code task was not correctly activated");
-    const paths = changedPaths(repoRoot, base);
-    if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
-    const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
-    const delivery = deliveryHash(repoRoot, base);
-    const intent_hash = currentIntentHash(path);
+    // Selected-role check, base_commit, plan/intent stamping and the diff fingerprint are all
+    // recomputed here against `current` (read fresh inside the file lock) rather than an earlier
+    // pre-lock read: a task concurrently reclassified or re-activated between that read and this
+    // callback running must reject the write, not record a review against state that already changed.
     const state = mutateJsonState<JsonObject>(path, (current) => {
+      const plan = compilePlanForTaskPath(current, path);
+      const selectedRoles = new Set(plan.selected.filter((capability) => capability.kind === "role").map((capability) => `role.${String(capability.name)}`));
+      if (!selectedRoles.has(roleKey)) throw new Error(`review-record: '${roleKey}' is not a selected role for this task; expected one of: ${[...selectedRoles].join(", ") || "(none)"}`);
+      // No HEAD fallback: a code task always gets base_commit from activation (task-init or
+      // task-write), so a missing one means activation was skipped or the state predates it, not
+      // something safe to paper over with the working tree's current HEAD.
+      const base = String(current.base_commit || "");
+      if (!base) throw new Error("review-record: task has no base_commit; the code task was not correctly activated");
+      const paths = changedPaths(repoRoot, base);
+      if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
+      const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
+      const delivery = deliveryHash(repoRoot, base);
+      const intent_hash = currentIntentHash(path);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, intent_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, delivery_hash: delivery, summary });
       current.evidence = evidence;
@@ -155,7 +163,8 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
       const errors = schemaErrors(current);
       if (errors.length) throw new Error(`review-record: resulting task.json fails schema: ${errors.join("; ")}`);
     });
-    output({ valid: true, task: path, id: roleKey, result, reviewed_base: base, reviewed_paths: paths, delivery_hash: delivery, state_revision: state.state_revision });
+    const recorded = (state.evidence as JsonObject[]).at(-1) as JsonObject;
+    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Json, JsonObject, output, readJson } from "../core.js";
-import { sections } from "../intent.js";
+import { intentHash, sections } from "../intent.js";
+import { freezeRequired, schemaErrors } from "../lifecycle/task-schema.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 
 // Named references only — pointers to real documents this repo already ships, never invented ones.
@@ -31,6 +32,7 @@ export type ExecutionPacket = {
   required_evidence: string[];
   plan_hash: string;
   plan_revision: number;
+  intent_hash: string;
 };
 
 function asObject(value: Json | undefined): JsonObject {
@@ -41,14 +43,52 @@ function asStrings(value: Json | undefined): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+// A worker must never start from a packet whose premise could already be wrong: unresolved
+// classification would leave it guessing at capabilities the policy hasn't actually settled on, and
+// a stale freeze-required approval would leave it building against a Goal/Scope/Completion criteria
+// the user never actually confirmed. This is a preflight, not the close gate: it only demands what
+// must hold before implementation starts, never post-implementation evidence (task-gate owns that).
+function readinessErrors(task: JsonObject, taskJsonPath: string, taskMdContent: string | null): string[] {
+  const errors = schemaErrors(task);
+  const status = String((task.lifecycle as JsonObject | undefined)?.status || "");
+  if (status !== "in_progress") errors.push(`task lifecycle.status must be 'in_progress' to build an execution packet, got '${status || "(missing)"}'`);
+  if (taskMdContent === null) errors.push("sibling task.md is missing; Goal/Scope/Completion criteria cannot be verified");
+  let liveIntentHash: string | undefined;
+  if (taskMdContent !== null) {
+    try { liveIntentHash = intentHash(taskMdContent); }
+    catch (error) { errors.push(String((error as Error).message || error)); }
+  }
+  try {
+    const plan = compilePlanForTaskPath(task, taskJsonPath);
+    // Same exemption task-gate applies: an unmanaged task never reaches the capabilities these
+    // fields gate, so demanding them here would leave a legitimate managed_change:false task unable
+    // to ever produce a packet.
+    if (task.managed_change === true) {
+      for (const entry of plan.classification_incomplete) errors.push(`workflow classification is incomplete: ${String(entry.name)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
+      for (const entry of plan.step_classification_incomplete) errors.push(`workflow step classification is incomplete: ${String(entry.capability)}.${String(entry.id)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
+    }
+  } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
+  const riskFlags = Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [];
+  if (riskFlags.some((flag) => freezeRequired.has(flag))) {
+    const approval = task.intent_approval;
+    if (!approval || Array.isArray(approval) || typeof approval !== "object") errors.push("intent_approval is required for a freeze-required risk flag but is missing");
+    else if (!liveIntentHash) errors.push("intent_approval cannot be verified: sibling task.md is missing or has no valid intent");
+    else if (String((approval as JsonObject).intent_hash || "") !== liveIntentHash) errors.push("intent_approval.intent_hash is stale: Goal/Scope/Completion criteria changed since approval");
+  }
+  return errors;
+}
+
 // The single execution contract a dispatched worker runs from: intent, already-decided
 // classification, the compiled capabilities and their steps, the workspace boundary it may write
 // in, and the procedures those capabilities name. A worker reads this instead of re-reading the
 // workflow policy and making a second capability decision of its own.
 export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, repoRoot = process.cwd()): ExecutionPacket {
-  const plan = compilePlanForTaskPath(task, taskJsonPath);
   const taskMdPath = join(dirname(taskJsonPath), "task.md");
-  const intent = existsSync(taskMdPath) ? sections(readFileSync(taskMdPath, "utf8")) : new Map<string, string>();
+  const taskMdContent = existsSync(taskMdPath) ? readFileSync(taskMdPath, "utf8") : null;
+  const readiness = readinessErrors(task, taskJsonPath, taskMdContent);
+  if (readiness.length) throw new Error(`execution-packet is not ready: ${readiness.join("; ")}`);
+  const plan = compilePlanForTaskPath(task, taskJsonPath);
+  const intent = taskMdContent !== null ? sections(taskMdContent) : new Map<string, string>();
   const section = (name: string): string => (intent.get(name) || "").trim();
   const capabilities: ExecutionCapability[] = plan.selected.map((capability) => ({
     name: String(capability.name), kind: String(capability.kind),
@@ -79,7 +119,8 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
     procedures,
     required_evidence: plan.required_evidence,
     plan_hash: plan.plan_hash,
-    plan_revision: Number(task.plan_revision || 0)
+    plan_revision: Number(task.plan_revision || 0),
+    intent_hash: intentHash(taskMdContent as string)
   };
 }
 

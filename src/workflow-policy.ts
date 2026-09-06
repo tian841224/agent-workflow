@@ -164,16 +164,24 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
     .filter((capability) => Array.isArray(capability.require_when) && capability.require_when.length > 0)
     .map((capability) => ({ capability, result: evaluateGroups(capability.require_when as JsonObject[][], ctx, ranks) }));
   const required = requireResults.filter((entry) => entry.result === "match").map((entry) => String(entry.capability.name));
-  const classification_incomplete = requireResults.filter((entry) => entry.result === "unknown").map((entry) => ({
+  // managed_change is the sole workflow entry gate: an unmanaged task must never actually start a
+  // capability or role, no matter what a stale/imported workflow_request still names. required is
+  // already naturally empty here (require_when reads managed_change out of ctx), but requested still
+  // carried raw workflow_request into effective/selected/required_evidence below — that's the bypass
+  // this guards against. classification_incomplete is suppressed too: an unmanaged task never reaches
+  // the capabilities it would gate, so it must never be blocked on declaring them.
+  const managedChange = task.managed_change !== false;
+  const classification_incomplete = !managedChange ? [] : requireResults.filter((entry) => entry.result === "unknown").map((entry) => ({
     name: entry.capability.name,
     missing: undeclaredFields(entry.capability.require_when as JsonObject[][], ctx)
   }));
-  const effective = [...new Set([...required, ...requested])];
+  const effective = managedChange ? [...new Set([...required, ...requested])] : [];
   const order = orderCapabilities(effective, capabilities);
   const step_classification_incomplete: JsonObject[] = [];
   const runtime_required_evidence: string[] = [];
   const selected = order.map((name) => capabilities.find((capability) => String(capability.name) === name)!).map((capability) => {
     const selection = selectSteps(capability, ctx, ranks);
+    // order is already empty when unmanaged (effective is empty), so this never runs for such a task.
     step_classification_incomplete.push(...selection.incomplete);
     for (const step of selection.steps) if (capability.runtime_execution === "required" || step.runtime_execution === "required") runtime_required_evidence.push(`${String(capability.name)}.${String(step.id)}`);
     return { name: capability.name, kind: capability.kind, section: capability.section, steps: selection.steps.map((step) => ({ id: step.id, title: step.title })) };

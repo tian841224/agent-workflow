@@ -84,7 +84,7 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。十六個 capability：
 ## 1. 建立 Task
 
 1. Standard task 直接沿用已知的 task context；只有需要跨 worktree、coordinator／worker 或 legacy runtime gate 時才執行 `agent-workflow project-resolver -Ensure`。
-2. 若同一 worktree 已有一個 `in_progress` task，確認是續作，需要時用 `resume` 接回。不是續作時，`paused` 與 `blocked` 仍持續佔用該 worktree 的 code task lease（下一個 code task 無法在同一 worktree 建立），要讓另一個 code task 使用同一 worktree，須先對舊 task 執行 `close-task` 或 `supersede`；否則改用不同的 worktree。
+2. 若同一 worktree 已有一個 `in_progress` task，確認是續作，需要時用 `resume` 接回。不是續作時，`paused` 與 `blocked` 仍持續佔用該 worktree 的 code task lease（下一個 code task 無法在同一 worktree 建立）；要讓另一個 code task 使用同一 worktree，須先釋放舊 task 的 lease——放棄舊 task 用 `supersede`，確定要完成舊 task 則先 `resume` 回 `in_progress` 再 `close-task`（`paused`／`blocked` 無法直接轉為 `closed`）；否則改用不同的 worktree。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則；project docs 讀寫時機另見 [project-docs skill](../project-docs/SKILL.md)。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated、coordinator／worker 或需 legacy gate 的 task 依 `templates/task.md` 建立 extended task。同一目錄執行 `agent-workflow task-init --task-path <dir>`（stdin 傳初始欄位的 JSON，`id` 自動取目錄名）建立 `task.json`；預設 `status: in_progress`，欄位需符合 `schemas/task.schema.json`。
 5. 建立 task 前先判斷 `managed_change`。若為 `false`，直接 bypass，不建立 task。若為 `true`，建立 task 時一次填入目前已知的 classification。`code_change` 只表示是否修改 application source code，不再負責 workflow entry。Test-only 的 `test_integrity` task 使用 `code_change: false`、`managed_change: true`；application source code task 通常使用 `code_change: true`、`managed_change: true`。所有新 managed task 使用 `workflow_mode: main`，並填入主對話選定的 `workflow_request`。`task_type` 是唯一的變更分類欄位，`code_change: true` 結案時必填。

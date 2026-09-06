@@ -44,8 +44,8 @@ npx --yes @tian/agent-workflow@latest
 | v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
 | v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
 | v4 | 依情境載入流程、canonical `.agents`、TDD、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
-| v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排；`task.json` 統一 contract（`state_revision`／`plan_revision`／`intent_approval`）、risk_flags 驅動的 required capability、pure task-gate、CAS 檔案鎖與 git-guard allowlist | 將流程選擇與 runtime 執行分離，並讓高風險流程不再能靠少填 `workflow_request` 被略過，兼顧彈性、可驗證性與跨平台一致性 |
 | v6 | 在 v5 架構基礎上，以「同 prompt、有無 skill／角色提示」的 A/B 比較作為去留依據，只保留驗證後仍有效的最小提示 | skill／角色清單只增不減，缺乏依據判斷提示內容是否真的提升輸出品質，導致 token 與執行時間持續墊高 |
+| v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排；`task.json` 統一 contract（`state_revision`／`plan_revision`／`intent_approval`）、risk_flags 驅動的 required capability、pure task-gate、CAS 檔案鎖與 git-guard allowlist | 將流程選擇與 runtime 執行分離，並讓高風險流程不再能靠少填 `workflow_request` 被略過，兼顧彈性、可驗證性與跨平台一致性 |
 
 ## 二、功能介紹
 

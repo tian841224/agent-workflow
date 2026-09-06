@@ -58,9 +58,20 @@ covers: ["game/gameList/Seth_10017/", "game/commonLogic/checkSeries/"]
 |---|---|
 | 命中，且本次改動沒有改變文件記錄的事實 | 記 no-op，不改寫 |
 | 命中，但入口、流程骨架、共用狀態、契約或假設已與文件不符 | 原地更新受影響的區塊 |
-| `uncovered`（本次路徑沒有任何文件涵蓋） | 依「佈局」建立對應文件 |
+| `uncovered`（本次路徑沒有任何文件涵蓋） | 見下方判準；不是每次 `uncovered` 都要建立文件 |
 
 判準是「文件記錄的事實是否仍成立」，不是「有沒有改到檔案」——只動不影響流程骨架的實作細節時，正確結果就是 no-op。`Stale` 的結果只當線索，一律以現況程式為準。
+
+`uncovered` 不等於必須建立文件，只有符合下列其中之一才建立，依「佈局」挑選對應 doc_type：
+
+- 跨模組流程
+- 公開 API／契約
+- 共用狀態或不變量（invariant）
+- 不直觀但重要的 entrypoint
+- 難以逆轉的架構決策
+- 只看程式碼很難快速恢復的脈絡
+
+單純的 local bug fix、單一函式行為、簡單 CRUD 或 implementation detail 都不符合，記 `no-op: documentation not warranted`，不得為了填 `updated:` 欄位而勉強建立文件。長期重複改同一小模組仍會逐次判斷符不符合上述任一項，不因為「之前改過」就自動升級為要建文件。
 
 新增或修改對外端點時，`docs/api/<slug>.md` 沒有就建立、已有就核對 request／response／errors 是否仍正確。
 

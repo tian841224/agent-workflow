@@ -1,5 +1,0 @@
-{
-  "type": "command",
-  "command": "\"C:\\Program Files\\nodejs\\node.exe\" \"C:\\Users\\jacky\\.claude\\hooks\\clean-comments-sessionstart.js\"",
-  "timeout": 15
-}

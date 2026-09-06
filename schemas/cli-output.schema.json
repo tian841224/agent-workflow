@@ -44,7 +44,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["task_id", "intent", "classification", "constraints", "workflow", "procedures", "required_evidence", "plan_hash", "plan_revision"],
+          "required": ["task_id", "intent", "classification", "constraints", "workflow", "procedures", "required_evidence", "plan_hash", "plan_revision", "intent_hash"],
           "properties": {
             "task_id": { "type": "string" },
             "intent": {
@@ -115,7 +115,8 @@
             "procedures": { "type": "array", "items": { "type": "string" } },
             "required_evidence": { "type": "array", "items": { "type": "string" } },
             "plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-            "plan_revision": { "type": "integer", "minimum": 1 }
+            "plan_revision": { "type": "integer", "minimum": 1 },
+            "intent_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
           },
           "additionalProperties": false
         },

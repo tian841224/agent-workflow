@@ -49,10 +49,10 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   const cwd = text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
   return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0, sessionId: text(payload.session_id) || text(payload.sessionId) || undefined };
 }
-export function hookDecision(event: CanonicalHookEvent): HookDecision {
+export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   if (event.mutation && !event.targetKnown) return { allow: false, reason: "hook-policy: mutation target cannot be normalized; denied fail-closed." };
   if (event.mutation && event.paths.some((path) => !path.trim())) return { allow: false, reason: "hook-policy: mutation target is invalid; denied fail-closed." };
-  if (touchesProtected(event, TASK_STATE_PATTERN) && !isReadOnly(event)) return { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-init` / `task-write` / pause / block / supersede / waive / close-task instead of editing it directly." };
+  if (touchesProtected(event, TASK_STATE_PATTERN) && !isReadOnly(event, TASK_STATE_WRITER_COMMANDS, root)) return { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-init` / `task-write` / pause / block / supersede / waive / close-task instead of editing it directly." };
   return { allow: true };
 }
 const AGENTS_PATTERN = /\.agents\b/i;
@@ -243,21 +243,51 @@ function resolvableAgentWorkflowPath(segment: string): string | undefined {
   const home = process.env.USERPROFILE || process.env.HOME || "";
   return resolve(/^~[\\/]/.test(candidate) ? home + candidate.slice(1) : candidate);
 }
-function isRuntimeInvocation(command: string, root = stateRoot()): boolean {
+// Verifies the segment resolves to the identity-checked runtime binary and, if so, returns the
+// subcommand it invokes (e.g. "task-write", "evidence-run"); undefined if identity cannot be
+// verified. Runtime identity alone does not authorize an operation — only the caller matching the
+// returned subcommand against a resource-specific allowlist does (see isRuntimeInvocationFor).
+function verifiedRuntimeSubcommand(segment: string, root = stateRoot()): string | undefined {
+  // A substitution can smuggle an arbitrary, fully-privileged command past this check: the shell
+  // runs `$(...)`/backticks before the outer `agent-workflow ...` invocation even starts, so the
+  // segment can read as a clean, allowlisted subcommand while unrelated code already executed. Same
+  // rule isReadOnlyShellCommand and gitDecision already apply to their own indirection cases.
+  if (SUBSTITUTION.test(segment)) return undefined;
+  if (!AGENT_WORKFLOW_TOKEN.test(segment)) return undefined;
+  const resolvedPath = resolvableAgentWorkflowPath(segment);
+  if (!resolvedPath) return undefined; // an unresolvable name has no identity to verify; deny fail-closed
+  const managedPath = join(root, "managed-runtime.json");
+  if (!existsSync(managedPath)) return undefined; // resolvable path with nothing to verify it against — deny fail-closed
+  try {
+    const runtimeHash = String((readJson(managedPath) as JsonObject).runtime_hash || "");
+    if (!runtimeHash || !existsSync(resolvedPath) || sha256(readFileSync(resolvedPath)) !== runtimeHash) return undefined;
+  } catch { return undefined; } // resolvedPath could not be verified against the recorded identity; deny fail-closed
+  const subcommandMatch = segment.match(/agent-workflow(?:\.mjs)?["']?\s+(\S+)/i);
+  return subcommandMatch ? subcommandMatch[1].toLowerCase() : undefined;
+}
+// A command legitimately writes task.json only through these commands' own validated write path
+// (schema check + file lock), never by the shell segment touching the file directly.
+const TASK_STATE_WRITER_COMMANDS = new Set([
+  "task-init", "task-write", "reclassify", "close-task", "pause", "block", "resume", "supersede",
+  "waive", "approve-intent", "evidence-record", "review-record"
+]);
+// install/repair/skill are the sanctioned writers for .agents content; every other runtime command
+// gets no .agents mutation exemption.
+const AGENTS_WRITER_COMMANDS = new Set(["install", "repair", "skill"]);
+// `evidence-run` executes a caller-supplied command (`spawnSync` on the trailing args) as its whole
+// purpose, so its own identity verification proves nothing about what that trailing command touches
+// — it must never be granted a blanket read-only exemption for either protected resource.
+function isRuntimeInvocationFor(command: string, allowed: Set<string>, root = stateRoot()): boolean {
   return splitShellSegments(command).every((segment) => {
-    if (!AGENT_WORKFLOW_TOKEN.test(segment)) return false;
-    const resolvedPath = resolvableAgentWorkflowPath(segment);
-    if (!resolvedPath) return false; // an unresolvable name has no identity to verify; deny fail-closed
-    const managedPath = join(root, "managed-runtime.json");
-    if (!existsSync(managedPath)) return false; // resolvable path with nothing to verify it against — deny fail-closed
-    try {
-      const runtimeHash = String((readJson(managedPath) as JsonObject).runtime_hash || "");
-      return !!runtimeHash && existsSync(resolvedPath) && sha256(readFileSync(resolvedPath)) === runtimeHash;
-    } catch { return false; } // resolvedPath could not be verified against the recorded identity; deny fail-closed
+    const subcommand = verifiedRuntimeSubcommand(segment, root);
+    return !!subcommand && allowed.has(subcommand);
   });
 }
-function isReadOnly(event: CanonicalHookEvent): boolean {
-  return event.command ? isReadOnlyShellCommand(event.command) || isRuntimeInvocation(event.command) : isReadOnlyTool(event.tool);
+function isGenericReadOnly(event: CanonicalHookEvent): boolean {
+  return event.command ? isReadOnlyShellCommand(event.command) : isReadOnlyTool(event.tool);
+}
+function isReadOnly(event: CanonicalHookEvent, runtimeAllowed: Set<string>, root: string): boolean {
+  return isGenericReadOnly(event) || (!!event.command && isRuntimeInvocationFor(event.command, runtimeAllowed, root));
 }
 // Global options come before the subcommand, so they have to be consumed before it can be read;
 // leaving them in place made `git --no-pager log` parse as the subcommand "--no-pager".
@@ -291,7 +321,12 @@ function parseGitInvocation(segment: string, boundary = process.cwd()): { subcom
 // Wrappers that hand a command to something else to run: their payload can sit anywhere in the
 // segment, not at its head. Head-anchoring alone read `ssh host git push` as an invocation of ssh.
 const COMMAND_CARRYING = new Set([...SCRIPT_INTERPRETERS, ...PREFIX_WRAPPERS, "ssh", "docker", "podman", "kubectl", "lxc", "vagrant"]);
+// git diff/show/log accept diff-machinery options that mutate the filesystem or shell out to a
+// helper (`--output=<file>` writes there directly; `--ext-diff`/`--textconv` run a configured
+// external command) even though the subcommand itself is on the read-only allowlist.
+const GIT_DENIED_READ_OPTIONS = /^--(?:output(?:=.*)?|ext-diff|textconv)$/;
 function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
+  if (["diff", "log", "show"].includes(subcommand) && args.some((arg) => GIT_DENIED_READ_OPTIONS.test(arg))) return false;
   if (["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"].includes(subcommand)) return true;
   if (subcommand === "branch") return args.length === 0 || (args.length === 1 && args[0] === "--show-current");
   if (subcommand === "remote") return args.length > 0 && ["-v", "get-url", "show"].includes(args[0]);
@@ -326,7 +361,7 @@ function agentsRootOf(resolvedPath: string): string | undefined {
   return idx === -1 ? undefined : resolvedPath.slice(0, idx + `${sep}.agents`.length);
 }
 export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
-  if (!touchesProtected(event, AGENTS_PATTERN) || isReadOnly(event)) return { allow: true };
+  if (!touchesProtected(event, AGENTS_PATTERN) || isReadOnly(event, AGENTS_WRITER_COMMANDS, root)) return { allow: true };
   const cwd = event.cwd ? resolve(event.cwd) : ""; const targets = event.paths.map((path) => resolve(cwd || ".", path));
   if (!event.sessionId) return { allow: false, reason: "skill-guard: session proof is unavailable for a .agents mutation." };
   const proof = skillProofPath(root, event.platform, event.sessionId);
@@ -338,8 +373,8 @@ export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): Ho
   if (typeof record.agents_root === "string" && targetRoots.some((path) => normal(path) !== normal(record.agents_root as string))) return { allow: false, reason: "skill-guard: proof was read for a different .agents root; re-read writing-for-agents/SKILL.md for this repo." };
   return { allow: true };
 }
-export function runGuard(kind: "git" | "skill", platform: string, eventName: string, payload: JsonObject, root?: string): void {
-  const event = normalizeHookEvent(platform, payload, eventName); const baseline = hookDecision(event); const decision = !baseline.allow ? baseline : kind === "git" ? gitDecision(event) : skillDecision(event, root);
+export function runGuard(kind: "git" | "skill", platform: string, eventName: string, payload: JsonObject, root = stateRoot()): void {
+  const event = normalizeHookEvent(platform, payload, eventName); const baseline = hookDecision(event, root); const decision = !baseline.allow ? baseline : kind === "git" ? gitDecision(event) : skillDecision(event, root);
   platformOutput(platform, eventName, decision);
 }
 export function recordSkillRead(platform: string, payload: JsonObject, root = stateRoot()): void {

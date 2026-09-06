@@ -29,8 +29,8 @@ Test-only 新增測試、強化 assertion 或不降低驗證能力的 refactor �
 - Review 打回並修正後，開下一輪前記錄一次歸因；累積達門檻的補救（補文件、改任務規範、寫 skill）一律需使用者明確同意。
 - 提煉出的 skill 草稿一律停留在 `skill-drafts/`，只有使用者在對話中明確同意才執行 Promote；agent 不得自行核准。
 - 使用臺灣慣用繁體中文回應；程式碼與技術術語保留原文。
-- Use ASCII to visualize content when explaining concepts.
-- 每一次自然語言輸出前，一律載入並套用 `localization-tw` skill；不得自行判斷本次內容簡單而略過。輸出前必須依 `localization-tw` 檢查完整回覆，修正中國慣用詞、簡體用語、臺灣不常用表達、標點與語氣後才可輸出。遇到不確定詞彙時，再查閱該 skill 的 references，不需每次重讀整份 skill。<!-- skill:localization-tw -->
+- 只有圖示能明顯提高理解時才用 ASCII 呈現概念，不必每次解釋概念都畫圖。
+- 同一 session 首次需要 zh-TW 輸出時載入並套用 `localization-tw` skill，之後同一 session 不必重新載入；輸出前仍需依已套用的規則檢查回覆，修正中國慣用詞、簡體用語、臺灣不常用表達、標點與語氣後才可輸出。只有 context 已重建、skill 內容已改變，或遇到不確定詞彙時，才重新載入或查閱該 skill 的 references。<!-- skill:localization-tw -->
 - 修改 application source code 前，依 `project-docs` skill 查出涵蓋本次路徑的文件並讀過再動手；改完後依查詢結果建立缺少的文件或更新已失準的內容。<!-- skill:project-docs -->
 - 修改 application source code logic 前，一律載入 `clean-comments` skill；test code、文件、指令、設定、script、除錯、規劃及其他非程式邏輯工作不適用。
 - 修改 `.agents/` 下任何 agent 或 skill 文件時載入 `writing-for-agents` skill。

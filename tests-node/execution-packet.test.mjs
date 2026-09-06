@@ -56,6 +56,7 @@ test("execution-packet is the complete worker execution contract", () => {
   assert.ok(packet.required_evidence.includes("role.reviewer"));
   assert.match(packet.plan_hash, /^[a-f0-9]{64}$/);
   assert.equal(packet.plan_revision, 1);
+  assert.match(packet.intent_hash, /^[a-f0-9]{64}$/);
 });
 
 test("execution-packet reports a missing task state instead of throwing", () => {
@@ -63,4 +64,84 @@ test("execution-packet reports a missing task state instead of throwing", () => 
   const body = JSON.parse(missing.stdout);
   assert.equal(body.valid, false);
   assert.equal(missing.status, 1);
+});
+
+// A worker must never start from a packet whose premise is already wrong: unresolved
+// classification, an empty Goal, a non-in_progress task, or (for a freeze-required flag) a stale
+// intent approval. This is a preflight only — it must not demand post-implementation evidence.
+function setupPreflightTask(root, overrides = {}) {
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  vcs(repo, ["init", "-q"]);
+  vcs(repo, ["config", "user.email", "t@e.com"]);
+  vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "f.txt"), "one");
+  vcs(repo, ["add", "."]);
+  vcs(repo, ["commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-preflight");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), overrides.taskMd ?? "# Test\n\n## Goal\n\nDo the thing.\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n");
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo], {
+    input: JSON.stringify({
+      code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix",
+      impact_scope: "file", impact_effect: "local_behavior", impact_confidence: overrides.impact_confidence ?? "high",
+      risk_flags: overrides.risk_flags ?? [], workflow_request: []
+    })
+  });
+  assert.equal(init.status, 0, init.stdout);
+  return { repo, task };
+}
+
+test("execution-packet rejects a task whose lifecycle.status is not in_progress", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-preflight-status-${process.pid}-${Date.now()}`);
+  const { repo, task } = setupPreflightTask(root);
+  assert.equal(run(["pause", "--task", task]).status, 0);
+  const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /lifecycle\.status must be 'in_progress'/);
+});
+
+test("execution-packet rejects a task with an empty Goal section", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-preflight-goal-${process.pid}-${Date.now()}`);
+  const { repo, task } = setupPreflightTask(root, { taskMd: "# Test\n\n## Goal\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n" });
+  const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /Goal.*empty|task\.md intent is invalid/);
+});
+
+test("execution-packet rejects a task with incomplete classification", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-preflight-classification-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  vcs(repo, ["init", "-q"]); vcs(repo, ["config", "user.email", "t@e.com"]); vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "f.txt"), "one"); vcs(repo, ["add", "."]); vcs(repo, ["commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-preflight-classification"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nDo the thing.\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n");
+  // impact_scope cross_project already requires reviewer/execution_path_review outright, but leaving
+  // impact_effect undeclared leaves data_impact classification-incomplete (see policy-completeness.test.mjs).
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo], {
+    input: JSON.stringify({ code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix", impact_scope: "cross_project", impact_confidence: "high", risk_flags: [], workflow_request: [] })
+  });
+  assert.equal(init.status, 0, init.stdout);
+  const plan = JSON.parse(run(["workflow-plan", "--task-path", task]).stdout);
+  assert.ok(plan.classification_incomplete.some((entry) => entry.name === "data_impact"), JSON.stringify(plan.classification_incomplete));
+  const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /workflow classification is incomplete/);
+});
+
+test("execution-packet rejects a freeze-required task with a stale intent approval", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-preflight-intent-${process.pid}-${Date.now()}`);
+  const { repo, task } = setupPreflightTask(root, { risk_flags: ["contract"] });
+  const reclassified = run(["reclassify", "--task-path", task, "--confirmed-by-user", "user", "--reason", "scoped"], { input: "{}" });
+  assert.equal(reclassified.status, 0, reclassified.stdout);
+  const noApproval = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.notEqual(noApproval.status, 0);
+  assert.match(JSON.parse(noApproval.stdout).errors.join(";"), /intent_approval is required/);
+  assert.equal(run(["approve-intent", "--task-path", task, "--confirmed-by", "user", "--as-user"]).status, 0);
+  const approved = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.equal(approved.status, 0, approved.stdout);
+  writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nDo a DIFFERENT thing.\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n");
+  const stale = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.notEqual(stale.status, 0);
+  assert.match(JSON.parse(stale.stdout).errors.join(";"), /intent_approval\.intent_hash is stale/);
 });

@@ -292,7 +292,12 @@ export function diffFingerprint(cwd: string, base: string, paths: string[]): str
   const scope = [...new Set(paths.map((value) => value.trim()).filter(Boolean))].sort();
   const diff = git(cwd, ["diff", "--binary", base, "--", ...scope]);
   if (diff.status !== 0) throw new Error(`diff-fingerprint: git diff failed for base ${base}: ${diff.stderr.trim()}`);
-  const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard", "--", ...scope]).stdout
+  // An untracked-file listing this runtime cannot complete must never be read as "there are none":
+  // a reviewer's/task's delivery fingerprint would then silently omit whatever untracked files this
+  // failed enumeration was actually going to report.
+  const untrackedProbe = git(cwd, ["ls-files", "--others", "--exclude-standard", "--", ...scope]);
+  if (untrackedProbe.status !== 0) throw new Error(`diff-fingerprint: git ls-files failed for base ${base}: ${untrackedProbe.stderr.trim()}`);
+  const untracked = untrackedProbe.stdout
     .split(/\r?\n/).map((line) => line.trim()).filter(Boolean).sort();
   const manifest = untracked.map((relPath) => {
     try { return `${relPath}:${sha256(readFileSync(resolve(cwd, relPath)))}`; }
@@ -323,6 +328,10 @@ export function changedPaths(cwd: string, base: string): string[] {
     if (parts.length < 2) continue;
     result.push(...parts.slice(1)); // R/C carry both the old and the new path; every other status carries one
   }
-  result.push(...git(cwd, ["ls-files", "--others", "--exclude-standard"]).stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  // Same fail-closed rule as diffFingerprint: an untracked-listing failure must not collapse to "no
+  // untracked files", or a reviewer/gate would see a narrower delivery than actually exists.
+  const untrackedProbe = git(cwd, ["ls-files", "--others", "--exclude-standard"]);
+  if (untrackedProbe.status !== 0) throw new Error(`changed-paths: git ls-files failed for base ${base}: ${untrackedProbe.stderr.trim()}`);
+  result.push(...untrackedProbe.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
   return [...new Set(result)].sort();
 }

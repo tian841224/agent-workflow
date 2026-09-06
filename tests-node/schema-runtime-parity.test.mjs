@@ -25,7 +25,7 @@ function validatorFor(definition) {
 
 const HASH = "a".repeat(64);
 const waiver = (overrides = {}) => ({ at: "2026-01-01T00:00:00.000Z", actor: "cli", confirmed_by_user: "user said skip", requirement_id: "role.reviewer", plan_hash: HASH, intent_hash: HASH, ...overrides });
-const stepEvidence = (overrides = {}) => ({ kind: "step", id: "baseline_validation.BV1", status: "recorded", at: "2026-01-01T00:00:00.000Z", plan_hash: HASH, intent_hash: HASH, summary: "ran the suite", ...overrides });
+const stepEvidence = (overrides = {}) => ({ kind: "step", id: "baseline_validation.BV1", status: "recorded", at: "2026-01-01T00:00:00.000Z", plan_hash: HASH, plan_revision: 1, intent_hash: HASH, summary: "ran the suite", ...overrides });
 
 // A waiver without intent_hash cannot be checked against the task.md it was granted for, so it would
 // survive a rewrite of the Goal/Scope it was justified by.

@@ -100,3 +100,34 @@ test("changing task_type between two otherwise-identical workflow-plan calls cha
   const refactor = planFor("refactor");
   assert.notEqual(fix.plan_hash, refactor.plan_hash);
 });
+
+// managed_change is the sole workflow entry gate: a task explicitly marked managed_change: false
+// (a stale/imported/legacy task, per workflow SKILL.md) must never actually start a capability or
+// role no matter what workflow_request/risk_flags/workflow_facts it still carries, and must never
+// be blocked on an incomplete classification it will never need to resolve.
+test("managed_change: false bypasses every capability/role even with a stale workflow_request, risk_flags, and workflow_facts", () => {
+  const root = join(tmpdir(), `agent-workflow-plan-unmanaged-bypass-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const planFor = (task) => { const path = join(root, `${crypto.randomUUID()}.json`); writeFileSync(path, JSON.stringify(task)); return JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path], { cwd: process.cwd(), encoding: "utf8" }).stdout); };
+  const stale = planFor({
+    managed_change: false, workflow_request: ["reviewer"], risk_flags: ["security", "authorization"],
+    // impact_scope left undeclared: with managed_change:true this would make several capabilities
+    // classification-incomplete; with managed_change:false it must not block anything at all.
+    task_type: "fix", workflow_facts: { schema_constraint_change: true }
+  });
+  assert.deepEqual(stale.selected, []);
+  assert.deepEqual(stale.order, []);
+  assert.deepEqual(stale.required_evidence, []);
+  assert.deepEqual(stale.classification_incomplete, []);
+  assert.deepEqual(stale.step_classification_incomplete, []);
+  // requested still reflects the raw workflow_request as diagnostics; it just never gets started.
+  assert.deepEqual(stale.requested, ["reviewer"]);
+  // The same classification with managed_change: true actually starts something, proving the empty
+  // result above is a real bypass and not an artifact of the fixture itself.
+  const managed = planFor({
+    managed_change: true, workflow_request: ["reviewer"], risk_flags: ["security", "authorization"],
+    impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", workflow_facts: { schema_constraint_change: true }
+  });
+  assert.ok(managed.selected.length > 0, JSON.stringify(managed));
+  assert.ok(managed.required_evidence.includes("role.reviewer"), JSON.stringify(managed.required_evidence));
+});

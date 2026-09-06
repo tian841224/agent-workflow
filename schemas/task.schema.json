@@ -130,8 +130,8 @@
     },
     "stepEvidence": {
       "type": "object",
-      "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence, written only by `agent-workflow evidence-record`. status: recorded means the agent has completed and recorded this analysis — it is not a cryptographic verification claim.",
-      "required": ["kind", "id", "status", "at", "plan_hash", "intent_hash", "summary"],
+      "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence, written only by `agent-workflow evidence-record`/`evidence-run`. status: recorded means the agent has completed and recorded this analysis — it is not a cryptographic verification claim. plan_revision (like role evidence's) guards against plan_hash's own reversibility: a classification round-trip can restore an identical plan_hash, so the gate also requires plan_revision to match the task's current one.",
+      "required": ["kind", "id", "status", "at", "plan_hash", "intent_hash", "plan_revision", "summary"],
       "allOf": [
         {
           "if": { "properties": { "evidence_kind": { "const": "analysis" } }, "required": ["evidence_kind"] },
@@ -152,6 +152,7 @@
         "status": { "const": "recorded" },
         "at": { "type": "string", "format": "date-time" },
         "plan_hash": { "$ref": "#/$defs/sha256" },
+        "plan_revision": { "type": "integer", "minimum": 1 },
         "intent_hash": { "$ref": "#/$defs/sha256" },
         "actor": { "type": "string", "minLength": 1 },
         "summary": { "type": "string", "minLength": 1 },

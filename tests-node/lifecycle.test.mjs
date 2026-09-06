@@ -140,6 +140,74 @@ test("task-init refuses a second active code task in the same worktree", () => {
   assert.equal(third.status, 0, third.stderr);
 });
 
+// "Cannot determine lease state" must never be read as "no conflict": a corrupt lease/candidate, a
+// lease bound to the wrong worktree, a task_id mismatch, or an unrecognized lifecycle.status must
+// all block a new code task rather than silently letting it activate.
+test("worktree lease fails closed on corruption/mismatch, and only reclaims a provably stale lease", () => {
+  const root = join(tmpdir(), `agent-workflow-lease-fail-closed-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  const state = join(root, "state");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const newTask = () => { const t = join(root, `20260101-000000-lease-${Math.random().toString(36).slice(2)}`); mkdirSync(t, { recursive: true }); return t; };
+  // project-resolver doesn't expose worktree_id, so derive the real lease path from a genuine
+  // activation instead of recomputing the hash ourselves.
+  const seed = newTask();
+  const seeded = run(["task-init", "--task-path", join(seed, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+  assert.equal(seeded.status, 0, seeded.stdout);
+  const worktreeId = JSON.parse(readFileSync(join(seed, "task.json"), "utf8")).worktree_id;
+  const leasePath = join(state, "worktree-leases", `${worktreeId}.json`);
+  assert.equal(run(["supersede", "--task", join(seed, "task.json")]).status, 0);
+  const attemptDenied = (pattern) => {
+    const t = newTask();
+    const result = run(["task-init", "--task-path", join(t, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+    assert.notEqual(result.status, 0, JSON.stringify(result.stdout));
+    assert.match(JSON.parse(result.stdout).errors[0], pattern);
+  };
+  // Corrupt lease JSON.
+  mkdirSync(join(state, "worktree-leases"), { recursive: true });
+  writeFileSync(leasePath, "{not json");
+  attemptDenied(/lease is corrupt/);
+  // Lease bound to a different worktree_id than its own filename implies.
+  const candidateTask = newTask();
+  writeFileSync(leasePath, JSON.stringify({ worktree_id: "0".repeat(16), task_id: "20260101-000000-elsewhere", task_path: join(candidateTask, "task.json"), acquired_at: new Date().toISOString() }));
+  attemptDenied(/bound to worktree_id/);
+  // Lease points at a task.json that does not exist -> reclaimable, not a conflict.
+  writeFileSync(leasePath, JSON.stringify({ worktree_id: worktreeId, task_id: "20260101-000000-gone", task_path: join(root, "nope", "task.json"), acquired_at: new Date().toISOString() }));
+  {
+    const t = newTask();
+    const result = run(["task-init", "--task-path", join(t, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+    assert.equal(result.status, 0, JSON.stringify(result.stdout));
+    assert.equal(run(["supersede", "--task", join(t, "task.json")]).status, 0);
+  }
+  // Lease's task_path exists but is corrupt JSON.
+  const corruptCandidate = newTask();
+  writeFileSync(join(corruptCandidate, "task.json"), "{not json");
+  writeFileSync(leasePath, JSON.stringify({ worktree_id: worktreeId, task_id: "20260101-000000-corrupt", task_path: join(corruptCandidate, "task.json"), acquired_at: new Date().toISOString() }));
+  attemptDenied(/task referenced by worktree lease is corrupt/);
+  // Lease's task_id does not match the id actually recorded in the candidate task.json.
+  const mismatchCandidate = newTask();
+  writeFileSync(join(mismatchCandidate, "task.json"), JSON.stringify(validTask({ id: "20260101-000000-actual-id", lifecycle: { status: "in_progress", transitions: [] } })));
+  writeFileSync(leasePath, JSON.stringify({ worktree_id: worktreeId, task_id: "20260101-000000-claimed-id", task_path: join(mismatchCandidate, "task.json"), acquired_at: new Date().toISOString() }));
+  attemptDenied(/task_id.*does not match/);
+  // Candidate task.json has a lifecycle.status this runtime does not recognize as active or terminal.
+  const weirdStatusCandidate = newTask();
+  writeFileSync(join(weirdStatusCandidate, "task.json"), JSON.stringify(validTask({ id: "20260101-000000-weird-status", lifecycle: { status: "quantum", transitions: [] } })));
+  writeFileSync(leasePath, JSON.stringify({ worktree_id: worktreeId, task_id: "20260101-000000-weird-status", task_path: join(weirdStatusCandidate, "task.json"), acquired_at: new Date().toISOString() }));
+  attemptDenied(/neither a recognized active nor terminal state/);
+  // Candidate task.json is genuinely closed -> reclaimable.
+  const closedCandidate = newTask();
+  writeFileSync(join(closedCandidate, "task.json"), JSON.stringify(validTask({ id: "20260101-000000-closed-candidate", lifecycle: { status: "closed", transitions: [] } })));
+  writeFileSync(leasePath, JSON.stringify({ worktree_id: worktreeId, task_id: "20260101-000000-closed-candidate", task_path: join(closedCandidate, "task.json"), acquired_at: new Date().toISOString() }));
+  {
+    const t = newTask();
+    const result = run(["task-init", "--task-path", join(t, "task.json"), "--repo-root", repo, "--state-root", state], JSON.stringify({ code_change: true, task_type: "fix" }));
+    assert.equal(result.status, 0, JSON.stringify(result.stdout));
+  }
+});
+
 test("concurrent task-init calls on the same worktree never let two code tasks both acquire the lease", async () => {
   const root = join(tmpdir(), `agent-workflow-lease-race-${process.pid}-${Date.now()}`);
   const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
@@ -194,6 +262,50 @@ test("task-init rejects a runtime-managed field and a patch that fails schema", 
   const spoofed = run(JSON.stringify({ base_commit: "1".repeat(40) }));
   assert.equal(spoofed.valid, false);
   assert.match(spoofed.errors[0], /runtime-managed/);
+});
+
+// task-init switched from a blocklist (CREATE_MANAGED_KEYS) to an allowlist (TASK_INIT_WRITABLE_FIELDS)
+// specifically because the blocklist missed these four fields: a caller could otherwise plant a fake
+// task id, forge runtime/attested evidence, or forge an intent_approval it never actually obtained.
+test("task-init rejects injected id, evidence, intent_approval, and model_profile", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-forge-${process.pid}-${Date.now()}`);
+  const run = (input) => {
+    const task = join(root, `task-${Math.random().toString(36).slice(2)}`); mkdirSync(task, { recursive: true });
+    const path = join(task, "task.json");
+    return JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-init", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input }).stdout);
+  };
+  const forgedId = run(JSON.stringify({ id: "20260101-000000-not-the-real-dir-name" }));
+  assert.equal(forgedId.valid, false);
+  assert.match(forgedId.errors[0], /not writable via task-init/);
+  const forgedEvidence = run(JSON.stringify({ evidence: [{ kind: "step", id: "baseline_validation.BV2", status: "recorded", trust_level: "runtime", evidence_kind: "execution", exit_code: 0 }] }));
+  assert.equal(forgedEvidence.valid, false);
+  assert.match(forgedEvidence.errors[0], /not writable via task-init/);
+  const forgedIntent = run(JSON.stringify({ intent_approval: { intent_hash: "a".repeat(64), confirmed_at: new Date().toISOString(), confirmed_by: "attacker", source: "user" } }));
+  assert.equal(forgedIntent.valid, false);
+  assert.match(forgedIntent.errors[0], /not writable via task-init/);
+  const forgedModelProfile = run(JSON.stringify({ model_profile: "cheap_read" }));
+  assert.equal(forgedModelProfile.valid, false);
+  assert.match(forgedModelProfile.errors[0], /not writable via task-init/);
+});
+
+test("task-init still accepts legitimate worker/classification metadata", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-legit-${process.pid}-${Date.now()}`);
+  const task = join(root, "20260101-000000-legit-task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-init", "--task-path", path], {
+    cwd: process.cwd(), encoding: "utf8",
+    input: JSON.stringify({
+      code_change: false, managed_change: true, workflow_mode: "main", task_type: "fix",
+      impact_scope: "module", impact_effect: "local_behavior", impact_confidence: "high",
+      risk_flags: ["behavior_change"], workflow_facts: {}, workflow_request: ["reviewer"], workflow_decision: "noted"
+    })
+  });
+  assert.equal(result.status, 0, result.stdout);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.task_type, "fix");
+  assert.deepEqual(state.risk_flags, ["behavior_change"]);
+  assert.equal(state.evidence.length, 0);
+  assert.equal(state.intent_approval, undefined);
 });
 
 test("task-write merges fields through the lock, bumps plan_revision on a classification change, and rejects lifecycle edits", () => {
@@ -382,6 +494,42 @@ test("evidence-run records runtime-trusted execution evidence, and a failing com
   assert.ok(failed.errors.some((error) => /baseline_validation\.BV2/.test(error)), failed.errors.join("; "));
 });
 
+// evidence-run's plan/intent freshness must be checked against the freshest on-disk state inside the
+// file lock at write time, not only just before the (potentially slow) command spawns: a task
+// reclassified while the command is still running must be rejected once the command finishes, not
+// silently accepted because the pre-spawn snapshot still looked fresh at that earlier moment.
+test("evidence-run rejects its own write when the task was reclassified while its command was still running", async () => {
+  const root = join(tmpdir(), `agent-workflow-evidence-run-freshness-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify evidence-run freshness.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", risk_flags: [] })));
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const { spawn } = await import("node:child_process");
+  const evidenceRunAsync = () => new Promise((resolvePromise) => {
+    const child = spawn(process.execPath, ["dist/agent-workflow.mjs", "evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "ran the check", "--", process.execPath, "-e", "setTimeout(()=>{}, 700)"], { cwd: process.cwd() });
+    let stdout = ""; child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.on("close", (code) => resolvePromise({ code, stdout }));
+  });
+  const before = JSON.parse(readFileSync(path, "utf8"));
+  const pending = evidenceRunAsync();
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
+  // Lands well before the 700ms command finishes: this reclassification changes plan_hash without
+  // being a downgrade, so task-write accepts it outright.
+  const reclassified = run(["task-write", "--task-path", path], JSON.stringify({ risk_flags: ["operational"] }));
+  assert.equal(reclassified.status, 0, reclassified.stdout);
+  const afterReclassify = JSON.parse(readFileSync(path, "utf8"));
+  assert.notEqual(afterReclassify.state_revision, before.state_revision);
+  const result = await pending;
+  assert.notEqual(result.code, 0, result.stdout);
+  assert.match(JSON.parse(result.stdout).errors[0], /task changed during evidence-run, re-run required/);
+  // The rejected write must not have landed: no new evidence entry, state_revision unchanged since
+  // the reclassification.
+  const final = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(final.evidence.length, 0);
+  assert.equal(final.state_revision, afterReclassify.state_revision);
+});
+
 test("task-init binds project_id/worktree_id to the real repo, not the task's storage directory", () => {
   const root = join(tmpdir(), `agent-workflow-task-init-identity-${process.pid}-${Date.now()}`);
   const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
@@ -411,4 +559,81 @@ test("pause and block both resume back to in_progress", () => {
     assert.equal(run([back, "--task", path]).status, 0);
     assert.equal(JSON.parse(readFileSync(path, "utf8")).lifecycle.status, "in_progress");
   }
+});
+
+// Regression for the TOCTOU window: the old downgrade check read `before` outside the file lock, so
+// a writer racing a concurrent classification upgrade could see the pre-upgrade value and slip its
+// downgrade through once it finally took the lock. The fix re-reads `current` inside the lock
+// (mutateJsonState), so every writer's authorization check is against the freshest on-disk state at
+// the moment it actually mutates — a sequential-only test cannot distinguish this from the old code,
+// since both agree when nothing races. This fires many task-write calls at once from the same
+// pre-race state and checks the invariant holds regardless of how the OS schedules them.
+test("concurrent task-write cannot let a stale writer undo a classification upgrade (TOCTOU regression)", async () => {
+  const root = join(tmpdir(), `agent-workflow-downgrade-race-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "task.json");
+  const { spawn } = await import("node:child_process");
+  const runAsync = (input) => new Promise((resolvePromise) => {
+    const child = spawn(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], { cwd: process.cwd() });
+    child.on("close", (code) => resolvePromise(code));
+    child.stdin.write(input); child.stdin.end();
+  });
+
+  // Case 1: managed_change starts false; one writer flips it to true while many stale writers race
+  // to (re)confirm false. Whichever order the OS picks, the true-write must win and stick.
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: false, risk_flags: [], impact_confidence: "high" })));
+  const managedResults = await Promise.all([
+    runAsync(JSON.stringify({ managed_change: true })),
+    ...Array.from({ length: 9 }, () => runAsync(JSON.stringify({ managed_change: false })))
+  ]);
+  assert.equal(managedResults[0], 0);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).managed_change, true);
+
+  // Case 2: risk_flags starts without "security"; one writer adds it while many stale writers race
+  // to overwrite risk_flags back to an empty list. The flag must never end up dropped.
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, risk_flags: [], impact_confidence: "high" })));
+  const flagResults = await Promise.all([
+    runAsync(JSON.stringify({ risk_flags: ["security"] })),
+    ...Array.from({ length: 9 }, () => runAsync(JSON.stringify({ risk_flags: [] })))
+  ]);
+  assert.equal(flagResults[0], 0);
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).risk_flags, ["security"]);
+
+  // Case 3: impact_confidence starts medium; one writer raises it to high while many stale writers
+  // race to reassert medium. The raised confidence must never end up lowered back.
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, risk_flags: [], impact_confidence: "medium" })));
+  const confidenceResults = await Promise.all([
+    runAsync(JSON.stringify({ impact_confidence: "high" })),
+    ...Array.from({ length: 9 }, () => runAsync(JSON.stringify({ impact_confidence: "medium" })))
+  ]);
+  assert.equal(confidenceResults[0], 0);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).impact_confidence, "high");
+});
+
+// plan_hash is a pure function of current classification fields, so a classification round-trip
+// (e.g. managed_change true -> false -> true, with nothing else changed) restores the exact same
+// plan_hash even though the task's actual state moved through two more reclassifications in
+// between. plan_hash alone therefore is not proof that step evidence is still fresh; plan_revision
+// (bumped every time plan_hash changes, never reused) must also match, exactly like role evidence
+// already requires via roleFreshnessErrors.
+test("step evidence recorded before a classification round-trip does not satisfy the gate afterward, even though plan_hash reverts", () => {
+  const root = join(tmpdir(), `agent-workflow-plan-revision-replay-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Replay\n\n## Goal\n\nVerify plan_revision closes the plan_hash replay gap.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "cross_project", impact_effect: "destructive", impact_confidence: "high", task_type: "fix", risk_flags: [] })));
+  const record = run(["evidence-record", "--task-path", path, "--requirement-id", "impact_discovery.ID1", "--summary", "recorded before the round-trip"]);
+  assert.equal(record.status, 0, record.stdout);
+  const planHashBefore = JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).plan_hash;
+  const toFalse = run(["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "testing round-trip"], JSON.stringify({ managed_change: false }));
+  assert.equal(toFalse.status, 0, toFalse.stdout);
+  const backToTrue = run(["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "testing round-trip"], JSON.stringify({ managed_change: true }));
+  assert.equal(backToTrue.status, 0, backToTrue.stdout);
+  const after = JSON.parse(readFileSync(path, "utf8"));
+  const planHashAfter = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
+  assert.equal(planHashAfter, planHashBefore, "the round-trip must actually reproduce the same plan_hash for this to be a meaningful test");
+  assert.notEqual(after.plan_revision, JSON.parse(readFileSync(path, "utf8")).evidence[0].plan_revision, "plan_revision must have moved even though plan_hash reverted");
+  const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.ok(gated.errors.some((error) => /impact_discovery\.ID1/.test(error) && /plan revision/.test(error)), gated.errors.join("; "));
 });

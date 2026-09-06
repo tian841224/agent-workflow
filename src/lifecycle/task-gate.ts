@@ -56,6 +56,12 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       const item = latestEvidence(evidence, key);
       if (!item || !evidenceSatisfied(item, plan.runtime_required_evidence.includes(key))) { errors.push(`required evidence is not recorded/passed or waived: ${key}`); continue; }
       if (String(item.plan_hash || "") !== plan.plan_hash) { errors.push(`evidence was recorded against a different plan, re-verification required: ${key}`); continue; }
+      // plan_hash alone is not monotonic: a classification round-trip (e.g. managed_change
+      // true -> false -> true, or any other field changed and changed back) can restore the exact
+      // same plan_hash, which would let pre-existing evidence silently satisfy a gate nothing was
+      // actually re-verified against. plan_revision is bumped every time plan_hash changes (see
+      // task-write in transitions.ts) and never reused, so comparing it closes that replay gap.
+      if (Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) { errors.push(`evidence predates the current plan revision, re-verification required: ${key}`); continue; }
       if (String(item.intent_hash || "") !== liveIntentHash) { errors.push(`evidence was recorded against a different intent (task.md Goal/Scope/Completion criteria changed), re-verification required: ${key}`); continue; }
       if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state));
     }
