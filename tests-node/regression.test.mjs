@@ -257,3 +257,19 @@ test("risk-flags.md routes flag removal through reclassify instead of a direct t
   assert.match(doc, /reclassify --confirmed-by-user/);
   assert.doesNotMatch(doc, /編輯[^。；]{0,20}task[^。；]{0,20}(?:拿掉|移除)/);
 });
+
+test("impact_confidence stays a task-write field in the docs and in the reclassify comment", () => {
+  const skill = readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "SKILL.md"), "utf8");
+  assert.match(skill, /`impact_confidence` 不在受保護之列[^；]*`task-write`/);
+
+  // The clause is the doc's whole statement about impact_confidence: it must offer task-write and
+  // must not drag in reclassify's user-confirmation requirement.
+  const doc = readFileSync(join(process.cwd(), "docs", "architecture.md"), "utf8");
+  const clause = doc.split("；").find((part) => part.includes("`impact_confidence`"));
+  assert.ok(clause, "architecture.md no longer states anything about impact_confidence");
+  assert.match(clause, /`task-write`/);
+  assert.doesNotMatch(clause, /--confirmed-by-user/);
+
+  const source = readFileSync(join(process.cwd(), "src", "lifecycle", "transitions.ts"), "utf8");
+  assert.doesNotMatch(source, /lower impact_confidence/);
+});
