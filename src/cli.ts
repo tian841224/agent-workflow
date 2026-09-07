@@ -114,7 +114,14 @@ async function main(): Promise<void> {
     if (command === "skill-guard" && event === "SessionEnd") clearSkillProof(platform, payload, option(parsed.values, "state-root", stateRoot()));
     runGuard(command === "git-guard" ? "git" : "skill", platform, event, payload, option(parsed.values, "state-root", stateRoot()));
   }
-  else if (command === "memory-context") memoryContext(option(parsed.values, "platform", "Codex"), option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()));
+  else if (command === "memory-context") {
+    // Only Antigravity's PreInvocation hook carries a payload worth reading here; the other
+    // platforms invoke this on SessionStart with nothing on stdin to wait for.
+    const platform = option(parsed.values, "platform", "Codex");
+    let invocationNum: number | undefined;
+    if (platform.toLowerCase() === "antigravity") { try { const value = stdinJson().invocationNum; invocationNum = typeof value === "number" ? value : undefined; } catch { invocationNum = undefined; } }
+    memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()), invocationNum);
+  }
   else if (command === "knowledge") process.exitCode = knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = knowledgeVerify(parsed.values);
   else if (command === "orchestrate") process.exitCode = orchestrate(parsed.values);

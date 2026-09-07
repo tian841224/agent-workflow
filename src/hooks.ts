@@ -7,8 +7,8 @@ const SKILL_PROOF_TTL_MS = 12 * 60 * 60 * 1000;
 export type CanonicalHookEvent = { platform: string; event: string; tool: string; cwd?: string; command?: string; paths: string[]; mutation: boolean; targetKnown: boolean; sessionId?: string };
 export type HookDecision = { allow: boolean; reason?: string; context?: string };
 
-const pathKeys = ["file_path", "FilePath", "notebook_path", "NotebookPath", "path", "Path", "target_file", "TargetFile", "source_path", "destination_path"];
-const writeTools = new Set(["apply_patch", "delete_file", "edit", "edit_file", "multi_edit", "notebookedit", "rename_file", "write", "write_file"]);
+const pathKeys = ["file_path", "FilePath", "notebook_path", "NotebookPath", "path", "Path", "AbsolutePath", "target_file", "TargetFile", "source_path", "destination_path"];
+const writeTools = new Set(["apply_patch", "delete_file", "edit", "edit_file", "multi_edit", "notebookedit", "rename_file", "replace_file_content", "write", "write_file", "write_to_file"]);
 
 function object(value: Json | undefined): JsonObject { return value && !Array.isArray(value) && typeof value === "object" ? value as JsonObject : {}; }
 function text(value: Json | undefined): string { return typeof value === "string" ? value : ""; }
@@ -22,10 +22,19 @@ function paths(payload: JsonObject): string[] {
   }
   return [...new Set(result)];
 }
+// Each platform has its own required response shape, and an empty stdout does not mean the same
+// thing on all of them: Claude/Codex read "no output" as "no opinion", while Antigravity's
+// PreToolUse contract requires an explicit decision on every call. Its PostToolUse carries no
+// decision contract at all — the hook can only report that it ran — so it answers with `{}`.
 function platformOutput(platform: string, event: string, decision: HookDecision): void {
-  if (decision.allow) { if (decision.context) output(platform.toLowerCase() === "antigravity" ? { systemMessage: decision.context } : { hookSpecificOutput: { hookEventName: event, additionalContext: decision.context } }); return; }
-  if (platform.toLowerCase() === "antigravity") output({ decision: "deny", reason: decision.reason || "agent-workflow guard denied the action" });
-  else output({ hookSpecificOutput: { hookEventName: event, permissionDecision: "deny", permissionDecisionReason: decision.reason || "agent-workflow guard denied the action" } });
+  const reason = decision.reason || "agent-workflow guard denied the action";
+  if (platform.toLowerCase() === "antigravity") {
+    if (event === "PostToolUse") { output({}); return; }
+    output(decision.allow ? { decision: "allow" } : { decision: "deny", reason });
+    return;
+  }
+  if (decision.allow) { if (decision.context) output({ hookSpecificOutput: { hookEventName: event, additionalContext: decision.context } }); return; }
+  output({ hookSpecificOutput: { hookEventName: event, permissionDecision: "deny", permissionDecisionReason: reason } });
 }
 const MUTATING_COMMANDS = /\b(?:set-content|add-content|out-file|new-item|remove-item|copy-item|move-item|tee|sed\s+-i|perl\s+-pi|cp|mv|rm|del|erase)\b/i;
 // Judged per segment on text that can actually run: a printer's quoted argument and a printer's
@@ -46,8 +55,11 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   // MCP 連接器的 target 是遠端資源而非檔案路徑，永遠正規化不出 path；名稱含 write 的連接器
   // 若套用本 guard 會被永久 fail-closed，故僅在它確實帶了路徑參數時才納入檔案 mutation 判斷
   const mutation = fileMutation && (!tool.startsWith("mcp__") || found.length > 0);
-  const cwd = text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
-  return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0, sessionId: text(payload.session_id) || text(payload.sessionId) || undefined };
+  // Antigravity carries the working directory on the tool call itself (run_command's Cwd) and only
+  // falls back to the workspace root; reading payload.cwd alone resolved its relative paths against
+  // the wrong directory.
+  const cwd = text(object(call.args).Cwd) || text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
+  return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0, sessionId: text(payload.session_id) || text(payload.sessionId) || text(payload.conversationId) || undefined };
 }
 export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   if (event.mutation && !event.targetKnown) return { allow: false, reason: "hook-policy: mutation target cannot be normalized; denied fail-closed." };

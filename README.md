@@ -95,7 +95,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 ### 跨平台記憶讀取
 
-專案支援 Claude Code、Codex 與 Antigravity 之間的記憶脈絡讀取。各平台啟動新的 session 或收到新的 prompt 時，由 managed `SessionStart` hook 自動從共用 knowledge 與各平台可讀取的原生文字記憶中篩選相關資訊，提供給 AI 參考。
+專案支援 Claude Code、Codex 與 Antigravity 之間的記憶脈絡讀取。由 managed hook 自動從共用 knowledge 與各平台可讀取的原生文字記憶中篩選相關資訊，提供給 AI 參考：Claude／Codex 在 session 啟動的 `SessionStart`，Antigravity 在 `PreInvocation`，且只在該 conversation 的第一次 model invocation 注入。
 
 這項功能只負責讀取與整理記憶，原生來源只讀且不會任意改寫其他平台的原生記憶，讓不同 AI 工具在同一個專案中能共享必要脈絡。
 
