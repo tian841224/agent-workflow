@@ -56,3 +56,27 @@ test("repair preserves a platform's own Stop hook (agent-workflow manages no Sto
   const stopHooks = JSON.stringify(JSON.parse(readFileSync(settingsPath, "utf8")).hooks.Stop);
   assert.match(stopHooks, /user's own stop hook/);
 });
+
+test("repair sweeps retired Antigravity lifecycle hooks and keeps the user's own", () => {
+  const root = join(tmpdir(), `agent-workflow-antigravity-sweep-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const antigravityTarget = join(root, "gemini");
+  const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", antigravityTarget];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  const hooksPath = join(antigravityTarget, "config", "hooks.json");
+  // An install from a build that still targeted SessionStart/SessionEnd — events Antigravity no
+  // longer supports. Repair has to sweep them without a dedicated migration, and without touching
+  // whatever the user configured themselves.
+  writeFileSync(hooksPath, JSON.stringify({
+    "agent-workflow-memory-context": { SessionStart: [{ matcher: "*", hooks: [{ type: "command", command: "legacy memory-context" }] }] },
+    "agent-workflow-git-guard": { SessionEnd: [{ matcher: "*", hooks: [{ type: "command", command: "legacy skill-guard --event SessionEnd" }] }] },
+    "user-own-hook": { Stop: [{ matcher: "*", hooks: [{ type: "command", command: "user's own stop hook" }] }] }
+  }, null, 2));
+  assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+  const repaired = JSON.parse(readFileSync(hooksPath, "utf8"));
+  const managed = JSON.stringify(Object.fromEntries(Object.entries(repaired).filter(([name]) => name.startsWith("agent-workflow-"))));
+  assert.doesNotMatch(managed, /SessionStart|SessionEnd/);
+  assert.ok(repaired["agent-workflow-memory-context"].PreInvocation, "repair must install the PreInvocation memory hook");
+  assert.match(JSON.stringify(repaired["user-own-hook"]), /user's own stop hook/);
+});

@@ -96,7 +96,7 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。十六個 capability：
 
 1. 只有任務依賴歷史脈絡、使用者要求或已知回歸時，才以 2–5 個關鍵字執行 `agent-workflow knowledge --action Search --query '<keywords>' --limit 5`；簡單、局部且不依賴歷史的修改略過。
 2. Query 用小寫英文單字、以空白分隔（topic 是英文 kebab-case，中文與整串連字號的命中率極低）。Search 只回傳 entry 第一行前 180 字，命中後要 Read `path` 全文。
-3. 每次 session 啟動時，三平台 managed `SessionStart` hook 會自動執行 `memory-context`，讀取共用 curated store 與可讀的原生 Markdown／text 記憶並注入 reference context。原生記憶只讀不寫，標記 `needs_verification`，不會被複製進 curated store；session summaries、instruction-only files、credential-like content 與 Antigravity `.pb` 檔案預設排除。完整內容仍可用 Search 回查 `path`。
+3. Managed hook 會自動執行 `memory-context`：Claude／Codex 在 `SessionStart`，Antigravity 沒有 session lifecycle event，改掛在 `PreInvocation` 並只在該 conversation 的第一次 model invocation 掃描，讀取共用 curated store 與可讀的原生 Markdown／text 記憶並注入 reference context。原生記憶只讀不寫，標記 `needs_verification`，不會被複製進 curated store；session summaries、instruction-only files、credential-like content 與 Antigravity `.pb` 檔案預設排除。完整內容仍可用 Search 回查 `path`。
 4. 專案結構與模組流程不走 knowledge，改走 project docs（讀寫時機見第 1、4 節，分工與寫法見 [project-docs skill](../project-docs/SKILL.md)）。
 5. Review 可自行執行 Search 建立脈絡。
 6. `needs_verification` 或可能過時的記憶只能當線索，使用前回查目前程式、文件或設定。

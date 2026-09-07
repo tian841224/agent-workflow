@@ -24,7 +24,7 @@ Test-only 新增測試、強化 assertion 或不降低驗證能力的 refactor �
 - 不覆寫、刪除或重設使用者未要求處理的修改與資料。
 - 先讀現況與規則，保留既有修改，只做需求直接需要的最小變更；驗證失敗先修根因，不降低完成條件。
 - 安裝、同步、部署、migration、provisioning 或外部整合的完成宣稱，先載入 `operational-verification` skill；證據不得跨越靜態設定、本機 mock、本機 runtime 與遠端環境等層級。<!-- skill:operational-verification -->
-- Agent session 啟動時會由 managed `SessionStart` hook 自動載入 shared memory reference；原生來源只讀且可能過時，使用前仍須回查目前程式碼與設定。
+- Agent 開始工作時會由 managed hook（Claude／Codex 的 `SessionStart`、Antigravity 的 `PreInvocation`）自動載入 shared memory reference；原生來源只讀且可能過時，使用前仍須回查目前程式碼與設定。
 - 使用者要求記憶、糾正 agent、拍板決策或確認錯誤修正時，立即透過 active `learn` skill 記錄可重用結論。
 - Review 打回並修正後，開下一輪前記錄一次歸因；累積達門檻的補救（補文件、改任務規範、寫 skill）一律需使用者明確同意。
 - 提煉出的 skill 草稿一律停留在 `skill-drafts/`，只有使用者在對話中明確同意才執行 Promote；agent 不得自行核准。
