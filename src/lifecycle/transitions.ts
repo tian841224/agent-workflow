@@ -186,7 +186,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
 
-// The only path allowed to drop managed_change, remove a risk flag, or lower impact_confidence.
+// The only path allowed to drop managed_change or remove an existing risk flag.
 export function reclassify(value: string, patch: JsonObject, confirmedByUser: string, reason: string, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd()): number {
   if (!confirmedByUser || !reason) { output({ valid: false, errors: ["reclassify requires both --confirmed-by-user and --reason"] }); return 1; }
   return taskWrite(value, patch, stateRootValue, repoRootValue, false, { confirmedByUser, reason, actor });
