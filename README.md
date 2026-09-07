@@ -25,28 +25,14 @@ npx --yes @tian/agent-workflow@latest
 
 這個專案的核心目標，是在維持 AI 思考最大彈性的前提下，適度設計必要的流程與規範，並在「簡單任務快速完成」與「複雜任務維持嚴謹品質控管」之間取得平衡。
 
-### 為什麼會有這個專案
+### 設計取向
 
-專案最初源自對大型 AI workflow framework 的實際使用經驗。過去曾嘗試 SuperClaude 等大型框架，也曾依照任務標籤建立多套 workflow。這些方案處理複雜任務時很完整，但面對小型或單純任務，容易產生過多角色、檢查與文件，增加 token 與時間成本。
+大型 workflow framework 處理複雜任務時很完整，但面對小型或單純任務，容易產生過多角色、檢查與文件，增加 token 與時間成本。本專案的取向是：
 
-因此，本專案逐步朝以下方向演進：
-
-- 流程不再固定套用，而是依照任務的風險與實際影響範圍適度調整。
-- 將共用規則集中管理，避免 Claude Code、Codex 與 Antigravity 各自維護不同版本。
-- 將流程規劃、角色檢查、記憶管理與驗證能力整合成可重複使用的 runtime。
+- 流程依照任務的風險與實際影響範圍組合，不固定套用。
+- 共用規則集中管理，Claude Code、Codex 與 Antigravity 讀同一份 canonical source。
+- 流程規劃、角色檢查、記憶管理與驗證能力整合成可重複使用的 runtime。
 - 保留複雜任務所需的品質控管，同時讓簡單任務維持輕量。
-
-### 發展歷程
-
-| 階段 | 主要方向 | 解決的問題 |
-| --- | --- | --- |
-| v1 | 初版 Claude workflow 打包 | 建立可重複使用的開發規範與安裝方式 |
-| v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
-| v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
-| v4 | 依情境載入流程、canonical `.agents`、TDD、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
-| v5 | Python runtime、主對話直接選定 capability、跨平台記憶與專案文件、條件式角色與唯讀 Reader 分流 | 固定 pipeline 與固定角色清單無法反映實際影響範圍，簡單任務被迫付出與高風險任務相同的流程成本 |
-| v6 | 在 v5 架構基礎上，以「同 prompt、有無 skill／角色提示」的 A/B 比較作為去留依據，只保留驗證後仍有效的最小提示 | skill／角色清單只增不減，缺乏依據判斷提示內容是否真的提升輸出品質，導致 token 與執行時間持續墊高 |
-| v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排；`task.json` 統一 contract（`state_revision`／`plan_revision`／`intent_approval`）、risk_flags 驅動的 required capability、pure task-gate、CAS 檔案鎖與 git-guard allowlist | 將流程選擇與 runtime 執行分離，並讓高風險流程不再能靠少填 `workflow_request` 被略過，兼顧彈性、可驗證性與跨平台一致性 |
 
 ## 二、功能介紹
 
@@ -63,9 +49,9 @@ npx --yes @tian/agent-workflow@latest
 1. **Managed change**：`managed_change: true` 時建立 task 並載入 `workflow` skill；capability 由 policy 與主對話依實際 impact／risk 選擇。
 2. **Test-only change**：新增測試、強化 assertion 或安全 test refactor 可 `managed_change: false` 直接 bypass；刪除／skip 測試、弱化 assertion 或大量重寫 snapshot／fixture baseline 時改為 `managed_change: true`，並加入 `test_integrity` risk flag。
 3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
-4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀、orchestration 或 legacy 情境才使用 `task_type: read_only`，此時 `model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。
+4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀或 orchestration 情境才使用 `task_type: read_only`，此時 `model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。
 
-流程沒有固定 pipeline，由主對話依 task metadata、`workflow_facts` 與實際程式脈絡判斷需要的 capability，並把要跑的角色與檢查寫進 task 的 `workflow_request`；需求本身還不清楚時先載入 `planning` skill 釐清。runtime 另外會依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限。`managed_change: true` 本身不再強制任何 capability：單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 全由主對話決定；不確定（`impact_confidence` 為 `medium`／`low`）、影響面擴大或命中高風險 flag 時才由 runtime 強制，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
+流程沒有固定 pipeline，由主對話依 task metadata、`workflow_facts` 與實際程式脈絡判斷需要的 capability，並把要跑的角色與檢查寫進 task 的 `workflow_request`；需求本身還不清楚時先載入 `planning` skill 釐清。runtime 另外會依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限。`managed_change: true` 本身不強制任何 capability：單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 全由主對話決定；不確定（`impact_confidence` 為 `medium`／`low`）、影響面擴大或命中高風險 flag 時才由 runtime 強制，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -180,7 +166,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
    │     └─ tasks/
    │        └─ <task-id>/
    │           └─ task.md
-   └─ imports/                舊版本或外部資料的匯入區
+   └─ imports/                外部資料的匯入區
 ```
 
 不同 AI 工具的原生設定由 installer 依平台建立，並透過 adapter 連結到 `.agents` 的 canonical source。未指定的平台不會建立或修改對應的 agent 資料夾。
@@ -239,7 +225,7 @@ install.cmd --target-agent All --skills all
 
 新增 skill 時，先確認要列為必裝或選擇性，再在 `adapters/managed-manifest.json` 的 `skills` catalog 登錄名稱、說明與 `required` 設定。
 
-版本欄位分工如下：product version 是 CLI 顯示的 `v7`；`adapters/managed-manifest.json` 的 `schema_version` 是 manifest 格式版本；`.agent-workflow/managed-runtime.json` 的 `schema_version` 是 installed state 格式版本。三者獨立演進，不再以同一個數字代稱。
+三個版本欄位各自獨立演進：product version 是 CLI 顯示的版本；`adapters/managed-manifest.json` 的 `schema_version` 是 manifest 格式版本；`.agent-workflow/managed-runtime.json` 的 `schema_version` 是 installed state 格式版本。
 
 ### 檢查安裝狀態
 
@@ -263,31 +249,3 @@ install.cmd --action Uninstall --target-agent All
 
 移除安裝時，只會移除仍由本專案管理且未被使用者修改的 managed files，不會刪除既有的 knowledge、projects、tasks 或 imports 資料。
 
-### v7 breaking changes
-
-- `schemas/task.schema.json` 成為 `task.json` 的唯一 contract，並完整定義 evidence、transition、waiver 與 `workflow_facts` 的結構；退役的 v2 contract 移至 `schemas/legacy/task-v2.schema.json`，只供 migration 參照；`task.json` 新增 `state_revision`／`plan_revision`，lifecycle 不再有 `frozen` 狀態，改以 `intent_approval`（綁定 task.md 內容 hash）判斷高風險任務是否已取得使用者確認。
-- `workflow-plan` 會依 `risk_flags` 計算 `required` capability，`workflow_request` 只能疊加、無法移除；要略過必須明確 `waive --confirmed-by-user`，且該 waiver 綁定當下的 `requirements_hash`，task 分類一變就失效。 <!-- contract-lint:allow -->
-- `task-gate` 改為 pure read-only：不再把 `compiled` 寫回 `task.json`；role evidence 綁定它實際審查過的 diff（`reviewed_base` + `reviewed_paths` + `reviewed_diff_sha256`），只有審查範圍內的變更才判定 stale，範圍外的檔案改動不再觸發重審。審查範圍必須涵蓋這個 task 實際交付的變更（有 `file_ownership` 就以它為界，否則是全部變更路徑），避免把範圍指向沒動過的檔案來取得一個永不失效的 digest。task 目錄位於 state root 而非 repo，因此 `task-gate`／`close-task` 需要在受審 worktree 內執行或傳入 `--repo-root`。
-- `git-guard` 由「denylist 擋已知危險指令」改成「allowlist 只放行已知唯讀指令」，未列在 allowlist 的 git 子指令一律需要使用者明確執行。
-- Knowledge／learning 新寫入的預設狀態從 `verified` 改成 `needs_verification`，寫入前一律經 `schemas/knowledge.schema.json` 驗證；entry 依實際 project id 分桶（不再落在字面上的 `default` 目錄），SessionStart 仍只注入當前 project 與 global 的 `verified` 記憶，但改以相關性排序並設下限：同 project 加權，帶 `--query` 時完全不命中關鍵字的 entry 直接不注入。
-- `workflow-plan` 的三值判斷拆成兩層：條件明確成立才進 `required`，資料不足只進 `classification_incomplete`（附上缺哪個欄位），不再因為 `impact_scope` 沒填就把所有 capability 強制加入。step 選取維持「unknown 保留」。
-- 變更分類收斂成單一欄位：移除 `change_kind` 與 `complexity_hint`，policy 條件改讀 `task_type`，情境旗標一律寫進 `workflow_facts`。 <!-- contract-lint:allow -->
-- 新增 `agent-workflow contract-lint`（已納入 `npm run ci`）：以 schema、workflow policy 與 CLI 指令表為真相來源，檢查 `templates/`、`.agents/`、`adapters/` 與 `docs/` 是否還引用退役名稱、不存在的指令或不存在的 schema。
-- `.agents` 與 `task.json` 的寫入保護不再依賴 mutation regex：只要指令提到這些路徑，就必須整條命令都落在唯讀 allowlist 內，否則一律 deny（涵蓋 `python -c`、`node -e`、`bash -c`、`powershell -Command` 這類把寫入藏在直譯器參數裡的形式）。
-- `file_ownership` 一旦宣告就是硬邊界：任何在它之外的變更路徑（含 rename 的來源側與刪除）直接判定 ownership violation，不會被 diff-scoped review 過濾掉；`reviewed_paths` 也必須涵蓋自 `reviewed_base` 以來的全部變更路徑。
-- 重複 option 不再靜默覆蓋：multi-value option（`--id`、`--paths`、`--source-entry` 等）重複給值會累積，comma 形式與重複形式等價；single-value option 重複給值直接報 `duplicate option`。
-- 新增 `schemas/cli-output.schema.json`：`workflow-plan`、`task-gate`、`project-doc`、`review-cause`、`skill-draft`、`worktree-fingerprint`、`verify`、`contract-lint`、`policy-matrix` 的 stdout 形狀首次有正式定義，測試會驗證實際輸出符合它。
-- 新增 `agent-workflow policy-matrix`：對 task_type × impact_scope × impact_effect × impact_confidence × risk flag 組合 × fact 組合（宣告為真／宣告為假／未宣告）展開 5,760 列，輸出每個 task_type 的 capability／step 選取 digest。測試以 `tests-node/fixtures/policy-matrix.json` 為 golden file，policy 一改就會指名是哪個 task_type 的選取變了。
-- `contract-lint` 新增四條規則：文件裡的 option 必須是該 command 接受的 option、backtick 內的 snake_case term 必須來自 schema／policy／CLI、step id 必須存在於 policy、`contract-lint:allow=<rule>` 只豁免指名的那一條規則。fenced code block 現在也會被掃描。
-- `git-guard` 改成先做 shell 解析再判斷 command：heredoc body 與引號區段依「接收指令是否把它當資料」決定要不要剝掉（`cat`／`echo`／`grep` 這類是資料，`bash`／`python` 這類是程式碼，保留），分段只在引號外的分隔符切開，`$( )` 與 backtick 的內容一律當成獨立指令解析。引述在資料型指令引號或 heredoc 裡的 Git 指令不再誤判；`bash -c` 型直譯器、`ssh`／`docker` 這類 remote executor、`sudo`／`xargs` 這類 prefix wrapper 與 substitution 裡的真實 Git 寫入則一律攔下。同一套解析也用在 mutation 偵測，所以引號內的 `>` 不再被當成重導向。
-- `install`／`repair` 會自動跑 v2→v3 migration：既有 `task.json` 的 evidence／waiver 一律標成 stale，需要重新驗證才能通過新版 `task-gate`。
-- `workflow-plan` 遇到未知 capability 或損壞 facts 時改為非零結束。
-- `Verify` 從入口存在檢查提升為完整 runtime integrity contract。
-- 新增 `task.json.managed_change`：決定是否進入 workflow 的欄位，`code_change` 降級為純描述用途（是否修改 application source code）。既有 v3 task 遷移時 fail-safe 預設為 `managed_change: true`。
-- `model_profile` enum 新增 `deep_read`，由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導（`src/classification/model-profile.ts`），`task-init` 建立 `read_only` task 時自動套用，不再由 agent 自由指定。
-- 新增 `test_integrity` capability 與同名 risk flag：純測試變更預設 `selected` 為空清單，只有實際刪除／弱化 assertion、skip 測試或大量改動 snapshot 時才加旗標、才強制這個 capability。
-- 新增 `agent-workflow execution-packet`：把 task.md 的 Goal／Scope／Completion criteria、完整 classification、repo／ownership execution constraints、compiled capability／step、procedure pointer、required evidence 與 plan revision 打包成 Worker 的單一執行 contract。Worker 不再自行重讀 workflow 做第二次 capability 決策。
-- 新增 `agent-workflow skill`（`--action List／Verify／Install／Update／Remove`）：`List` 合併 `adapters/managed-manifest.json` 的必裝／選擇性 catalog 與 `skills-lock.json` 的來源資訊；`Verify` 離線比對已 vendor 的 skill 目前雜湊是否仍等於上次鎖定的雜湊；`Install`／`Update` 從本機目錄 vendor 一份 skill 並寫回 `skills-lock.json`，不會替你連網抓取。
-- `src/lifecycle.ts` 拆成 `src/lifecycle/` 底下 8 個檔案（transitions／task-store／task-schema／task-gate／evidence／intent／ownership／worktree-lease），對外行為不變。
-- 新增 `tests-node/adapters/parity.test.mjs`：同一個操作以 Claude／Codex／Antigravity 三種平台原生 payload 形狀送進 `git-guard`／`skill-guard`，驗證正規化後的 allow／deny 決策一致。
-- CI 新增 macOS 與 `package-smoke` job：把打包出的 tarball 安裝進一個乾淨的 scratch 專案，驗證 `npx agent-workflow` 系列指令在「裝進 node_modules 之後」而非只在「原始碼 checkout」下也能跑。

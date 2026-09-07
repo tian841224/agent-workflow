@@ -14,8 +14,7 @@ intent_approval: required when a freeze-required flag is hit — confirm the goa
 lifecycle.stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
 waivers: written only by `agent-workflow waive --requirement-id <id> --confirmed-by-user '<text>'`; a waiver binds the plan's
            plan_hash, so it lapses the moment the task's classification changes. Direct edits are not a valid waiver.
-independence: defaults to native, checked only for coordinator/worker tasks or tasks with the legacy completion gate enabled;
-           if a native role fails to load, or the main agent fills in a role section on its behalf, this must be honestly recorded as degraded — the close gate rejects unwaived degraded tasks.
+independence: defaults to native; record degraded when a native role fails to load or the main agent fills in a role section on its behalf.
 -->
 
 # <Task title>
