@@ -28,6 +28,13 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 
 <Which behaviors will be modified/reviewed/verified; what is out of scope>
 
+<!-- Add for freeze-required tasks. This lives inside Scope, not beside it, because intent_hash
+covers Goal/Scope/Completion criteria: a non-goal recorded in its own top-level section could be
+rewritten after approval without invalidating the approval the user gave.
+### Non-goals and compatibility
+<What this task will deliberately not do, and what must keep working unchanged>
+-->
+
 ## Review round
 
 - round: 1
@@ -45,6 +52,14 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 - [ ] Expected behavior or review goal completed
 - [ ] Relevant validation passed
 
+<!-- Add for freeze-required tasks. Inside Completion criteria for the same reason as Non-goals:
+the cases the user accepted are part of what they approved, so they have to be inside intent_hash.
+### Acceptance cases
+
+| ID | Scenario | Expected result | Verification method |
+|---|---|---|---|
+-->
+
 ## Validation results
 
 - pre-review: <PASS | FAIL | SKIP>
@@ -54,8 +69,6 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 - checks: <items executed and their results>
 - skip reason: <fill only when SKIP>
 - limitations: <unverified limitations; "none" if none>
-- mutation check: <required as PASS or SKIP for financial/data_write: break the critical logic, confirm the guarding test fails red, then restore>
-- mutation reason: <fill only when mutation check is SKIP>
 
 <!-- Add only when memory was actually written to:
 ## Knowledge result
@@ -63,16 +76,12 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 - updated: <entry-id>
 -->
 
-<!-- Add for freeze-required tasks:
-## Non-goals and compatibility
+<!-- Add for freeze-required tasks. Non-goals and Acceptance cases are NOT here: they belong inside
+Scope and Completion criteria respectively, so intent_hash covers them (see above). These four are
+planning and evidence prose — revising them after approval is expected and does not reopen the freeze:
 ## Current state and impact
 ## Decision and tradeoffs
 ## Boundary and error paths
-## Acceptance cases
-
-| ID | Scenario | Expected result | Verification method |
-|---|---|---|---|
-
 ## User confirmation
 -->
 
@@ -91,7 +100,7 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 ## Execution path and regression evidence
 <Entry point > upstream > modification point > downstream endpoint; list important error/retry/concurrency/async branches and validation evidence>
 
-## Reviewer result (fill in only when `workflow_request` selects reviewer)
+## Reviewer result (fill in only when reviewer is a selected capability — required by the compiled plan, requested in `workflow_request`, or both)
 - result: <PASS | FAIL>
 - findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
@@ -105,7 +114,9 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 - occurrences: <fill only when regression: the cumulative count of similar occurrences returned by retro --action Record>
 -->
 
-<!-- Each evidence capability selected in workflow_request gets its own section; section titles follow the `section`
+<!-- Each selected evidence capability gets its own section. "Selected" is required ∪ workflow_request —
+     a capability the compiled plan requires has to be filled in even though nobody requested it; run
+     `agent-workflow workflow-plan --task-path <path>` to see the selected list. Section titles follow the `section`
      field in schemas/workflow-policy.json (data_impact and contract_review share "Contract and data impact",
      execution_path_review and regression_validation share "Execution path and regression evidence").
      Only write the steps actually selected within that capability (which steps are selected is determined by
@@ -114,7 +125,7 @@ independence: defaults to native, checked only for coordinator/worker tasks or t
 -->
 
 <!-- Other conditional sections:
-behavior_change/ui: ## Acceptance cases
+behavior_change/ui: ### Acceptance cases (inside ## Completion criteria)
 cross_feature/migration/irreversible: ## Implementation sequence (implementation order, dependencies, and rollback points)
 ui: ## Browser verification
 task_type: refactor: ## Behavior invariants and before-after evidence

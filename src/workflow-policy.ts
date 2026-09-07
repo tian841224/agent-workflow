@@ -163,14 +163,15 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const requireResults = capabilities
     .filter((capability) => Array.isArray(capability.require_when) && capability.require_when.length > 0)
     .map((capability) => ({ capability, result: evaluateGroups(capability.require_when as JsonObject[][], ctx, ranks) }));
-  const required = requireResults.filter((entry) => entry.result === "match").map((entry) => String(entry.capability.name));
   // managed_change is the sole workflow entry gate: an unmanaged task must never actually start a
-  // capability or role, no matter what a stale/imported workflow_request still names. required is
-  // already naturally empty here (require_when reads managed_change out of ctx), but requested still
-  // carried raw workflow_request into effective/selected/required_evidence below — that's the bypass
-  // this guards against. classification_incomplete is suppressed too: an unmanaged task never reaches
-  // the capabilities it would gate, so it must never be blocked on declaring them.
+  // capability or role, no matter what its classification or a stale/imported workflow_request still
+  // names. Every derived field is zeroed rather than only the selected ones — a required/suggested
+  // list computed from stale classification reads as an obligation even when nothing can select it.
+  // classification_incomplete is suppressed for the same reason: an unmanaged task never reaches the
+  // capabilities it would gate, so it must never be blocked on declaring them. requested is left as
+  // recorded, since it is the task's own input rather than something this compilation derived.
   const managedChange = task.managed_change !== false;
+  const required = !managedChange ? [] : requireResults.filter((entry) => entry.result === "match").map((entry) => String(entry.capability.name));
   const classification_incomplete = !managedChange ? [] : requireResults.filter((entry) => entry.result === "unknown").map((entry) => ({
     name: entry.capability.name,
     missing: undeclaredFields(entry.capability.require_when as JsonObject[][], ctx)
@@ -190,7 +191,7 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
     ...selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => capability.steps.map((step) => `${capability.name}.${String(step.id)}`)),
     ...selected.filter((capability) => capability.kind === "role").map((capability) => `role.${capability.name}`)
   ];
-  const suggested = capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match").map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
+  const suggested = (!managedChange ? [] : capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match")).map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
   const policy_version = Number(policy.version || 0);
   const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => String(step.id))))].sort();
   // plan_hash covers policy + classification only — not task.md's prose, which is intent_hash's job

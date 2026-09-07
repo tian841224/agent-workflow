@@ -7,14 +7,14 @@ import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { evidenceSatisfied, latestEvidence, roleFreshnessErrors } from "./evidence.js";
 import { ownershipErrors } from "./ownership.js";
 import { freezeRequired, schemaErrors } from "./task-schema.js";
-import { lifecycleOf, task, taskPath } from "./task-store.js";
+import { lifecycleOf, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
 
 export type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[] };
 export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string): GateResult {
   const life = lifecycleOf(state);
   const evidence = (Array.isArray(state.evidence) ? state.evidence : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
   const errors: string[] = [...schemaErrors(state)];
-  if (life.status === "closed") errors.push("task is already closed");
+  if (!RUNNING_STATUSES.includes(String(life.status))) errors.push(`task is ${String(life.status)}, not in_progress; only a running task can be closed`);
   const taskMd = join(dirname(path), "task.md");
   const taskMdBuffer = existsSync(taskMd) ? readFileSync(taskMd) : null;
   if (!taskMdBuffer || !taskMdBuffer.toString("utf8").trim()) errors.push("sibling task.md requires human intent (Goal/Scope/Completion criteria)");
@@ -46,7 +46,10 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       // task never established was needed, dropping it would silently retire a check.
       for (const entry of plan.step_classification_incomplete) errors.push(`workflow step classification is incomplete: ${String(entry.capability)}.${String(entry.id)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
     }
-    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan.plan_hash && String(item.intent_hash || "") === liveIntentHash).map((item) => String(item.requirement_id || "")));
+    // A waiver missing plan_revision entirely was written by a runtime that could not tell a
+    // round-trip from a plan that never changed, so it is stale by construction and has to be
+    // re-granted rather than trusted.
+    const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan.plan_hash && Number(item.plan_revision || 0) === Number(state.plan_revision || 0) && String(item.intent_hash || "") === liveIntentHash).map((item) => String(item.requirement_id || "")));
     // The task directory normally lives in the state root, not in the repo, so the worktree to
     // fingerprint has to come from the caller's location rather than from the task's own path.
     const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
@@ -102,7 +105,7 @@ export function taskNext(value: string, repoRoot = process.cwd()): number {
       if (pendingEvidence.some((key) => error.includes(key))) return "evidence";
       if (classification.includes(error)) return "classification";
       if (error.includes("intent_approval") || error.includes("task.md")) return "intent";
-      if (error === "task is already closed") return "lifecycle";
+      if (/^task is S+, not in_progress;/.test(error)) return "lifecycle";
       return "task";
     };
     let runtimeRequired: string[] = [];

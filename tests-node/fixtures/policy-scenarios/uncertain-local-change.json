@@ -1,32 +1,26 @@
 {
-  "scenario": "security-sensitive-input",
+  "scenario": "uncertain-local-change",
   "task": {
     "workflow_request": [],
     "task_type": "fix",
     "impact_scope": "file",
     "impact_effect": "local_behavior",
-    "impact_confidence": "high",
+    "impact_confidence": "medium",
     "managed_change": true,
-    "risk_flags": [
-      "security"
-    ]
+    "risk_flags": []
   },
   "expected": {
     "required": [
       "baseline_validation",
-      "reviewer",
-      "security_review"
+      "impact_discovery"
     ],
     "required_evidence": [
       "baseline_validation.BV1",
       "baseline_validation.BV2",
       "baseline_validation.BV3",
-      "role.reviewer",
-      "security_review.SR1",
-      "security_review.SR2",
-      "security_review.SR3",
-      "security_review.SR4",
-      "security_review.SR5"
+      "impact_discovery.ID1",
+      "impact_discovery.ID2",
+      "impact_discovery.ID3"
     ],
     "classification_incomplete": [],
     "step_classification_incomplete": []

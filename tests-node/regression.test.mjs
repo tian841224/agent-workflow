@@ -249,3 +249,11 @@ test("a schema task keeps the error-path and design steps the old change_kind co
   assert.ok(idsFor("codebase_design").includes("CD2"), idsFor("codebase_design").join(","));
   assert.ok(idsFor("codebase_design").includes("CD4"), idsFor("codebase_design").join(","));
 });
+
+// risk-flags.md used to tell agents to remove a mis-set flag by editing task.json directly, which
+// task-write and the hook both reject; the only downgrade path is an explicit reclassify.
+test("risk-flags.md routes flag removal through reclassify instead of a direct task edit", () => {
+  const doc = readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "risk-flags.md"), "utf8");
+  assert.match(doc, /reclassify --confirmed-by-user/);
+  assert.doesNotMatch(doc, /編輯[^。；]{0,20}task[^。；]{0,20}(?:拿掉|移除)/);
+});

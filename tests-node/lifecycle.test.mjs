@@ -440,13 +440,12 @@ test("task-write refuses code_change true -> false", () => {
 
 // A downgrade shrinks what the gate can demand, so it must never be an ordinary task-write. Only
 // reclassify performs one, and only with an explicit user confirmation and a reason on record.
-test("task-write refuses the three classification downgrades; reclassify performs them and records why", () => {
+test("task-write refuses the two protected classification downgrades; reclassify performs them and records why", () => {
   const root = join(tmpdir(), `agent-workflow-reclassify-${process.pid}-${Date.now()}`);
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
   const cases = [
     [{ managed_change: false }, /managed_change cannot transition from true back to false/],
-    [{ risk_flags: ["ui"] }, /risk_flags cannot be removed: data_write/],
-    [{ impact_confidence: "low" }, /impact_confidence cannot be downgraded from high to low/]
+    [{ risk_flags: ["ui"] }, /risk_flags cannot be removed: data_write/]
   ];
   for (const [index, [patch, expected]] of cases.entries()) {
     const task = join(root, `case-${index}`); mkdirSync(task, { recursive: true });
@@ -473,7 +472,9 @@ test("evidence-run records runtime-trusted execution evidence, and a failing com
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Run\n\n## Goal\n\nVerify evidence-run.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" })));
+  // medium confidence is what draws baseline_validation here: a confident local change requires no
+  // capability at all, so BV2 would not be a selected step to record against.
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
   const record = (...trailing) => run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "ran the check", "--", ...trailing]);
   assert.equal(record(process.execPath, "-e", "console.log('ok')").status, 0);
@@ -599,15 +600,30 @@ test("concurrent task-write cannot let a stale writer undo a classification upgr
   assert.equal(flagResults[0], 0);
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).risk_flags, ["security"]);
 
-  // Case 3: impact_confidence starts medium; one writer raises it to high while many stale writers
-  // race to reassert medium. The raised confidence must never end up lowered back.
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, risk_flags: [], impact_confidence: "medium" })));
-  const confidenceResults = await Promise.all([
-    runAsync(JSON.stringify({ impact_confidence: "high" })),
-    ...Array.from({ length: 9 }, () => runAsync(JSON.stringify({ impact_confidence: "medium" })))
-  ]);
-  assert.equal(confidenceResults[0], 0);
-  assert.equal(JSON.parse(readFileSync(path, "utf8")).impact_confidence, "high");
+  // impact_confidence is deliberately absent from this race: it is not a protected field, because
+  // lowering it raises what the gate demands rather than shrinking it. Whichever writer lands last
+  // wins, and that is the intended behaviour — see the freely-revisable test below.
+});
+
+// The gate charges for uncertainty (medium/low draws impact_discovery and baseline_validation), so
+// an agent that discovers it understands less than it thought must be able to say so without asking
+// the user for permission first. Requiring a user-confirmed reclassify to *raise* the bar is exactly
+// backwards, and this pins that the runtime does not do it in either direction.
+test("impact_confidence is freely revisable in both directions, and each change moves plan_revision", () => {
+  const root = join(tmpdir(), `agent-workflow-confidence-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, risk_flags: [], impact_confidence: "high" })));
+  const run = (input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input });
+  let revision = JSON.parse(readFileSync(path, "utf8")).plan_revision;
+  for (const confidence of ["medium", "low", "high"]) {
+    const result = run(JSON.stringify({ impact_confidence: confidence }));
+    assert.equal(result.status, 0, result.stdout);
+    const state = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(state.impact_confidence, confidence);
+    assert.ok(state.plan_revision > revision, `plan_revision did not move for ${confidence}`);
+    revision = state.plan_revision;
+  }
 });
 
 // plan_hash is a pure function of current classification fields, so a classification round-trip
@@ -622,7 +638,7 @@ test("step evidence recorded before a classification round-trip does not satisfy
   writeFileSync(join(task, "task.md"), "# Replay\n\n## Goal\n\nVerify plan_revision closes the plan_hash replay gap.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "cross_project", impact_effect: "destructive", impact_confidence: "high", task_type: "fix", risk_flags: [] })));
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "cross_project", impact_effect: "destructive", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
   const record = run(["evidence-record", "--task-path", path, "--requirement-id", "impact_discovery.ID1", "--summary", "recorded before the round-trip"]);
   assert.equal(record.status, 0, record.stdout);
   const planHashBefore = JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).plan_hash;
@@ -636,4 +652,104 @@ test("step evidence recorded before a classification round-trip does not satisfy
   assert.notEqual(after.plan_revision, JSON.parse(readFileSync(path, "utf8")).evidence[0].plan_revision, "plan_revision must have moved even though plan_hash reverted");
   const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(gated.errors.some((error) => /impact_discovery\.ID1/.test(error) && /plan revision/.test(error)), gated.errors.join("; "));
+});
+
+// A terminal task is a dead end in the transition table: nothing moves it back to in_progress, so
+// anything written to it afterwards can never be gated, reviewed or closed again — it would sit in
+// the record looking like part of a live task. Every mutating command has to refuse, not just the
+// ones that happen to run the transition table.
+for (const terminal of ["closed", "superseded"]) {
+  test(`a ${terminal} task refuses every state mutation`, () => {
+    const root = join(tmpdir(), `agent-workflow-terminal-${terminal}-${process.pid}-${Date.now()}`);
+    const task = join(root, "task"); mkdirSync(task, { recursive: true });
+    writeFileSync(join(task, "task.md"), "# Terminal\n\n## Goal\n\nVerify terminal tasks are immutable.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+    const path = join(task, "task.json");
+    const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+    const state = validTask({ managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] });
+    state.lifecycle = { status: terminal, transitions: [{ at: "2026-01-01T00:00:00.000Z", action: terminal === "closed" ? "close" : "supersede", from: "in_progress", to: terminal, actor: "test" }] };
+    const mutations = [
+      [["task-write", "--task-path", path], JSON.stringify({ impact_confidence: "low" })],
+      [["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "late edit"], JSON.stringify({ impact_confidence: "low" })],
+      [["approve-intent", "--task-path", path, "--confirmed-by", "user"], undefined],
+      [["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--summary", "late claim"], undefined],
+      [["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "late run", "--", process.execPath, "-e", "0"], undefined],
+      [["review-record", "--task-path", path, "--role", "reviewer", "--result", "pass", "--summary", "late review"], undefined],
+      [["waive", "--task", path, "--confirmed-by-user", "user said skip", "--requirement-id", "role.reviewer"], undefined]
+    ];
+    for (const [args, input] of mutations) {
+      writeFileSync(path, JSON.stringify(state));
+      const before = readFileSync(path, "utf8");
+      const result = run(args, input);
+      assert.notEqual(result.status, 0, `${args[0]} was accepted on a ${terminal} task: ${result.stdout}`);
+      assert.match(result.stdout + result.stderr, new RegExp(`task is ${terminal}`), args[0]);
+      assert.equal(readFileSync(path, "utf8"), before, `${args[0]} modified a ${terminal} task`);
+    }
+  });
+}
+
+// paused/blocked mean the work is not currently running, so validation evidence recorded against one
+// describes a state nobody is maintaining. Classification is the deliberate exception: revising what
+// the task claims about itself is often exactly why it is blocked.
+test("a paused or blocked task accepts classification writes but no validation evidence until it resumes", () => {
+  const root = join(tmpdir(), `agent-workflow-paused-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Paused\n\n## Goal\n\nVerify paused tasks cannot accumulate evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
+  for (const status of ["pause", "block"]) {
+    const moved = run([status, "--task", path]);
+    assert.equal(moved.status, 0, moved.stdout);
+    const refused = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--summary", "recorded while parked"]);
+    assert.notEqual(refused.status, 0, refused.stdout);
+    assert.match(JSON.parse(refused.stdout).errors[0], /run 'agent-workflow resume/);
+    // Classification still moves: the task has to be able to describe itself while parked.
+    const rewritten = run(["task-write", "--task-path", path], JSON.stringify({ impact_confidence: "low" }));
+    assert.equal(rewritten.status, 0, rewritten.stdout);
+    const resumed = run(["resume", "--task", path]);
+    assert.equal(resumed.status, 0, resumed.stdout);
+  }
+  const recorded = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--summary", "recorded while running"]);
+  assert.equal(recorded.status, 0, recorded.stdout);
+});
+
+// The waiver counterpart to the step-evidence replay test above: plan_hash is a pure function of the
+// classification, so a round-trip restores it exactly. Without plan_revision, a waiver the user
+// granted against one plan would silently come back to life on a plan they never saw.
+test("a waiver does not survive a classification round-trip that restores the same plan_hash", () => {
+  const root = join(tmpdir(), `agent-workflow-waiver-replay-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Waiver replay\n\n## Goal\n\nVerify waivers cannot be revived by a plan round-trip.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", risk_flags: [] })));
+  const waived = run(["waive", "--task", path, "--confirmed-by-user", "user said skip reviewer", "--requirement-id", "role.reviewer"]);
+  assert.equal(waived.status, 0, waived.stderr);
+  const planHashBefore = JSON.parse(readFileSync(path, "utf8")).waivers.at(-1).plan_hash;
+  assert.ok(!JSON.parse(run(["task-gate", "--task-path", path]).stdout).errors.some((error) => error.includes("role.reviewer")));
+  for (const confidence of ["medium", "high"]) {
+    const rewritten = run(["task-write", "--task-path", path], JSON.stringify({ impact_confidence: confidence }));
+    assert.equal(rewritten.status, 0, rewritten.stdout);
+  }
+  assert.equal(JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash, planHashBefore, "the round-trip must reproduce the same plan_hash for this to be a meaningful test");
+  const regated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.ok(regated.errors.some((error) => error.includes("role.reviewer")), regated.errors.join("; "));
+});
+
+// Waivers written before plan_revision existed cannot distinguish a plan that never moved from one
+// that moved away and back, so the gate has to treat them as stale rather than trust them.
+test("a waiver recorded without plan_revision no longer satisfies the gate", () => {
+  const root = join(tmpdir(), `agent-workflow-waiver-legacy-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Legacy waiver\n\n## Goal\n\nVerify pre-plan_revision waivers are stale.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", risk_flags: [] })));
+  const waived = run(["waive", "--task", path, "--confirmed-by-user", "user said skip reviewer", "--requirement-id", "role.reviewer"]);
+  assert.equal(waived.status, 0, waived.stderr);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  delete state.waivers.at(-1).plan_revision;
+  writeFileSync(path, JSON.stringify(state));
+  const regated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.ok(regated.errors.some((error) => error.includes("role.reviewer")), regated.errors.join("; "));
 });

@@ -13,7 +13,6 @@
     "required": [
       "baseline_validation",
       "execution_path_review",
-      "impact_discovery",
       "regression_validation",
       "reviewer"
     ],
@@ -25,9 +24,6 @@
       "execution_path_review.EP2",
       "execution_path_review.EP4",
       "execution_path_review.EP5",
-      "impact_discovery.ID1",
-      "impact_discovery.ID2",
-      "impact_discovery.ID3",
       "regression_validation.RV1",
       "regression_validation.RV2",
       "regression_validation.RV3",

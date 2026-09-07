@@ -22,11 +22,6 @@
               "low"
             ]
           }
-        ],
-        [
-          {
-            "impact_scope_at_least": "multi_module"
-          }
         ]
       ],
       "steps": [
@@ -1038,7 +1033,12 @@
         "data_impact",
         "contract_review",
         "execution_path_review",
-        "regression_validation"
+        "regression_validation",
+        "baseline_validation",
+        "test_integrity",
+        "mutation_validation",
+        "security_review",
+        "operational_verification"
       ],
       "require_when": [
         [
@@ -1065,7 +1065,9 @@
               "migration",
               "irreversible",
               "schema",
-              "contract"
+              "contract",
+              "security",
+              "ui"
             ]
           }
         ]
@@ -1187,7 +1189,44 @@
       "require_when": [
         [
           {
-            "managed_change": true
+            "impact_confidence": [
+              "medium",
+              "low"
+            ]
+          }
+        ],
+        [
+          {
+            "impact_scope_at_least": "multi_module"
+          }
+        ],
+        [
+          {
+            "impact_effect": [
+              "shared_behavior",
+              "schema",
+              "data",
+              "contract",
+              "destructive"
+            ]
+          }
+        ],
+        [
+          {
+            "risk_flags": [
+              "ui",
+              "data_write",
+              "contract",
+              "schema",
+              "financial",
+              "authorization",
+              "cross_feature",
+              "migration",
+              "irreversible",
+              "test_integrity",
+              "security",
+              "operational"
+            ]
           }
         ]
       ],
@@ -1238,7 +1277,6 @@
           {
             "risk_flags": [
               "financial",
-              "data_write",
               "irreversible"
             ]
           }

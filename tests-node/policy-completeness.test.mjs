@@ -47,10 +47,15 @@ test("migration=true requires migration_safety and schema=true requires schema_c
 
 test("the mutation/security/operational risk flags each force their capability, and its runtime_execution steps", () => {
   const base = { workflow_request: [], task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high" };
-  for (const [flag, capability] of [["financial", "mutation_validation"], ["data_write", "mutation_validation"], ["irreversible", "mutation_validation"], ["security", "security_review"], ["authorization", "security_review"], ["operational", "operational_verification"]]) {
+  for (const [flag, capability] of [["financial", "mutation_validation"], ["irreversible", "mutation_validation"], ["security", "security_review"], ["authorization", "security_review"], ["operational", "operational_verification"]]) {
     const result = plan({ ...base, risk_flags: [flag] });
     assert.ok(result.required.includes(capability), `${flag} did not require ${capability}: ${JSON.stringify(result.required)}`);
   }
+  // data_write is the deliberate exception: it draws data_impact, not the far more expensive
+  // break-the-logic-and-watch-the-tests-fail pass that money and one-way changes pay for.
+  const dataWrite = plan({ ...base, risk_flags: ["data_write"] });
+  assert.ok(dataWrite.required.includes("data_impact"), JSON.stringify(dataWrite.required));
+  assert.ok(!dataWrite.required.includes("mutation_validation"), JSON.stringify(dataWrite.required));
   // An attested claim must not be able to satisfy these: the proof-of-execution steps have to keep
   // declaring runtime_execution, which is what forces evidence-run rather than evidence-record.
   const policy = JSON.parse(readFileSync(join(process.cwd(), "schemas", "workflow-policy.json"), "utf8"));
@@ -76,4 +81,18 @@ test("test_integrity is required only by its risk flag, never by workflow_facts 
   assert.ok(flagged.required.includes("test_integrity"), JSON.stringify(flagged.required));
   const capability = flagged.steps.find((entry) => entry.name === "test_integrity");
   assert.ok(capability.steps.some((step) => step.id === "TI2"));
+});
+
+// security and ui were the two flags that produced their own evidence capability (or, for ui, an
+// explicit browser-verification rule) while never drawing the independent reviewer that reads the
+// change back. They are exactly the cases where the agent verifying its own work is worth least.
+test("the security and ui risk flags each require an independent reviewer, ordered after the evidence", () => {
+  const base = { workflow_request: [], task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", managed_change: true };
+  for (const flag of ["security", "ui"]) {
+    const result = plan({ ...base, risk_flags: [flag] });
+    assert.ok(result.required.includes("reviewer"), `${flag} did not require reviewer: ${JSON.stringify(result.required)}`);
+    // A review that runs before the evidence it is supposed to read back proves nothing, so the
+    // reviewer has to sort last among everything selected.
+    assert.equal(result.order.at(-1), "reviewer", `${flag}: ${JSON.stringify(result.order)}`);
+  }
 });

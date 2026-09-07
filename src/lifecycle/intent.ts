@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output } from "../core.js";
 import { intentHash } from "../intent.js";
 import { schemaErrors } from "./task-schema.js";
-import { taskPath } from "./task-store.js";
+import { assertMutable, RUNNING_STATUSES, taskPath } from "./task-store.js";
 
 // Runtime computes intent_hash itself from the sibling task.md; the caller only asserts who
 // confirmed it. source is "user" only when the caller explicitly claims a real user confirmation —
@@ -18,6 +18,7 @@ export function approveIntent(value: string, confirmedBy: string, asUser: boolea
   try {
     const hash = intentHash(readFileSync(taskMd, "utf8"));
     const state = mutateJsonState<JsonObject>(path, (current) => {
+      assertMutable(current, "approve-intent", RUNNING_STATUSES);
       current.intent_approval = { intent_hash: hash, confirmed_at: now(), confirmed_by: confirmedBy, source: asUser ? "user" : "cli-attestation" };
       current.updated_at = now();
       const errors = schemaErrors(current);

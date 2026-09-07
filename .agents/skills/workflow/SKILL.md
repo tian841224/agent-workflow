@@ -8,7 +8,7 @@ Optional push-back skill applies only when a chosen design may violate conventio
 
 修改本 framework 的 agents、skills、hooks 或 workflow contract 前，先讀 [architecture.md](../../../docs/architecture.md)。
 
-task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`managed_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`managed_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`task-write` 拒絕三種降級——`managed_change` 由 `true` 改回 `false`、移除既有 `risk_flags`、調低 `impact_confidence`——確實重新評估過才改用 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason`，並把這筆決定記進 `workflow_decision`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
+task.md／task.json 的分工見 architecture.md；下文欄位名稱（`code_change`、`managed_change`、`workflow_request`、`risk_flags`、`impact_scope`、`impact_effect`、`workflow_facts` 等分類與 lifecycle 欄位）一律指同目錄 `task.json`（`schemas/task.schema.json`）裡的欄位，task.md 只保留 Goal／Scope／Completion criteria 與各 evidence section。task.json 一律由 runtime CLI 寫入，不得直接編輯：建立用 `task-init`；分類欄位（`code_change`／`managed_change`／`task_type`／`impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags`／`workflow_facts`／`workflow_request`／`workflow_decision`）用 `task-write`（stdin 傳 JSON patch，經 schema 驗證與 lock 才落地）；`task-write` 拒絕兩種降級——`managed_change` 由 `true` 改回 `false`、移除既有 `risk_flags`——確實重新評估過才改用 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason`，並把這筆決定記進 `workflow_decision`；`impact_confidence` 不在受保護之列，調低它會讓 gate 要求更多（`medium`／`low` 會 required `impact_discovery` 與 `baseline_validation`），屬於 agent 自己的分析狀態，可隨分析結果直接用 `task-write` 改；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step）／`review-record`（role）——這三個 command 自己算 hash／timestamp／diff 範圍，不接受呼叫端傳入；狀態轉換用 `pause`／`block`／`resume`／`supersede`／`waive`／`close-task`；`resume` 把 `paused`／`blocked` 帶回 `in_progress`，worktree lease 在 `paused`／`blocked` 期間持續保留，不需要重新取得。`closed`／`superseded` 是終端狀態，任何 task state 寫入一律拒絕，要繼續處理就另建新 task；`paused`／`blocked` 期間仍可用 `task-write`／`reclassify` 修分類，但 `evidence-record`／`evidence-run`／`review-record`／`approve-intent`／`waive` 都要先 `resume` 回 `in_progress`。hook 會 fail-closed 擋下對 task.json 的直接檔案寫入工具呼叫。
 
 ## 適用範圍
 
@@ -59,7 +59,9 @@ Test-only change 只有在降低或大幅改變既有驗證可信度時才進 ma
 
 runtime 再依 `test_integrity` capability 展開對應 evidence step。
 
-既有或匯入的 `managed_change: false` task 僅作相容性資料，不啟動 capability 或角色。
+既有或匯入的 `managed_change: false` task 僅作相容性資料，不啟動 capability 或角色：`required`、`suggested`、`selected`、`order` 與 evidence 清單一律為空，`workflow_request` 只保留為輸入紀錄，不影響 plan。
+
+一般的唯讀問答、分析與 review 就是 unmanaged，直接 bypass，不建立 task，由 host 選用唯讀 reader agent。`task_type: read_only` 只用於本來就存在 task record 的唯讀、orchestration 或 legacy 情境；此時 `model_profile` 由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 指定。
 
 如果原先判定為 unmanaged，但處理過程中發現實際會改變 runtime behavior、delivery behavior 或 verification integrity，使用 `task-write` 將同一 task 的 `managed_change` 改為 `true`。
 
@@ -71,11 +73,11 @@ runtime 再依 `test_integrity` capability 展開對應 evidence step。
 
 Workflow 沒有固定 pipeline，也沒有預設檔位。十六個 capability：`baseline_validation`、`impact_discovery`、`codebase_design`、`bug_diagnosis`、`tdd`、`schema_compatibility`、`migration_safety`、`data_impact`、`contract_review`、`execution_path_review`、`regression_validation`、`test_integrity`、`mutation_validation`、`security_review`、`operational_verification`（`kind: evidence`，產出寫在各自 section 的 `- <step id>:` 行）與 `reviewer`（`kind: role`，獨立唯讀複審，定義與執行方式見 §6）。`required`／`suggested`／`selected` 如何算出、step 如何依 `when` 展開、以及各情境的典型組合與成本，見 [capability-selection.md](capability-selection.md)。
 
-`baseline_validation` 是唯一無條件 required 的 capability：只要 `managed_change: true` 就會選取，不看 `task_type`、`impact_*` 或 `risk_flags`。BV1 指出實際被執行到的 entrypoint 與受影響執行路徑，BV2 用 `evidence-run` 跑最小可重現驗證（該 step 宣告 `runtime_execution`，只接受 runtime 觀測到的 evidence，agent 自述的分析結論不算數），BV3 列出已知限制與本次未驗證的項目。
+`baseline_validation` 依分類選取，不再只因 `managed_change: true` 就無條件 required：`impact_confidence` 為 `medium`／`low`、`impact_scope` 達 `multi_module`、`impact_effect` 屬 `shared_behavior`／`schema`／`data`／`contract`／`destructive`，或命中高風險 `risk_flags`（`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`test_integrity`、`security`、`operational`）時才會選取。單檔、局部行為、高信心且無 risk flag 的 managed change `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 由主對話自行決定，需要時用 `workflow_request` 加選。BV1 指出實際被執行到的 entrypoint 與受影響執行路徑，BV2 用 `evidence-run` 跑最小可重現驗證（該 step 宣告 `runtime_execution`，只接受 runtime 觀測到的 evidence，agent 自述的分析結論不算數），BV3 列出已知限制與本次未驗證的項目。
 
-`mutation_validation`（`financial`／`data_write`／`irreversible` 觸發）確認 mutation target、失敗與回滾行為、破壞性路徑的測試是否真的守得住，MV4 宣告 `runtime_execution`。`security_review`（`security`／`authorization` 觸發）走 SR1–SR5：授權邊界、輸入信任邊界、秘密處理、指令執行、檔案系統路徑。`operational_verification`（`operational` 觸發）走 OV1–OV4：部署與 runtime 設定、服務啟動與網路可達（OV2 宣告 `runtime_execution`）、CI/CD 路徑、目標環境實際行為。
+`mutation_validation`（`financial`／`irreversible` 觸發；一般 `data_write` 由 `data_impact` 涵蓋，判斷確實需要時才用 `workflow_request` 加選）確認 mutation target、失敗與回滾行為、破壞性路徑的測試是否真的守得住，MV4 宣告 `runtime_execution`。`security_review`（`security`／`authorization` 觸發）走 SR1–SR5：授權邊界、輸入信任邊界、秘密處理、指令執行、檔案系統路徑。`operational_verification`（`operational` 觸發）走 OV1–OV4：部署與 runtime 設定、服務啟動與網路可達（OV2 宣告 `runtime_execution`）、CI/CD 路徑、目標環境實際行為。
 
-`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷，選取後載入 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
+`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷，選取後載入 [codebase-design skill](../codebase-design/SKILL.md)：主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
 
 `bug_diagnosis` 用於重現、最小化與假設驗證，選取時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)，以 task 的 `Bug diagnosis` section 記錄 feedback loop、repro、假設、probe 與回歸結果；`tdd` 用於 red → green → refactor、seam 與測試缺口證據，選取時載入 [TDD skill](../tdd/SKILL.md)，以 `TDD evidence` section 記錄 red、green、seam 與測試缺口。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發；`bug_diagnosis` 通常用於 `task_type: fix`、效能異常或明確的 debug／diagnose 任務，`tdd` 通常用於 feature、fix、行為變更或使用者要求 test-first 的任務，是否選取仍由主對話根據實際影響決定。
 
@@ -137,7 +139,9 @@ Standard source-code task 在 diff 完成後執行相關測試與必要的 `agen
 
 `reviewer` 是獨立的唯讀複審角色：只讀 diff 與相關程式碼並回報結論，本身不改動任何檔案，可以派成 subagent 執行。主對話是 coordinator，負責整合複審結果並做最後一次合理性核對；coordinator 這一趟屬於整合工作，不算第二位 reviewer。
 
-預設每個 task 只跑一位 reviewer。只有 `risk_flags` 命中 `security`、`authorization`、`financial`、`migration` 或 `irreversible`，或第一位 reviewer 回報 blocker 時，才另外加開一位對抗式 reviewer。
+每個 task 只跑一位 reviewer。Runtime contract 只認得 `role.reviewer` 一種身份，第二位 reviewer 就算真的跑了也無法被證明，因此高風險情境改成把對抗式要求寫進同一位 reviewer 的指令，而不是另開角色。reviewer 回報 blocker 並修正後，重新執行同一個 reviewer capability 即可。
+
+一般 task 的自我檢查由主對話直接完成；只有 reviewer 被 `required`（高 blast radius 或高風險分類）或被 `workflow_request` 加選時，才另外啟動獨立唯讀 Reviewer。
 
 bug fix 或邏輯調整仍須依第 4 節 TDD 規則補測試。
 
@@ -150,7 +154,12 @@ reviewer 這一趟派一般 subagent（`general-purpose`），指令載明這兩
 - 實際執行既有的相關測試。數值、邊界與併發行為若現有測試沒有涵蓋，列為測試缺口並指出應補的具體案例，由實作者依 TDD 補齊。
 - 對改動的欄位與資料流，往上下游追到 repository 與 entity，確認欄位映射、呼叫端與程式宣稱的行為一致。
 
-命中 §6 開頭列的五個 risk flag，或第一位 reviewer 回報 blocker 時，另派一位對抗式 reviewer，把要推翻的假設（資料溯源、底層語意、同型擴散、多輪交互）寫成它的指令；其餘情況把這些假設併進第一位 reviewer 的指令即可。
+高風險分類把要主動推翻的假設直接寫進同一位 reviewer 的指令，不另開角色：
+
+- `financial`／`data_write`／`schema`／`migration`：推翻資料 provenance、rollback 路徑與 invariants。
+- `security`／`authorization`：推翻 trust boundary 與權限假設。
+- `contract`：主動尋找 consumer 的相容性破口。
+- `ui`：依 risk-flags.md 用 browser 實際驗證，不以靜態閱讀代替。
 
 coordinator 這一趟由主對話自己對照完整 diff 走一次，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。
 

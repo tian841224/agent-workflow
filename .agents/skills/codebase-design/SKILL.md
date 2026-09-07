@@ -7,7 +7,7 @@ description: Deep-module vocabulary (module, interface, depth, seam, adapter) an
 
 Design **deep modules**: a small interface hiding a lot of behavior, sitting on a clean seam, testable through that interface. Use this vocabulary consistently whenever designing or refactoring code — the terms only work if they stay consistent.
 
-This file is a shared reference, loaded on the pointers listed in the description. Its purpose is cross-pass consistency: the Planner and the main conversation's Review pass work from separate context, so `seam`, `depth`, and `adapter` have to mean the same thing in each of their reports.
+This file is a shared reference, loaded on the pointers listed in the description. Its purpose is cross-pass consistency: the main conversation's design pass and its later Review pass load this file from separate context, so `seam`, `depth`, and `adapter` have to mean the same thing in each of their reports.
 
 ## Glossary
 

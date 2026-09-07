@@ -5,6 +5,9 @@ This checklist separates package creation, authentication, publication, and real
 ## npm release gate
 
 ```text
+npm run ci
+      |
+      v
 npm pack --dry-run
       |
       v
@@ -22,6 +25,7 @@ real `npx --yes @tian/agent-workflow@<version>` installation and command smoke t
 
 Required reporting:
 
+- `npm run ci` (typecheck, eslint, tests, contract-lint, pack check across Windows/Ubuntu/macOS on Node 20 and 22) must be green before packing; a green pack is not a green build.
 - `npm pack --dry-run` proves only that the local package can be assembled.
 - `npm ping` proves registry connectivity, not publication permission.
 - `npm whoami` must succeed before claiming authenticated publication readiness.
