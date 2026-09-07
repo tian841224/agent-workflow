@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -48,4 +48,29 @@ test("skill install/verify/remove round-trips a locally vendored skill through s
   assert.equal(removed.valid, true);
   const lock = JSON.parse(readFileSync(join(root, "skills-lock.json"), "utf8"));
   assert.equal(lock.skills["scratch-test"], undefined);
+});
+
+// v5 shipped a managed file that the installer's hard-coded list never learned about: the repo
+// looked correct while a fresh install came out missing it. This keeps the catalog and the on-disk
+// skill directories a strict parity set in both directions.
+test("managed-manifest catalog and .agents/skills stay a parity set in both directions", () => {
+  const manifest = JSON.parse(readFileSync(join(process.cwd(), "adapters", "managed-manifest.json"), "utf8"));
+  const catalog = manifest.skills;
+  const unmanaged = new Set(manifest.unmanaged_skills || []);
+
+  for (const [name, meta] of Object.entries(catalog)) {
+    assert.equal(typeof meta.required, "boolean", `${name} must declare required`);
+    assert.ok(existsSync(join(process.cwd(), ".agents", "skills", name, "SKILL.md")), `manifest lists ${name} but .agents/skills/${name}/SKILL.md is missing`);
+  }
+
+  const onDisk = readdirSync(join(process.cwd(), ".agents", "skills"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(process.cwd(), ".agents", "skills", entry.name, "SKILL.md")))
+    .map((entry) => entry.name);
+  for (const name of onDisk) {
+    assert.ok(catalog[name] || unmanaged.has(name), `.agents/skills/${name} is neither in the manifest catalog nor listed in unmanaged_skills`);
+  }
+  for (const name of unmanaged) {
+    assert.equal(catalog[name], undefined, `${name} is listed both as unmanaged and in the catalog`);
+    assert.ok(onDisk.includes(name), `unmanaged_skills lists ${name} but no such skill directory exists`);
+  }
 });

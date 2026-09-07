@@ -27,7 +27,7 @@
 
 `financial`／`data_write`／`migration`／`irreversible`／`schema`／`contract` 六個旗標是把對抗式複查要求（推翻資料溯源、底層語意或同型擴散假設）寫進 reviewer 指令的訊號。Runtime contract 只認得 `role.reviewer` 一種身份，不存在第二位 reviewer，因此這些要求併進同一位 reviewer 的指令，修正後重跑同一個 reviewer capability。
 
-表格右欄的 freeze-required 與額外段落是**單向宣告**：flag 一旦填上就生效，沒有事後解除機制，也不能靠某種證據去抑制它。判斷錯了要移除 flag，只能走 `agent-workflow reclassify --confirmed-by-user <文字> --reason <文字>`；一般 `task-write` 會拒絕移除既有 `risk_flags`，直接編輯 `task.json` 更是被 hook fail-closed 擋下。移除 flag 時連同對應段落一併移除。`financial`／`irreversible` 命中時 runtime 強制 `mutation_validation`，其中 MV3 就是 mutation check；一般 `data_write` 由 `data_impact` 涵蓋，需要 mutation 驗證時用 `workflow_request` 自行加選。`authorization`／`security` 強制 `security_review`，`operational` 強制 `operational_verification`。capability 觸發集合以 `schemas/workflow-policy.json` 的 `require_when` 為權威來源，freeze 觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為準。
+表格右欄的 freeze-required 與額外段落是**單向宣告**：flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回事，capability 的執行結果也不會抑制它。判斷錯了要移除 flag，唯一路徑是明確重新分類：`agent-workflow reclassify --confirmed-by-user <文字> --reason <文字>`，runtime 會把這筆決定記進 `workflow_decision`；一般 `task-write` 會拒絕移除既有 `risk_flags`，直接編輯 `task.json` 更是被 hook fail-closed 擋下。移除 flag 時連同對應段落一併移除。`financial`／`irreversible` 命中時 runtime 強制 `mutation_validation`，其中 MV3 就是 mutation check；一般 `data_write` 由 `data_impact` 涵蓋，需要 mutation 驗證時用 `workflow_request` 自行加選。`authorization`／`security` 強制 `security_review`，`operational` 強制 `operational_verification`。capability 觸發集合以 `schemas/workflow-policy.json` 的 `require_when` 為權威來源，freeze 觸發集合仍以 `schemas/task.schema.json` 的 `x_agent_workflow` 為準。
 
 ## Freeze-required 詳細規則
 

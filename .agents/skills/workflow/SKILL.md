@@ -77,7 +77,7 @@ Workflow 沒有固定 pipeline，也沒有預設檔位。十六個 capability：
 
 `mutation_validation`（`financial`／`irreversible` 觸發；一般 `data_write` 由 `data_impact` 涵蓋，判斷確實需要時才用 `workflow_request` 加選）確認 mutation target、失敗與回滾行為、破壞性路徑的測試是否真的守得住，MV4 宣告 `runtime_execution`。`security_review`（`security`／`authorization` 觸發）走 SR1–SR5：授權邊界、輸入信任邊界、秘密處理、指令執行、檔案系統路徑。`operational_verification`（`operational` 觸發）走 OV1–OV4：部署與 runtime 設定、服務啟動與網路可達（OV2 宣告 `runtime_execution`）、CI/CD 路徑、目標環境實際行為。
 
-`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷，選取後載入 [codebase-design skill](../codebase-design/SKILL.md)：Planner／主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
+`codebase_design` 用於 interface、seam、adapter、testability 或 shared logic 的設計判斷，選取後載入 [codebase-design skill](../codebase-design/SKILL.md)：主對話界定 interface 與 seam，Review 檢查 depth、delete test 與是否過早抽象化，並確認測試透過 interface 驗證可觀察結果。
 
 `bug_diagnosis` 用於重現、最小化與假設驗證，選取時載入 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md)，以 task 的 `Bug diagnosis` section 記錄 feedback loop、repro、假設、probe 與回歸結果；`tdd` 用於 red → green → refactor、seam 與測試缺口證據，選取時載入 [TDD skill](../tdd/SKILL.md)，以 `TDD evidence` section 記錄 red、green、seam 與測試缺口。這三者都是可選 capability，不會只因為出現 `interface`、`fix` 或 `test` 等單一字詞就自動觸發；`bug_diagnosis` 通常用於 `task_type: fix`、效能異常或明確的 debug／diagnose 任務，`tdd` 通常用於 feature、fix、行為變更或使用者要求 test-first 的任務，是否選取仍由主對話根據實際影響決定。
 

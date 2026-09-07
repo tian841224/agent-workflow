@@ -69,8 +69,6 @@ the cases the user accepted are part of what they approved, so they have to be i
 - checks: <items executed and their results>
 - skip reason: <fill only when SKIP>
 - limitations: <unverified limitations; "none" if none>
-- mutation check: <required as PASS or SKIP for financial/data_write: break the critical logic, confirm the guarding test fails red, then restore>
-- mutation reason: <fill only when mutation check is SKIP>
 
 <!-- Add only when memory was actually written to:
 ## Knowledge result
