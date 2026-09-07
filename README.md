@@ -44,6 +44,7 @@ npx --yes @tian/agent-workflow@latest
 | v2 | 流程總控、角色分工、hooks 與後端化驗收 | 將規則從提示文字提升為可執行的護欄 |
 | v3 | 任務分軌、Lite／Standard 流程、平行 sub-task 與跨平台 installer | 降低簡單任務的流程成本，並支援多平台與平行開發 |
 | v4 | 依情境載入流程、canonical `.agents`、TDD、記憶與專案文件 | 讓流程更貼近實際影響範圍，降低重複規範與 context 成本 |
+| v5 | Python runtime、主對話直接選定 capability、跨平台記憶與專案文件、條件式角色與唯讀 Reader 分流 | 固定 pipeline 與固定角色清單無法反映實際影響範圍，簡單任務被迫付出與高風險任務相同的流程成本 |
 | v6 | 在 v5 架構基礎上，以「同 prompt、有無 skill／角色提示」的 A/B 比較作為去留依據，只保留驗證後仍有效的最小提示 | skill／角色清單只增不減，缺乏依據判斷提示內容是否真的提升輸出品質，導致 token 與執行時間持續墊高 |
 | v7 | Node.js runtime、主對話直接選定 capability／角色、條件式品質角色、跨平台記憶、唯讀 Reader 任務分流與主對話編排；`task.json` 統一 contract（`state_revision`／`plan_revision`／`intent_approval`）、risk_flags 驅動的 required capability、pure task-gate、CAS 檔案鎖與 git-guard allowlist | 將流程選擇與 runtime 執行分離，並讓高風險流程不再能靠少填 `workflow_request` 被略過，兼顧彈性、可驗證性與跨平台一致性 |
 
@@ -62,15 +63,15 @@ npx --yes @tian/agent-workflow@latest
 1. **Managed change**：`managed_change: true` 時建立 task 並載入 `workflow` skill；capability 由 policy 與主對話依實際 impact／risk 選擇。
 2. **Test-only change**：新增測試、強化 assertion 或安全 test refactor 可 `managed_change: false` 直接 bypass；刪除／skip 測試、弱化 assertion 或大量重寫 snapshot／fixture baseline 時改為 `managed_change: true`，並加入 `test_integrity` risk flag。
 3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
-4. **唯讀任務**：單純讀取、檢查、解釋或程式碼審查任務使用 `task_type: read_only`；`model_profile`（`cheap_read`／`deep_read`）由 runtime 推導，不由 agent 自由選擇。Codex／Claude 選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。
+4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀、orchestration 或 legacy 情境才使用 `task_type: read_only`，此時 `model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。
 
-流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
+流程沒有固定 pipeline，由 Planner 依 task metadata 與 `workflow_facts` 先產生 capability 候選，主對話再依已知需求與程式脈絡確認、覆寫或補充，並把要跑的角色與檢查寫進 task 的 `workflow_request`。runtime 另外會依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限。`managed_change: true` 本身不再強制任何 capability：單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 全由主對話決定；不確定（`impact_confidence` 為 `medium`／`low`）、影響面擴大或命中高風險 flag 時才由 runtime 強制，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
 ### Review 與角色化品質檢查
 
-- **Review**：檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境，並從 real entrypoint 確認完成條件。Review 由主對話依 `workflow` skill 第 6 節直接執行，不再啟動獨立角色；需要對抗式複查或額外驗證時，把要推翻的假設或要測試的情境直接寫進 Review 指令。
+- **Review**：檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境，並從 real entrypoint 確認完成條件。預設由主對話完成基本自我檢查；當 `reviewer` capability 被 `required`（高 blast radius 或高風險分類）或被 `workflow_request` 加選時，另外啟動一個獨立唯讀 Reviewer，由主對話整合 finding。Runtime contract 只認得 `role.reviewer` 一種身份，不存在第二位 reviewer——需要對抗式複查時，把要推翻的假設寫進同一位 reviewer 的指令，修正後重跑同一個 capability。
 - **Worker**：僅用於 host-native／manual isolated parallel development 的 implementation role；Worker 只執行 coordinator 提供的 ExecutionPacket，不自行重新選 capability 或 workflow。
 - **Reader**：專案唯讀檢查角色，僅用於讀取、分析與審查，不可修改檔案或 repository 狀態。
 

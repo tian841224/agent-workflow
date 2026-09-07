@@ -7,7 +7,7 @@ import { memoryReviewPrompt } from "../memory-review.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { evaluateTaskGate } from "./task-gate.js";
 import { schemaErrors } from "./task-schema.js";
-import { lifecycleOf, task, taskPath } from "./task-store.js";
+import { assertMutable, lifecycleOf, OPEN_STATUSES, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
 import { activateCodeTask, worktreeLeasePath, writeLease } from "./worktree-lease.js";
 
 type Transition = "create" | "pause" | "block" | "resume" | "supersede" | "waive" | "close";
@@ -19,7 +19,10 @@ const allowed: Record<string, string[]> = {
 function applyTransition(state: JsonObject, path: string, action: Transition, actor: string, confirmation: string, requirementId: string): void {
   const life = lifecycleOf(state); const from = String(life.status || "");
   const target: Record<Transition, string> = { create: "in_progress", pause: "paused", block: "blocked", resume: "in_progress", supersede: "superseded", waive: from, close: "closed" };
-  if (action !== "waive" && !(allowed[from] || []).includes(target[action])) throw new Error(`invalid TaskLifecycle transition: ${from} -> ${target[action]}`);
+  // waive deliberately keeps the current status, so the transition table cannot reject it: without
+  // this check a closed or superseded task could still accumulate waivers.
+  if (action === "waive") assertMutable(state, "waive", RUNNING_STATUSES);
+  else if (!(allowed[from] || []).includes(target[action])) throw new Error(`invalid TaskLifecycle transition: ${from} -> ${target[action]}`);
   const transitions = Array.isArray(life.transitions) ? life.transitions : [];
   transitions.push({ at: now(), action, from, to: target[action], actor, ...(action === "waive" ? { confirmed_by_user: confirmation } : {}) });
   life.status = target[action]; life.transitions = transitions; state.lifecycle = life;
@@ -33,7 +36,10 @@ function applyTransition(state: JsonObject, path: string, action: Transition, ac
     const taskMd = join(dirname(path), "task.md");
     if (!existsSync(taskMd)) throw new Error("waive: sibling task.md is missing; cannot determine intent_hash");
     const intent_hash = intentHash(readFileSync(taskMd, "utf8"));
-    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, plan_hash: plan.plan_hash, intent_hash });
+    // plan_revision alongside plan_hash for the same reason step evidence records both: plan_hash is
+    // a pure function of the classification, so moving it away and back restores the old value and
+    // would revive a waiver the user granted against a plan that no longer exists.
+    waivers.push({ at: now(), actor, confirmed_by_user: confirmation, requirement_id: requirementId, plan_hash: plan.plan_hash, plan_revision: Number(state.plan_revision || 1), intent_hash });
     state.waivers = waivers;
   }
   // Every write path funnels through here, so validating once here keeps task.schema.json the only
@@ -102,10 +108,11 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
     } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
 }
-// Descending severity, matching task.schema.json's impact_confidence enum order.
-const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
-// The three classification moves that quietly shrink what the gate can demand. Each is legitimate
+// The two classification moves that quietly shrink what the gate can demand. Each is legitimate
 // after a real re-assessment, which is why `reclassify` exists — but never as a silent task-write.
+// impact_confidence is deliberately not one of them: lowering it raises what the gate demands
+// (medium/low requires impact_discovery), so it is the agent's own analysis state to revise freely
+// rather than an authorization the user has to re-grant.
 function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
   const errors: string[] = [];
   if (before.managed_change === true && patch.managed_change === false) errors.push("managed_change cannot transition from true back to false");
@@ -114,9 +121,6 @@ function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
     const dropped = (Array.isArray(before.risk_flags) ? before.risk_flags.map(String) : []).filter((flag) => !next.includes(flag));
     if (dropped.length) errors.push(`risk_flags cannot be removed: ${dropped.join(", ")}`);
   }
-  const from = CONFIDENCE_RANK[String(before.impact_confidence || "")];
-  const to = CONFIDENCE_RANK[String(patch.impact_confidence || "")];
-  if (from !== undefined && to !== undefined && to < from) errors.push(`impact_confidence cannot be downgraded from ${String(before.impact_confidence)} to ${String(patch.impact_confidence)}`);
   return errors;
 }
 
@@ -147,6 +151,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
         // Checked against `current` (read inside this task's file lock), not the pre-lock `before`:
         // a stale writer racing another write must not be able to slip a downgrade past this check
         // just because its own read happened before the other writer's change landed.
+        assertMutable(current, reclassification ? "reclassify" : "task-write", OPEN_STATUSES);
         if (current.code_change === true && patch.code_change === false) throw new Error("task-write: code_change cannot transition from true back to false; supersede this task and create a new non-code task instead");
         if (!reclassification) {
           const downgrades = downgradeErrors(current, patch);

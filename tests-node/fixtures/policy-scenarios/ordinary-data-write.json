@@ -1,0 +1,62 @@
+{
+  "scenario": "ordinary-data-write",
+  "task": {
+    "workflow_request": [],
+    "task_type": "feature",
+    "impact_scope": "module",
+    "impact_effect": "data",
+    "impact_confidence": "high",
+    "managed_change": true,
+    "risk_flags": [
+      "data_write"
+    ]
+  },
+  "expected": {
+    "required": [
+      "baseline_validation",
+      "data_impact",
+      "execution_path_review",
+      "regression_validation",
+      "reviewer"
+    ],
+    "required_evidence": [
+      "baseline_validation.BV1",
+      "baseline_validation.BV2",
+      "baseline_validation.BV3",
+      "data_impact.DI1",
+      "data_impact.DI2",
+      "execution_path_review.EP1",
+      "execution_path_review.EP2",
+      "execution_path_review.EP3",
+      "execution_path_review.EP4",
+      "regression_validation.RV1",
+      "regression_validation.RV2",
+      "regression_validation.RV3",
+      "role.reviewer"
+    ],
+    "classification_incomplete": [],
+    "step_classification_incomplete": [
+      {
+        "capability": "data_impact",
+        "id": "DI3",
+        "missing": [
+          "workflow_facts.has_consumer"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI4",
+        "missing": [
+          "workflow_facts.data_transform"
+        ]
+      },
+      {
+        "capability": "data_impact",
+        "id": "DI6",
+        "missing": [
+          "workflow_facts.destructive_operation"
+        ]
+      }
+    ]
+  }
+}

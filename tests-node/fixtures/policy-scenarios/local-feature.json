@@ -10,14 +10,8 @@
     "risk_flags": []
   },
   "expected": {
-    "required": [
-      "baseline_validation"
-    ],
-    "required_evidence": [
-      "baseline_validation.BV1",
-      "baseline_validation.BV2",
-      "baseline_validation.BV3"
-    ],
+    "required": [],
+    "required_evidence": [],
     "classification_incomplete": [],
     "step_classification_incomplete": []
   }

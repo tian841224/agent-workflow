@@ -7,7 +7,7 @@ import { intentHash } from "../intent.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { covers } from "./ownership.js";
 import { schemaErrors } from "./task-schema.js";
-import { task, taskPath } from "./task-store.js";
+import { assertMutable, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
 
 // Reads the sibling task.md's current intent_hash so evidence can be stamped with the requirement
 // version it was actually recorded against, not just the policy plan.
@@ -84,6 +84,7 @@ export function evidenceRecord(value: string, requirementId: string, summary: st
 function appendStepEvidence(command: string, path: string, requirementId: string, summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string }): number {
   try {
     const state = mutateJsonState<JsonObject>(path, (current) => {
+      assertMutable(current, command, RUNNING_STATUSES);
       const plan = compilePlanForTaskPath(current, path);
       const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
       if (!selectedStepIds.has(requirementId)) throw new Error(`${command}: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
@@ -112,7 +113,9 @@ export function evidenceRun(value: string, requirementId: string, summary: strin
   if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-run requires --requirement-id and --summary"] }); return 1; }
   if (!argv.length) { output({ valid: false, errors: ["evidence-run requires a command after `--`"] }); return 1; }
   let expected: { plan_hash: string; intent_hash: string };
-  try { expected = { plan_hash: compilePlanForTaskPath(task(path), path).plan_hash, intent_hash: currentIntentHash(path) }; }
+  // Checked before the spawn as well as inside the lock: a task that can never accept the result has
+  // no business running the command at all.
+  try { const current = task(path); assertMutable(current, "evidence-run", RUNNING_STATUSES); expected = { plan_hash: compilePlanForTaskPath(current, path).plan_hash, intent_hash: currentIntentHash(path) }; }
   catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   // Nothing holds the task lock across the spawn: a long command must not block every other writer.
   // appendStepEvidence re-checks both hashes afterwards, so a task edited meanwhile is rejected.
@@ -143,6 +146,7 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
     // pre-lock read: a task concurrently reclassified or re-activated between that read and this
     // callback running must reject the write, not record a review against state that already changed.
     const state = mutateJsonState<JsonObject>(path, (current) => {
+      assertMutable(current, "review-record", RUNNING_STATUSES);
       const plan = compilePlanForTaskPath(current, path);
       const selectedRoles = new Set(plan.selected.filter((capability) => capability.kind === "role").map((capability) => `role.${String(capability.name)}`));
       if (!selectedRoles.has(roleKey)) throw new Error(`review-record: '${roleKey}' is not a selected role for this task; expected one of: ${[...selectedRoles].join(", ") || "(none)"}`);

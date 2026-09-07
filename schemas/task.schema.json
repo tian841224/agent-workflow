@@ -96,6 +96,7 @@
         "confirmed_by_user": { "type": "string", "minLength": 1 },
         "requirement_id": { "type": "string", "minLength": 1 },
         "plan_hash": { "$ref": "#/$defs/sha256" },
+        "plan_revision": { "type": "integer", "minimum": 1, "description": "Plan revision this waiver was granted against. plan_hash is a pure function of the classification, so a classification round-trip restores it; plan_revision never repeats. Absent on waivers written by an older runtime, which the gate treats as stale." },
         "intent_hash": { "$ref": "#/$defs/sha256" },
         "stale": { "type": "boolean" }
       },

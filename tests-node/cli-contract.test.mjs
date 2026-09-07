@@ -96,7 +96,9 @@ test("next categorizes the gate's blockers and names the command that clears the
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Next shape\n\n## Goal\n\nVerify next output.\n\n## Scope\n\nNo source change.\n\n## Completion criteria\n\n- [ ] output validates\n");
   const init = run(["task-init", "--task-path", task], { input: JSON.stringify({
-    code_change: false, managed_change: true, workflow_mode: "main", task_type: "fix",
+    // The ui flag is what draws baseline_validation: managed_change alone no longer requires any
+    // capability, so a confident, risk-free change would have nothing pending to categorize.
+    code_change: false, managed_change: true, workflow_mode: "main", task_type: "fix", risk_flags: ["ui"],
     impact_scope: "module", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"]
   }) });
   assert.equal(init.status, 0, init.stderr);

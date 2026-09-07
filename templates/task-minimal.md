@@ -47,9 +47,11 @@
 - findings: <none, or one line per blocker with path, symbol/hunk, trigger, impact, minimal fix>
 
 <!--
-Keep the Reviewer result section only when workflow_request selects reviewer: that list is
-the complete and only source of truth, and the gate checks nothing else. A task may
-legitimately request evidence capabilities alone, with no reviewer.
+Keep the Reviewer result section only when reviewer is a selected capability. Selected is
+required ∪ workflow_request: the compiled plan requires a reviewer for high-blast-radius and
+high-risk classifications on its own, and workflow_request adds one for anything else. Run
+`agent-workflow workflow-plan --task-path <path>` for the selected list rather than reading
+workflow_request alone. A task may legitimately select evidence capabilities with no reviewer.
 
 workflow_facts is declared by the agent; it decides which steps appear inside an
 already-selected evidence capability and can produce deterministic capability suggestions
