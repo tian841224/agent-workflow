@@ -32,10 +32,12 @@ export const OPERATIONS = {
       Antigravity: antigravityStyle("run_command", { CommandLine: "git status", Cwd: ANTIGRAVITY_WORKSPACE })
     }
   },
-  unsafe_git_reset: {
+  // A directly parsed, unwrapped git mutation is deferred to the platform's own ask-for-approval
+  // flow rather than hard-denied here: the user sees the exact command and approves it before it
+  // runs, instead of being told to type it themselves.
+  mutating_git_reset: {
     guard: "git-guard",
-    expectDeny: true,
-    denyContains: "git-guard",
+    expectDeny: false,
     payloads: {
       Claude: anthropicStyle("bash", { command: "git reset --hard" }),
       Codex: anthropicStyle("bash", { command: "git reset --hard" }),

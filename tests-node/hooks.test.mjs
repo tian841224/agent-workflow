@@ -85,11 +85,32 @@ test("skill-guard denies a direct Edit/Write tool call targeting task.json", () 
   assert.match(guarded.stdout, /task-guard/);
 });
 
-test("git-guard denies a git subcommand that is not on the read-only allowlist", () => {
+test("git-guard defers a directly parsed git mutation to the platform's own approval flow", () => {
   const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude"], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: JSON.stringify({ tool_name: "bash", tool_input: { command: "git switch main" } }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.doesNotMatch(guarded.stdout, /deny/);
+});
+
+test("git-guard still denies git reached through a wrapper/interpreter/substitution", () => {
+  const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify({ tool_name: "bash", tool_input: { command: "ssh host git switch main" } }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.match(guarded.stdout, /deny/);
+  assert.match(guarded.stdout, /git-guard/);
+});
+
+test("git-guard still denies a git invocation whose --git-dir points outside the project", () => {
+  const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify({ tool_name: "bash", tool_input: { command: "git --git-dir=/tmp/other/.git status" } }),
   });
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.match(guarded.stdout, /deny/);

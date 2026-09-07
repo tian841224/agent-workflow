@@ -62,11 +62,12 @@ test("a read tool pointed at protected content is still allowed", () => {
 });
 
 test("git global options are consumed before the subcommand, and quoted prose is not an invocation", () => {
-  for (const command of ["git --no-pager log --oneline -5", "git --git-dir=.git rev-parse HEAD", `grep -n "git push" README.md`]) {
+  // A sole-segment mutation with a global option consumed ahead of its subcommand is deferred to
+  // the platform's own approval flow, same as one without a global option.
+  for (const command of ["git --no-pager log --oneline -5", "git --git-dir=.git rev-parse HEAD", `grep -n "git push" README.md`, "git --no-pager push origin main"]) {
     const result = guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } });
     assert.doesNotMatch(result.stdout, /permissionDecision":"deny/, command);
   }
-  assert.match(guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command: "git --no-pager push origin main" } }).stdout, /permissionDecision":"deny/);
 });
 
 // -c can point git at an arbitrary alias, hook or pager; --exec-path relocates the helper binaries;

@@ -348,13 +348,25 @@ function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
 // git gets a stricter, simpler rule than the general read-only allowlist: any indirection at all —
 // a wrapper/interpreter/remote/container carrier, or a command substitution — touching a segment
 // that mentions git is denied outright, without trying to resolve what git call is actually inside
-// it. Only a bare, unwrapped, top-level `git <subcommand>` is evaluated against the allowlist. This
-// trades "correctly classify every clever wrapping" for "never try": a case this cannot parse with
-// certainty is refused, not reasoned about, so the parser does not have to keep chasing new
-// disguises through recursive unwrapping.
+// it. Only a bare, unwrapped, top-level `git <subcommand>` is evaluated. This trades "correctly
+// classify every clever wrapping" for "never try": a case this cannot parse with certainty is
+// refused, not reasoned about, so the parser does not have to keep chasing new disguises through
+// recursive unwrapping.
+//
+// A directly parsed invocation whose subcommand is a mutation (add/commit/push/merge/rebase/...) is
+// allowed through — deferred to the platform's own ask-for-approval flow, which shows the user the
+// exact command before it runs — but only when it is the command's sole segment. A mutation found
+// alongside any other segment (a compound, a decoy, a heredoc body handed to an interpreter that
+// splitShellSegments turns into its own line) stays hard-denied: the guard cannot tell such a
+// segment apart from one that only *looks* like a standalone invocation, so it is refused rather
+// than reasoned about, same as an unparseable one. A diff-machinery escape (--output/--ext-diff/
+// --textconv on an otherwise read-only diff/log/show) stays hard-denied unconditionally — it is not
+// a git operation a user would recognize and approve, it is a read subcommand smuggling a write or
+// a shell-out through an option.
 export function gitDecision(event: CanonicalHookEvent): HookDecision {
   const command = stripHeredocBodies(event.command || "");
   if (!/\bgit\b/i.test(command)) return { allow: true };
+  const soleSegment = splitShellSegments(command).length === 1;
   for (const raw of splitShellSegments(command)) {
     if (!/\bgit\b/i.test(raw)) continue;
     const head = commandHead(raw);
@@ -362,7 +374,12 @@ export function gitDecision(event: CanonicalHookEvent): HookDecision {
     const segment = stripQuotedData(raw);
     if (!/\bgit\b/i.test(segment)) continue; // "git" only appeared inside a data command's quoted argument, e.g. grep "git status"
     const parsed = parseGitInvocation(segment, event.cwd ? resolve(event.cwd) : process.cwd());
-    if (!parsed || !gitSubcommandAllowed(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: 'git ${parsed?.subcommand || segment}' is not on the read-only allowlist, alters git's execution (-c/--exec-path/--namespace), or points outside the project; ask the user to run it explicitly.` };
+    if (!parsed) return { allow: false, reason: `git-guard: 'git ${segment}' alters git's execution (-c/--exec-path/--namespace) or its --git-dir/--work-tree points outside the project; ask the user to run it explicitly.` };
+    if (!gitSubcommandAllowed(parsed.subcommand, parsed.args)) {
+      const diffMachineryEscape = ["diff", "log", "show"].includes(parsed.subcommand) && parsed.args.some((arg) => GIT_DENIED_READ_OPTIONS.test(arg));
+      if (diffMachineryEscape) return { allow: false, reason: `git-guard: 'git ${parsed.subcommand}' with a diff-machinery escape (--output/--ext-diff/--textconv) is denied outright; ask the user to run it explicitly.` };
+      if (!soleSegment) return { allow: false, reason: `git-guard: 'git ${parsed.subcommand}' alongside other shell segments is denied outright; ask the user to run it explicitly.` };
+    }
   }
   return { allow: true };
 }
