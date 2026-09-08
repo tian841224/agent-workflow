@@ -6,15 +6,16 @@ import { freezeRequired, schemaErrors } from "../lifecycle/task-schema.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 
 // Named references only — pointers to real documents this repo already ships, never invented ones.
-// Capabilities without a standalone procedure doc fall back to workflow-policy.json, which is the
-// single source of truth for their step lists (see .agents/skills/workflow/capability-selection.md).
+// The packet carries the compact evidence procedure by default; workflow-policy.json remains the
+// source of truth for capability selection and step titles (see capability-selection.md).
 export const PROCEDURE_POINTERS: Record<string, string> = {
   codebase_design: ".agents/skills/codebase-design/SKILL.md",
   bug_diagnosis: ".agents/skills/diagnosing-bugs/SKILL.md",
   tdd: ".agents/skills/tdd/SKILL.md",
-  reviewer: ".agents/skills/workflow/SKILL.md"
+  operational_verification: ".agents/skills/operational-verification/SKILL.md",
+  reviewer: ".agents/skills/workflow/review.md"
 };
-export const DEFAULT_PROCEDURE = "schemas/workflow-policy.json";
+export const DEFAULT_PROCEDURE = ".agents/skills/workflow/evidence.md";
 
 type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };
 

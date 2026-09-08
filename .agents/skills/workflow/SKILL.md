@@ -18,7 +18,7 @@ Managed change 的執行主流程。每一節只說要做什麼、去哪裡讀�
 6. 驗證與 pre-review
 7. 記錄 evidence
 8. reviewer（只有被 selected 才執行）
-9. task-gate 與 close-task
+9. close-task（會重新執行 completion gate）
 ```
 
 ## 1. 判斷 managed_change
@@ -41,7 +41,7 @@ Test-only change 只有在刪除既有測試、skip／disable 既有測試、弱
 
 ## 2. 建立或更新 task
 
-1. Standard task 直接沿用已知的 task context；只有需要跨 worktree 或 coordinator／worker 時才執行 `agent-workflow project-resolver -Ensure`。
+1. Standard task 直接沿用已知的 task context；只有需要跨 worktree 或 coordinator／worker 時才執行 `agent-workflow project-resolver --path <repo-root>`。
 2. 同一 worktree 已有 `in_progress` task 時確認是否為續作，需要時用 `resume` 接回。`paused` 與 `blocked` 仍佔用該 worktree 的 code task lease：放棄舊 task 用 `supersede`，要完成舊 task 則先 `resume` 再 `close-task`，否則改用不同 worktree。
 3. 預期會修改架構、契約或跨模組行為時，先讀 [elevated.md](elevated.md) 的建立前規則。
 4. Standard task 依 `templates/task-minimal.md` 建立 `<YYYYMMDD-HHmmss>-<short-slug>/task.md`；Elevated 或 coordinator／worker task 依 `templates/task.md`。同一目錄執行 `agent-workflow task-init --task-path <dir>`（stdin 傳初始欄位的 JSON，`id` 取目錄名）建立 `task.json`。
@@ -91,9 +91,11 @@ Review 前確認 diff 已穩定的做法見 [elevated.md](elevated.md)。
 
 ## 7. 記錄 evidence
 
-對每個 evidence step 執行 `agent-workflow evidence-record --requirement-id <capability.step> --summary <結論與依據>`；step 實際跑過指令（測試／build／lint／migration dry-run／operational verification）時另加 `--command --cwd --exit-code --started-at --duration-ms --output-digest`，把它記成 execution evidence 而非分析結論。
+先建立一份精簡的 shared evidence map，包含 entrypoint、受影響呼叫端／共用狀態、重要錯誤分支、驗證範圍與未覆蓋缺口；多個 step 共用這份 map，只補各自獨有的結論，不重複搜尋與改寫相同分析。對多個由同一份分析滿足的 evidence step，可在一次命令重複或逗號分隔 `--requirement-id`：`agent-workflow evidence-record --requirement-id <capability.step> --requirement-id <capability.step> --summary <結論與依據>`；runtime 會在同一鎖內各寫一筆 evidence。
 
-policy 宣告 `runtime_execution` 的 step 改用 `agent-workflow evidence-run --requirement-id <capability.step> --summary <結論> -- <指令>`，由 runtime 實際執行並記下 exit code、耗時與輸出 digest。
+step 實際跑過指令（測試／build／lint／migration dry-run／operational verification）時另加 `--command --cwd --exit-code --started-at --duration-ms --output-digest`，把它記成 execution evidence 而非分析結論。
+
+policy 宣告 `runtime_execution` 的 step 改用 `agent-workflow evidence-run --requirement-id <capability.step> --requirement-id <capability.step> --summary <結論> -- <指令>`，由 runtime 實際執行一次並為每個 selected step 記下相同的 exit code、耗時與輸出 digest。只有在 plan、intent、指令範圍、repository revision 與相關環境都未變時才沿用既有結果；任一項改變就重跑受影響檢查。
 
 角色用 `agent-workflow review-record --role <name> --result pass --summary <結論>`。這三個 command 自己算 hash、timestamp 與 diff 範圍，不接受呼叫端傳入。分類一改或審查範圍內的檔案再變動，gate 就要求重驗。
 
@@ -105,13 +107,13 @@ policy 宣告 `runtime_execution` 的 step 改用 `agent-workflow evidence-run -
 
 ## 9. 失敗、續作與完成
 
-- 同一修復假說失敗兩次就不再猜第三次，回到 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md) 一次排出 3–5 個可證偽的假設。
+- 根因未明或同一修復假說失敗兩次時，回到 [diagnosing-bugs skill](../diagnosing-bugs/SKILL.md) 排出可證偽的假設；已有直接 repro 與根因證據的簡單修正，完成最小修正與回歸驗證即可，不展開不增加判斷力的完整診斷儀式。
 - Review 對同一問題打回三次，停止局部修補，整理證據與架構風險交使用者裁決。
 - 中斷可續作用 `pause`，缺權限、環境或外部決策用 `block`；兩者都必須填 `lifecycle.stop_reason`（在等什麼、下一步是什麼）。確定不做了用 `supersede`。
 - 行為正確但沒有測試守住時記為測試缺口：有測試基礎設施且落在本次範圍內就退回補齊並重跑驗證；缺少基礎設施或需新增框架才做得到時不擴張範圍，在 `Validation results` 記錄替代驗證、未覆蓋行為與原因，是否另開任務由使用者決定。
-- 完成條件、驗證與 Review 都完成後執行 `agent-workflow close-task`；`closed` 是唯一終態，只能透過 `close-task` 寫入。Elevated 與 coordinator／worker task 另見 [elevated.md](elevated.md)。
+- 完成條件、驗證與 Review 都完成後直接執行 `agent-workflow close-task`；它會重新執行 completion gate 並在通過時寫入唯一終態 `closed`。只有需要診斷阻塞原因時才先單獨執行 `task-gate`。Elevated 與 coordinator／worker task 另見 [elevated.md](elevated.md)。
 - 回報改了什麼、驗證證據、剩餘風險與可重現的複驗方式。
 
 ## 10. 平行編排
 
-每個 code task 開始前做一次輕量拆分評估：是否存在至少兩個互不重疊、可獨立驗收、且各自需要不同檔案範圍的子功能。不適合拆分就記為循序處理，不增加詢問成本。符合資格時建立 worker worktree 並派發；worker 只做 implementation，主對話整合後才執行選定的 Review 與驗證。細節見 [orchestration.md](orchestration.md)。
+每個 code task 開始前做一次輕量拆分評估：是否存在至少兩個互不重疊、可獨立驗收、且各自需要不同檔案範圍的子功能，並且預期省下的實作時間足以抵銷脈絡交接、worktree 建立、整合與最終驗證成本。不適合拆分就記為循序處理，不增加詢問成本。符合資格時建立 worker worktree 並派發；worker 只做 implementation，主對話整合後才執行選定的 Review 與驗證。細節見 [orchestration.md](orchestration.md)。

@@ -10,7 +10,9 @@ npm run build
 npm run setup
 ```
 
-`dist/agent-workflow.mjs` 是 `npm run build` 產生的 ESM bundle，不會進版控，`npm run setup` 依賴這個檔案存在才能執行安裝。`npm run setup` 會啟動互動式安裝：required skills 一律安裝，optional skills 由使用者選取。
+`npm run build` 產生兩個不進版控的 ESM bundle，`npm run setup` 依賴兩者都存在才能執行安裝：`dist/agent-workflow.mjs` 是完整 CLI，`dist/agent-workflow-hook.mjs` 只含 guard 判斷所需的程式碼，供每次 tool call 都會執行的 hook 使用。`npm run setup` 會啟動互動式安裝：required skills 一律安裝，optional skills 由使用者選取。
+
+安裝同時把 CLI 放上 PATH：`agent-workflow.mjs` 會原封不動複製到 npm global prefix 成為無副檔名的 `agent-workflow`（Windows 另加 `.cmd`），因此 `agent-workflow <command>` 在任何專案都能執行，不需要 repo checkout。這份副本必須與 runtime bundle 位元組相同，hook 的身分驗證才會通過，所以不要改用 `npm install -g` 產生的 shim 取代它。
 公開 npm package 則使用：
 
 ```text
@@ -51,7 +53,7 @@ npx --yes @tian/agent-workflow@latest
 3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
 4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀或 orchestration 情境才使用 `task_type: read_only`，此時 `model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。
 
-流程沒有固定 pipeline，由主對話依 task metadata、`workflow_facts` 與實際程式脈絡判斷需要的 capability，並把要跑的角色與檢查寫進 task 的 `workflow_request`；需求本身還不清楚時先載入 `planning` skill 釐清。runtime 另外會依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限。`managed_change: true` 本身不強制任何 capability：單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 全由主對話決定；不確定（`impact_confidence` 為 `medium`／`low`）、影響面擴大或命中高風險 flag 時才由 runtime 強制，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
+流程沒有固定 pipeline，由主對話依 task metadata、`workflow_facts` 與實際程式脈絡判斷需要的 capability，並把要跑的角色與檢查寫進 task 的 `workflow_request`；需求本身還不清楚時先載入 `planning` skill 釐清。runtime 另外會依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限。`managed_change: true` 本身不強制任何 capability：單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 全由主對話決定；不確定（`impact_confidence` 為 `medium`／`low`）、影響面擴大或命中高風險 flag 時才由 runtime 強制，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。每個 selected evidence task 先建立一份 shared evidence map，跨 step 與 Reviewer 引用同一份入口、影響面、驗證範圍與缺口分析；同一 command 可用重複或逗號分隔的 `--requirement-id` 一次記錄多個 step。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -134,7 +136,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
                                │
                     ~/.agent-workflow/runtime
                                │
-        dist/agent-workflow.mjs（經 agent-workflow 指令呼叫）
+   agent-workflow.mjs（CLI）  agent-workflow-hook.mjs（guard hook）
                                │
         ┌───────────────────────┼────────────────────────┐
         │                       │                        │
@@ -248,4 +250,3 @@ install.cmd --action Uninstall --target-agent All
 ```
 
 移除安裝時，只會移除仍由本專案管理且未被使用者修改的 managed files，不會刪除既有的 knowledge、projects、tasks 或 imports 資料。
-

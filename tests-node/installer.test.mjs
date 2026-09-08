@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -14,6 +14,28 @@ test("install writes a standalone Node runtime and required skills", () => {
   assert.ok(existsSync(join(root, "state", "runtime", "agent-workflow.mjs")));
   assert.ok(existsSync(join(root, "codex", "skills", "workflow", "SKILL.md")));
   assert.match(run(["verify", "--state-root", join(root, "state")]).stdout, /"valid":true/);
+});
+
+test("a global CLI shim resolves its recorded source from the managed state root", () => {
+  const root = join(tmpdir(), `agent-workflow-global-cli-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const bin = join(root, "npm");
+  mkdirSync(bin, { recursive: true });
+  const env = { ...process.env, AGENT_WORKFLOW_STATE_ROOT: state, USERPROFILE: root, HOME: root };
+  const setup = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "install", "--non-interactive", "--skills", "workflow", "--state-root", state, "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], {
+    cwd: process.cwd(),
+    env,
+    encoding: "utf8"
+  });
+  assert.equal(setup.status, 0, setup.stderr);
+  copyFileSync(join(state, "runtime", "agent-workflow.mjs"), join(bin, "agent-workflow"));
+  const run = spawnSync(process.execPath, [join(bin, "agent-workflow"), "verify", "--non-interactive"], {
+    cwd: root,
+    env,
+    encoding: "utf8"
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /"valid":true/);
 });
 
 test("repair removes legacy runtime files after replacing the bundle", () => {

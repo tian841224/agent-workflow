@@ -153,6 +153,8 @@ function lintFixture(templateLines, extraSkills = {}) {
     writeFileSync(join(root, "schemas", schema), readFileSync(join(process.cwd(), "schemas", schema)));
   }
   writeFileSync(join(root, ".agents", "skills", "workflow", "SKILL.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "SKILL.md")));
+  writeFileSync(join(root, ".agents", "skills", "workflow", "evidence.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "evidence.md")));
+  writeFileSync(join(root, ".agents", "skills", "workflow", "review.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "review.md")));
   writeFileSync(join(root, "templates", "task.md"), templateLines.join("\n"));
   for (const [name, lines] of Object.entries(extraSkills)) {
     mkdirSync(join(root, ".agents", "skills", name), { recursive: true });

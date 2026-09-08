@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" skill-guard --platform Claude --event SessionStart",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Claude --event SessionStart",
             "timeout": 15
           }
         ]
@@ -22,12 +22,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" git-guard --platform Claude",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Claude",
             "timeout": 15
           },
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" skill-guard --platform Claude --event PreToolUse",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Claude --event PreToolUse",
             "timeout": 15
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" skill-guard --platform Claude --event PostToolUse",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Claude --event PostToolUse",
             "timeout": 15
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" skill-guard --platform Claude --event SessionEnd",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Claude --event SessionEnd",
             "timeout": 15
           }
         ]

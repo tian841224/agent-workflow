@@ -62,16 +62,26 @@ export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): bo
 // and exit_code together are what distinguish a claim from execution proof; the rest is optional detail.
 export type ExecutionProof = { command: string; cwd: string; exitCode: number; startedAt: string; durationMs: number; outputDigest: string };
 
+function requirementIds(value: string | string[]): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values.flatMap((item) => String(item).split(",")).map((item) => item.trim()).filter(Boolean))];
+}
+
+function selectedEvidenceIds(plan: ReturnType<typeof compilePlanForTaskPath>): Set<string> {
+  return new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
+}
+
 // Records that the agent completed one evidence-capability step. plan_hash/at are computed here, not
 // accepted from the caller — an agent can no longer backdate a step or attach it to a plan it wasn't
 // actually run against. `execution`, when given, upgrades the record from an analysis claim to proof
 // that a specific command actually ran (test/build/lint/migration-dry-run/operational-verification).
-export function evidenceRecord(value: string, requirementId: string, summary: string, actor = "agent", execution?: ExecutionProof): number {
+export function evidenceRecord(value: string, requirementId: string | string[], summary: string, actor = "agent", execution?: ExecutionProof): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
-  if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
+  const ids = requirementIds(requirementId);
+  if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
   if (execution && (!execution.cwd || !execution.startedAt || !execution.outputDigest || !Number.isInteger(execution.exitCode) || !Number.isInteger(execution.durationMs))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, --started-at, --duration-ms, and --output-digest together"] }); return 1; }
-  return appendStepEvidence("evidence-record", path, requirementId, summary, actor, "attested", execution);
+  return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested", execution);
 }
 
 // The one write path both evidence commands funnel through, so the plan/intent stamping, the
@@ -81,18 +91,20 @@ export function evidenceRecord(value: string, requirementId: string, summary: st
 // pre-lock computation the caller passed in: a task concurrently rewritten between that pre-lock read
 // and this callback actually running must reject the write outright, not just let task-gate catch it
 // afterward and leave a stale entry sitting in evidence history.
-function appendStepEvidence(command: string, path: string, requirementId: string, summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string }): number {
+function appendStepEvidence(command: string, path: string, ids: string[], summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string }): number {
   try {
     const state = mutateJsonState<JsonObject>(path, (current) => {
       assertMutable(current, command, RUNNING_STATUSES);
       const plan = compilePlanForTaskPath(current, path);
-      const selectedStepIds = new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
-      if (!selectedStepIds.has(requirementId)) throw new Error(`${command}: '${requirementId}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+      const selectedStepIds = selectedEvidenceIds(plan);
+      const invalid = ids.filter((id) => !selectedStepIds.has(id));
+      if (invalid.length) throw new Error(`${command}: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
       const intent_hash = currentIntentHash(path);
       if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
-      evidence.push({
-        kind: "step", id: requirementId, status: "recorded", at: now(), plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: trustLevel,
+      const at = now();
+      for (const id of ids) evidence.push({
+        kind: "step", id, status: "recorded", at, plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: trustLevel,
         ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest } : { evidence_kind: "analysis" })
       });
       current.evidence = evidence;
@@ -100,22 +112,31 @@ function appendStepEvidence(command: string, path: string, requirementId: string
       const errors = schemaErrors(current);
       if (errors.length) throw new Error(`${command}: resulting task.json fails schema: ${errors.join("; ")}`);
     });
-    output({ valid: true, task: path, id: requirementId, state_revision: state.state_revision });
+    output({ valid: true, task: path, ...(ids.length === 1 ? { id: ids[0] } : { ids }), state_revision: state.state_revision });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
 
 // Runs the command itself and records what it observed, so command/exit_code/duration/output digest
 // are measurements rather than caller assertions.
-export function evidenceRun(value: string, requirementId: string, summary: string, actor: string, argv: string[], cwdValue = process.cwd()): number {
+export function evidenceRun(value: string, requirementId: string | string[], summary: string, actor: string, argv: string[], cwdValue = process.cwd()): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
-  if (!requirementId || !summary) { output({ valid: false, errors: ["evidence-run requires --requirement-id and --summary"] }); return 1; }
+  const ids = requirementIds(requirementId);
+  if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-run requires --requirement-id and --summary"] }); return 1; }
   if (!argv.length) { output({ valid: false, errors: ["evidence-run requires a command after `--`"] }); return 1; }
   let expected: { plan_hash: string; intent_hash: string };
   // Checked before the spawn as well as inside the lock: a task that can never accept the result has
   // no business running the command at all.
-  try { const current = task(path); assertMutable(current, "evidence-run", RUNNING_STATUSES); expected = { plan_hash: compilePlanForTaskPath(current, path).plan_hash, intent_hash: currentIntentHash(path) }; }
+  try {
+    const current = task(path);
+    assertMutable(current, "evidence-run", RUNNING_STATUSES);
+    const plan = compilePlanForTaskPath(current, path);
+    const selectedStepIds = selectedEvidenceIds(plan);
+    const invalid = ids.filter((id) => !selectedStepIds.has(id));
+    if (invalid.length) throw new Error(`evidence-run: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+    expected = { plan_hash: plan.plan_hash, intent_hash: currentIntentHash(path) };
+  }
   catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   // Nothing holds the task lock across the spawn: a long command must not block every other writer.
   // appendStepEvidence re-checks both hashes afterwards, so a task edited meanwhile is rejected.
@@ -127,7 +148,7 @@ export function evidenceRun(value: string, requirementId: string, summary: strin
     durationMs: Date.now() - startedAt.getTime(),
     outputDigest: createHash("sha256").update(result.stdout || Buffer.alloc(0)).update(result.stderr || Buffer.alloc(0)).digest("hex")
   };
-  return appendStepEvidence("evidence-run", path, requirementId, summary, actor, "runtime", execution, expected);
+  return appendStepEvidence("evidence-run", path, ids, summary, actor, "runtime", execution, expected);
 }
 
 // Records one role capability's review result. reviewed_base/reviewed_paths/reviewed_diff_sha256/

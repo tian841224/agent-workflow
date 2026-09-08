@@ -1,6 +1,6 @@
 ---
 name: distill
-description: Turn accumulated evidence into a rule. Use when the SessionStart context reports recurring memory patterns or review causes at threshold, when the user asks to turn repeated corrections into a rule, or when the same kind of conclusion or the same kind of review push-back has happened several times.
+description: Turn accumulated evidence into a rule. Use when the user asks to turn repeated corrections into a rule, when the same kind of conclusion or review push-back has happened several times, or when `agent-workflow review-cause --action Escalate` reports a cause at threshold.
 ---
 
 # distill

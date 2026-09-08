@@ -15,12 +15,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" git-guard --platform Antigravity",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Antigravity",
             "timeout": 15
           },
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" skill-guard --platform Antigravity --event PreToolUse",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Antigravity --event PreToolUse",
             "timeout": 15
           }
         ]
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" skill-guard --platform Antigravity --event PostToolUse",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Antigravity --event PostToolUse",
             "timeout": 15
           }
         ]
