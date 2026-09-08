@@ -147,10 +147,14 @@
         "valid": { "type": "boolean" },
         "task": { "type": "string" },
         "id": { "type": "string" },
+        "ids": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string" } },
         "state_revision": { "type": "integer" },
         "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
+    },
+    "evidence-run": {
+      "$ref": "#/$defs/evidence-record"
     },
     "review-record": {
       "type": "object",

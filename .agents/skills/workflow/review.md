@@ -10,9 +10,9 @@ Runtime contract 只認得 `role.reviewer` 一種身份，第二位 reviewer 就
 
 reviewer 與 coordinator 兩趟盲點互補：獨立 reviewer 抓得到主對話因為熟悉而略過的死碼與慣例偏離，coordinator 抓得到 reviewer 缺少專案脈絡而串不起來的跨檔案語意問題。
 
-reviewer 這一趟派一般 subagent（`general-purpose`），指令載明兩項要求：
+reviewer 這一趟派一般 subagent（`general-purpose`），只讀已穩定的 delivery diff 與 shared evidence map，指令載明兩項要求：
 
-- 實際執行既有的相關測試。數值、邊界與併發行為若現有測試沒有涵蓋，列為測試缺口並指出應補的具體案例，由實作者依 TDD 補齊。
+- 核對既有的相關測試是否足以支撐結論；只有測試範圍、新修改、環境或 finding 使既有結果不再有效時才實際重跑。數值、邊界與併發行為若現有測試沒有涵蓋，列為測試缺口並指出應補的具體案例，由實作者依 TDD 補齊。
 - 對改動的欄位與資料流，往上下游追到 repository 與 entity，確認欄位映射、呼叫端與程式宣稱的行為一致。
 
 高風險分類把要主動推翻的假設直接寫進同一位 reviewer 的指令：
@@ -22,7 +22,7 @@ reviewer 這一趟派一般 subagent（`general-purpose`），指令載明兩項
 - `contract`：主動尋找 consumer 的相容性破口。
 - `ui`：用平台原生 browser 實際驗證，不以靜態閱讀代替。
 
-coordinator 這一趟由主對話自己對照完整 diff 走一次，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。
+coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。已由 shared map 證實的搜尋與測試結果直接引用，不重新建立相同脈絡。
 
 ## 結果回填
 

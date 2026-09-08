@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,45 @@ function copyFile(source: string, destination: string, records: FileRecord[], ki
 }
 function copyTree(source: string, destination: string, records: FileRecord[], kind: string, dryRun: boolean): void {
   for (const file of filesAt(source)) copyFile(file, join(destination, relative(source, file)), records, kind, dryRun);
+}
+function npmBinDirectory(options: InstallOptions): string | undefined {
+  if (process.env.AGENT_WORKFLOW_CLI_DIR) return process.env.AGENT_WORKFLOW_CLI_DIR;
+  // A redirected state root is a sandboxed or test install; writing the machine-wide shim from one
+  // would overwrite the real CLI and leave two installs fighting over the same file.
+  if (stateRoot(options.root) !== stateRoot()) return undefined;
+  // Passed as one string rather than args: npm is a .cmd on Windows and only runs through a shell,
+  // which rejects a separate args array.
+  const result = spawnSync("npm prefix -g", { encoding: "utf8", shell: true });
+  const prefix = result.status === 0 ? String(result.stdout || "").trim() : "";
+  if (!prefix) return undefined;
+  // npm puts binaries straight in the prefix on Windows and under bin/ everywhere else.
+  return process.platform === "win32" ? prefix : join(prefix, "bin");
+}
+// Puts `agent-workflow` on PATH, so a task outside a repo checkout can still run it. Returns the
+// directory used, or undefined when npm reports no global prefix.
+function installCliShims(runtimeBundle: string, options: InstallOptions, records: FileRecord[]): string | undefined {
+  const binDirectory = npmBinDirectory(options);
+  if (!binDirectory || !existsSync(binDirectory)) return undefined;
+  const staged: FileRecord[] = [];
+  try {
+    // Byte-identical to the runtime, and extensionless so PATH resolution finds it before the .cmd:
+    // the guard hashes whatever it resolves, and only this copy still matches the recorded identity.
+    copyFile(runtimeBundle, join(binDirectory, "agent-workflow"), staged, "cli-shim", options.dryRun);
+    if (process.platform === "win32") {
+      const shim = `@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n"${process.execPath}" "%~dp0agent-workflow" %*\r\nexit /b %ERRORLEVEL%\r\n`;
+      if (!options.dryRun) writeAtomic(join(binDirectory, "agent-workflow.cmd"), Buffer.from(shim));
+      staged.push({ path: join(binDirectory, "agent-workflow.cmd"), sha256: sha256(Buffer.from(shim)), kind: "cli-shim" });
+    }
+    return binDirectory;
+  } catch {
+    // Putting the CLI on PATH is a convenience; a prefix the user cannot write must not abort the
+    // install that already succeeded.
+    return undefined;
+  } finally {
+    // Recorded even on a partial failure, so a file that did land stays visible to verify/uninstall
+    // rather than shadowing later installs as an untracked orphan on PATH.
+    records.push(...staged);
+  }
 }
 function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): void {
   if (dryRun) return;
@@ -253,12 +293,16 @@ export async function install(options: InstallOptions): Promise<number> {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const source = sourceRoot(); const managedPath = join(state, "managed-runtime.json"); const previous = existsSync(managedPath) ? readJson(managedPath) : {};
   if (options.action === "Verify") return verify(options);
   if (options.action === "Uninstall") return uninstall(options);
-  if (!existsSync(join(source, "dist", "agent-workflow.mjs"))) throw new Error("distribution bundle is missing; run npm run build before installing from a clone");
+  for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) {
+    if (!existsSync(join(source, "dist", bundle))) throw new Error(`distribution bundle ${bundle} is missing; run npm run build before installing from a clone`);
+  }
   const migration = migrateState(state, options.dryRun);
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(catalog(source), options, previous); const records: FileRecord[] = [];
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
+  copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
   for (const folder of ["adapters", "schemas", "templates"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
   pruneRuntime(runtime, records, options.dryRun);
+  const cliDirectory = installCliShims(join(source, "dist", "agent-workflow.mjs"), options, records);
   const canonical = join(home(), ".agents");
   for (const skill of selectedSkills) { const sourceSkill = join(source, ".agents", "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(canonical, "skills", skill), records, "canonical-skill", options.dryRun); }
   const targetRoots = roots(options); const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
@@ -273,7 +317,7 @@ export async function install(options: InstallOptions): Promise<number> {
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity");
   }
   if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true } : {}) } });
-  output({ ok: true, action: options.action, runtime, selected_skills: selectedSkills, migration }); return 0;
+  output({ ok: true, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, migration }); return 0;
 }
 export function verify(options: InstallOptions): number {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const managedPath = join(state, "managed-runtime.json"); const errors: string[] = [];

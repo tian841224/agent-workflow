@@ -495,6 +495,24 @@ test("evidence-run records runtime-trusted execution evidence, and a failing com
   assert.ok(failed.errors.some((error) => /baseline_validation\.BV2/.test(error)), failed.errors.join("; "));
 });
 
+test("one evidence-run can satisfy multiple selected steps in one command", () => {
+  const root = join(tmpdir(), `agent-workflow-evidence-run-batch-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Batch\n\n## Goal\n\nVerify batched evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] one command records two steps\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const result = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--requirement-id", "baseline_validation.BV2", "--summary", "one command covers both selected steps", "--", process.execPath, "-e", "console.log('batch')"]);
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.ids, ["baseline_validation.BV1", "baseline_validation.BV2"]);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(state.state_revision, 2, "a batch should take one state revision");
+  assert.deepEqual(state.evidence.map((entry) => entry.id), ["baseline_validation.BV1", "baseline_validation.BV2"]);
+  assert.equal(state.evidence[0].output_digest, state.evidence[1].output_digest);
+  assert.equal(state.evidence[0].at, state.evidence[1].at);
+});
+
 // evidence-run's plan/intent freshness must be checked against the freshest on-disk state inside the
 // file lock at write time, not only just before the (potentially slow) command spawns: a task
 // reclassified while the command is still running must be rejected once the command finishes, not
@@ -504,7 +522,9 @@ test("evidence-run rejects its own write when the task was reclassified while it
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify evidence-run freshness.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", risk_flags: [] })));
+  // Keep baseline_validation selected before the command starts; the concurrent risk update then
+  // changes the plan while the process is running, which is the freshness race under test.
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
   const { spawn } = await import("node:child_process");
   const evidenceRunAsync = () => new Promise((resolvePromise) => {

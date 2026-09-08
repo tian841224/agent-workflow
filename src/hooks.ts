@@ -40,17 +40,79 @@ const MUTATING_COMMANDS = /\b(?:set-content|add-content|out-file|new-item|remove
 // Judged per segment on text that can actually run: a printer's quoted argument and a printer's
 // heredoc body are output, so `echo "rm -rf x"` and a documented command inside `cat <<EOF` are not
 // mutations. An interpreter's quoted script is left intact, so `bash -c "rm -rf x"` still is one.
+// The paths a mutating command acts on, so `rm -rf build/` can be checked against the protected
+// paths rather than refused for carrying no nameable target.
+const BARE_FLAG = /^-[\w-]*$/;
+// The path an option carries, so `--target-directory=x` and `-Path:x` are judged on `x` rather than
+// waved through as flags.
+function flagValue(argument: string): string {
+  if (!argument.startsWith("-")) return argument;
+  const separated = argument.match(/^-[^=:]*[=:](.*)$/);
+  return separated ? separated[1] : argument.replace(/^-+/, "");
+}
+// The paths a mutating command names, and whether any argument defied classification.
+function mutatingCommandTargets(segment: string): { targets: string[]; unresolved: boolean } {
+  const mutating = MUTATING_COMMANDS.exec(segment);
+  if (!mutating) return { targets: [], unresolved: false };
+  const tokens = stripInvocationPrefix(segment).split(/\s+/).filter(Boolean);
+  // Located by the command itself, since counting from the head read `sudo rm -rf` as a file `rm`.
+  const at = tokens.findIndex((token) => token.toLowerCase() === mutating[0].split(/\s+/)[0].toLowerCase());
+  if (at === -1) return { targets: [], unresolved: true };
+  const targets: string[] = [];
+  for (const argument of tokens.slice(at + 1)) {
+    // Only a flag made purely of flag characters carries no path; `-Path:.agent[s]/x` carries one.
+    if (BARE_FLAG.test(argument)) continue;
+    // The only other argument that names no file: one that is itself a redirect, already read above.
+    if (/^[<>|&]/.test(argument)) continue;
+    const lead = flagValue(argument).split(/[<>|&]/)[0].replace(/^["']|["']$/g, "");
+    // Refused rather than skipped, since an argument dropped without being rejected is one the gate then counts as accounted for.
+    if (!RESOLVABLE_TARGET.test(lead)) return { targets: [], unresolved: true };
+    targets.push(lead);
+  }
+  return { targets, unresolved: false };
+}
+function mutationSegments(command: string): string[] {
+  return splitShellSegments(stripHeredocBodies(command)).flatMap((part) => unwrapCommands(part));
+}
+// Returns the redirect or command that made it one, so a denial can name what tripped it.
+function shellMutationCause(command: string): string | undefined {
+  if (!command) return undefined;
+  for (const segment of mutationSegments(command)) {
+    // Read off the raw segment: redirectTargets already skips a `>` inside quotes, while stripping
+    // first would blank a quoted target and turn `echo x > "$dir/f"` into a non-write.
+    const [target] = redirectTargets(segment);
+    if (target) return `redirect to '${target}'`;
+    const mutating = MUTATING_COMMANDS.exec(stripQuotedData(segment));
+    if (mutating) return `command '${mutating[0]}'`;
+  }
+  return undefined;
+}
 function isShellMutation(command: string): boolean {
-  if (!command) return false;
-  return splitShellSegments(stripHeredocBodies(command))
-    .flatMap((segment) => unwrapCommands(segment))
-    .map((segment) => stripQuotedData(segment))
-    .some((segment) => hasUnquotedRedirect(segment) || MUTATING_COMMANDS.test(segment));
+  return !!shellMutationCause(command);
+}
+// `unresolved` is reported separately because one nameable target does not make the rest safe:
+// `cp evil.md .agent[s]/x` resolves its source and would otherwise look fully accounted for while
+// its real destination is still a glob.
+function mutationTargets(command: string): { resolved: string[]; unresolved: boolean } {
+  const resolved: string[] = [];
+  let unresolved = false;
+  for (const segment of mutationSegments(command)) {
+    for (const target of redirectTargets(segment)) {
+      if (RESOLVABLE_TARGET.test(target)) resolved.push(target); else unresolved = true;
+    }
+    const named = mutatingCommandTargets(stripQuotedData(segment));
+    resolved.push(...named.targets);
+    unresolved = unresolved || named.unresolved;
+  }
+  return { resolved, unresolved };
 }
 export function normalizeHookEvent(platform: string, payload: JsonObject, event = "PreToolUse"): CanonicalHookEvent {
   const call = object(payload.toolCall); const input = object(payload.tool_input); const tool = (text(payload.tool_name) || text(payload.toolName) || text(payload.tool) || text(call.name)).toLowerCase().replaceAll("-", "_");
   const command = text(object(call.args).CommandLine) || text(object(call.args).command) || text(input.command) || text(object(payload.input).command);
-  const found = paths(payload); const shellMutation = isShellMutation(command);
+  // A shell payload has no path field, but a redirect and a mutating command both name their target.
+  const shellTargets = mutationTargets(command);
+  const found = [...new Set([...paths(payload), ...shellTargets.resolved])];
+  const shellMutation = isShellMutation(command);
   const fileMutation = writeTools.has(tool) || /(write|edit|delete|rename)/.test(tool) || shellMutation;
   // MCP 連接器的 target 是遠端資源而非檔案路徑，永遠正規化不出 path；名稱含 write 的連接器
   // 若套用本 guard 會被永久 fail-closed，故僅在它確實帶了路徑參數時才納入檔案 mutation 判斷
@@ -59,10 +121,13 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   // falls back to the workspace root; reading payload.cwd alone resolved its relative paths against
   // the wrong directory.
   const cwd = text(object(call.args).Cwd) || text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
-  return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || found.length > 0, sessionId: text(payload.session_id) || text(payload.sessionId) || text(payload.conversationId) || undefined };
+  return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found, mutation, targetKnown: !mutation || (found.length > 0 && !shellTargets.unresolved), sessionId: text(payload.session_id) || text(payload.sessionId) || text(payload.conversationId) || undefined };
 }
 export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
-  if (event.mutation && !event.targetKnown) return { allow: false, reason: "hook-policy: mutation target cannot be normalized; denied fail-closed." };
+  if (event.mutation && !event.targetKnown) {
+    const cause = shellMutationCause(event.command || "");
+    return { allow: false, reason: `hook-policy: ${cause ? `${cause} resolves to no nameable file` : "mutation target cannot be normalized"}; denied fail-closed.` };
+  }
   if (event.mutation && event.paths.some((path) => !path.trim())) return { allow: false, reason: "hook-policy: mutation target is invalid; denied fail-closed." };
   if (touchesProtected(event, TASK_STATE_PATTERN) && !isReadOnly(event, TASK_STATE_WRITER_COMMANDS, root)) return { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-init` / `task-write` / pause / block / supersede / waive / close-task instead of editing it directly." };
   return { allow: true };
@@ -73,9 +138,15 @@ const TASK_STATE_PATTERN = /\btask\.json\b/i;
 // Deciding protection from "did this look like a write?" is what let an inline interpreter script
 // through: it carries neither a path argument nor a shell redirect, so it normalized to
 // mutation=false and skipped the guard entirely.
+// `.agent"s"` and `.agent\s` open the same file the shell does, so the name is also matched against
+// the command with its quoting and escapes removed.
+function spliced(command: string): string {
+  return command.replace(/["']/g, "").replace(/\\([^\\])/g, "$1");
+}
 function touchesProtected(event: CanonicalHookEvent, pattern: RegExp): boolean {
   const cwd = event.cwd ? resolve(event.cwd) : "";
-  return event.paths.some((path) => pattern.test(resolve(cwd || ".", path))) || pattern.test(event.command || "");
+  const command = event.command || "";
+  return event.paths.some((path) => pattern.test(resolve(cwd || ".", path))) || pattern.test(command) || pattern.test(spliced(command));
 }
 const READ_ONLY_COMMANDS = new Set([
   "cat", "type", "head", "tail", "more", "less", "nl", "ls", "dir", "tree", "wc", "grep", "rg", "findstr", "select-string",
@@ -100,8 +171,17 @@ const DATA_ARGUMENT_COMMANDS = new Set([
   "echo", "printf", "cat", "type", "grep", "rg", "egrep", "fgrep", "findstr", "select-string",
   "ack", "ag", "jq", "yq", "awk", "sed", "comm", "diff", "write-host", "write-output", "tee"
 ]);
+// PowerShell does not put the command first: an assignment binds it (`$t = git ls-files`) and a block
+// opener precedes it (`foreach ($d in $dirs) { Get-ChildItem $d }`). The raw first token read those as
+// the commands `$t` and `foreach`, which are on no allowlist, so read-only PowerShell was denied.
+const POWERSHELL_PREFIX = /^(?:\$[A-Za-z_]\w*\s*=\s*|(?:foreach|foreach-object|if|elseif|else|while|for|switch|try|catch|finally|do|%)\b\s*(?:\([^()]*\))?\s*\{?\s*|\{\s*)/i;
+function stripInvocationPrefix(segment: string): string {
+  let text = segment.trim();
+  for (let stripped = text.replace(POWERSHELL_PREFIX, ""); stripped !== text; stripped = text.replace(POWERSHELL_PREFIX, "")) text = stripped;
+  return text;
+}
 function commandHead(segment: string): string {
-  return (segment.trim().split(/\s+/)[0] || "").toLowerCase().replace(/^.*[\\/]/, "").replace(/\.(exe|cmd|bat|ps1)$/, "");
+  return (stripInvocationPrefix(segment).split(/\s+/)[0] || "").toLowerCase().replace(/^.*[\\/]/, "").replace(/\.(exe|cmd|bat|ps1)$/, "");
 }
 
 // Splits on shell separators that are actually separators. Splitting with a plain regex broke
@@ -122,16 +202,40 @@ function splitShellSegments(command: string): string[] {
   return segments.map((segment) => segment.trim()).filter(Boolean);
 }
 
-function hasUnquotedRedirect(command: string): boolean {
+const NULL_DEVICES = new Set(["/dev/null", "nul", "$null"]);
+// An allowlist, not a blocklist of metacharacters: a target only counts as resolved when it is a
+// plain literal path. Enumerating what to reject is what let `rm -rf .agent[s]` through — the glob
+// expands to `.agents`, but `[` was not on the reject list, so the guard read it as a literal file
+// nobody protects. Anything a shell could expand or splice now fails closed instead.
+const RESOLVABLE_TARGET = /^[\w./\\:@+-]+$/;
+// Files an unquoted redirection would create or truncate. Callers use it both to tell a write apart
+// from a discard and to name the target, so a redirect no longer has to be refused for lack of one.
+function redirectTargets(command: string): string[] {
+  const targets: string[] = [];
   let quote = "", escaped = false;
-  for (const character of command) {
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
     if (escaped) { escaped = false; continue; }
     if (character === "\\" && quote !== "'") { escaped = true; continue; }
     if (quote) { if (character === quote) quote = ""; continue; }
     if (character === "'" || character === '"') { quote = character; continue; }
-    if (character === ">") return true;
+    if (character !== ">") continue;
+    let cursor = index + 1;
+    while (command[cursor] === ">") cursor += 1;
+    while (command[cursor] === " " || command[cursor] === "\t") cursor += 1;
+    // `2>&1` and `>&2` rebind a descriptor onto another, so no file is opened.
+    if (command[cursor] === "&") continue;
+    let target = "";
+    if (command[cursor] === '"' || command[cursor] === "'") {
+      const closing = command[cursor];
+      for (cursor += 1; cursor < command.length && command[cursor] !== closing; cursor += 1) target += command[cursor];
+    } else {
+      for (; cursor < command.length && !/[\s;|&<>]/.test(command[cursor]); cursor += 1) target += command[cursor];
+    }
+    // Discarding to the null device writes nothing the guard needs to protect.
+    if (target && !NULL_DEVICES.has(target.toLowerCase())) targets.push(target);
   }
-  return false;
+  return targets;
 }
 
 // Drops the body of a heredoc whose receiving command treats it as data, so a command quoted inside
@@ -155,7 +259,9 @@ function stripQuotedData(segment: string): string {
   // A quoted run holding a substitution is not inert text — `echo "$(git push)"` runs the push and
   // prints its output — so those runs stay visible instead of being treated as an argument.
   const keepIfExecutable = (run: string) => SUBSTITUTION.test(run) ? run : run[0] + run[run.length - 1];
-  return segment.replace(/'[^']*'/g, keepIfExecutable).replace(/"[^"]*"/g, keepIfExecutable);
+  // Single quotes suppress expansion in both sh and PowerShell, so a backtick or `$(` inside one is
+  // literal — keeping those runs read `grep '^- \`'` as a substitution and denied a plain search.
+  return segment.replace(/'[^']*'/g, (run) => run[0] + run[run.length - 1]).replace(/"[^"]*"/g, keepIfExecutable);
 }
 
 // Wrappers that run a command given to them: `-c`/`-Command` interpreters carry it inside quotes,
@@ -209,12 +315,15 @@ function unwrapCommands(segment: string, depth = 0): string[] {
 // Allowlist, never blocklist: an interpreter invoked with an inline script can write through an API
 // the guard cannot see, so any command head not named here counts as a write.
 function isReadOnlyShellCommand(command: string): boolean {
-  if (hasUnquotedRedirect(command)) return false;
-  if (/\$\(|`|<\(/.test(command)) return false; // substitution hides the real invocation
+  if (redirectTargets(command).length > 0) return false;
   const segments = splitShellSegments(stripHeredocBodies(command));
   if (!segments.length) return false;
   return segments.every((raw) => {
     const segment = stripQuotedData(raw);
+    // Tested after quote stripping, not on the raw command: a backtick inside a data command's own
+    // pattern (`grep '^- \`'`) is text it matches, while an interpreter keeps its quotes and so
+    // still shows its substitution here.
+    if (SUBSTITUTION.test(segment)) return false;
     const head = commandHead(segment);
     if (head === "git") { const parsed = parseGitInvocation(segment); return !!parsed && gitSubcommandAllowed(parsed.subcommand, parsed.args); }
     if (head === "certutil") return isCertutilRead(segment);
@@ -286,6 +395,10 @@ const TASK_STATE_WRITER_COMMANDS = new Set([
 // install/repair/skill are the sanctioned writers for .agents content; every other runtime command
 // gets no .agents mutation exemption.
 const AGENTS_WRITER_COMMANDS = new Set(["install", "repair", "skill"]);
+// Runtime subcommands that only read. `workflow/SKILL.md` §5 makes `project-doc --action Lookup` a
+// mandatory step before every source change, but naming a `.agents` path in its arguments tripped this
+// guard, leaving the framework's own required step unrunnable for changes to this repo.
+const AGENTS_READER_COMMANDS = new Set(["project-doc", "workflow-plan", "task-gate", "execution-packet", "next"]);
 // `evidence-run` executes a caller-supplied command (`spawnSync` on the trailing args) as its whole
 // purpose, so its own identity verification proves nothing about what that trailing command touches
 // — it must never be granted a blanket read-only exemption for either protected resource.
@@ -337,6 +450,10 @@ const COMMAND_CARRYING = new Set([...SCRIPT_INTERPRETERS, ...PREFIX_WRAPPERS, "s
 // helper (`--output=<file>` writes there directly; `--ext-diff`/`--textconv` run a configured
 // external command) even though the subcommand itself is on the read-only allowlist.
 const GIT_DENIED_READ_OPTIONS = /^--(?:output(?:=.*)?|ext-diff|textconv)$/;
+// `\bgit\b` also matches a longer hyphenated word, so this framework's own `git-guard` command name
+// tripped its own git guard. Only a bare `git`, or a path ending in it, invokes git; the dashed
+// `git-<subcommand>` form was retired from git's own PATH long ago and is not treated as one.
+const GIT_TOKEN = /(?:^|[\s"'`|;&(={])(?:[^\s"'`;|&]*[\\/])?git(?:\.exe)?(?=$|[\s"'`;|&)}])/i;
 function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
   if (["diff", "log", "show"].includes(subcommand) && args.some((arg) => GIT_DENIED_READ_OPTIONS.test(arg))) return false;
   if (["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"].includes(subcommand)) return true;
@@ -365,15 +482,17 @@ function gitSubcommandAllowed(subcommand: string, args: string[]): boolean {
 // a shell-out through an option.
 export function gitDecision(event: CanonicalHookEvent): HookDecision {
   const command = stripHeredocBodies(event.command || "");
-  if (!/\bgit\b/i.test(command)) return { allow: true };
+  if (!GIT_TOKEN.test(command)) return { allow: true };
   const soleSegment = splitShellSegments(command).length === 1;
   for (const raw of splitShellSegments(command)) {
-    if (!/\bgit\b/i.test(raw)) continue;
+    if (!GIT_TOKEN.test(raw)) continue;
     const head = commandHead(raw);
-    if (COMMAND_CARRYING.has(head) || SUBSTITUTION.test(raw)) return { allow: false, reason: "git-guard: git reached through a wrapper, interpreter, remote/container carrier, or command substitution is denied outright; ask the user to run it explicitly." };
     const segment = stripQuotedData(raw);
-    if (!/\bgit\b/i.test(segment)) continue; // "git" only appeared inside a data command's quoted argument, e.g. grep "git status"
-    const parsed = parseGitInvocation(segment, event.cwd ? resolve(event.cwd) : process.cwd());
+    // Substitution is judged after stripping, so a backtick a printer only quotes single-quoted is
+    // data; a double-quoted or interpreter-held one survives stripping and is still caught here.
+    if (COMMAND_CARRYING.has(head) || SUBSTITUTION.test(segment)) return { allow: false, reason: "git-guard: git reached through a wrapper, interpreter, remote/container carrier, or command substitution is denied outright; ask the user to run it explicitly." };
+    if (!GIT_TOKEN.test(segment)) continue; // "git" only appeared inside a data command's quoted argument, e.g. grep "git status"
+    const parsed = parseGitInvocation(stripInvocationPrefix(segment), event.cwd ? resolve(event.cwd) : process.cwd());
     if (!parsed) return { allow: false, reason: `git-guard: 'git ${segment}' alters git's execution (-c/--exec-path/--namespace) or its --git-dir/--work-tree points outside the project; ask the user to run it explicitly.` };
     if (!gitSubcommandAllowed(parsed.subcommand, parsed.args)) {
       const diffMachineryEscape = ["diff", "log", "show"].includes(parsed.subcommand) && parsed.args.some((arg) => GIT_DENIED_READ_OPTIONS.test(arg));
@@ -391,6 +510,9 @@ function agentsRootOf(resolvedPath: string): string | undefined {
 }
 export function skillDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   if (!touchesProtected(event, AGENTS_PATTERN) || isReadOnly(event, AGENTS_WRITER_COMMANDS, root)) return { allow: true };
+  // Gated on the event not being a mutation, so a reader that later grows a write mode, or one whose
+  // segment also redirects, cannot inherit this exemption on the strength of its name.
+  if (!event.mutation && !!event.command && isRuntimeInvocationFor(event.command, AGENTS_READER_COMMANDS, root)) return { allow: true };
   const cwd = event.cwd ? resolve(event.cwd) : ""; const targets = event.paths.map((path) => resolve(cwd || ".", path));
   if (!event.sessionId) return { allow: false, reason: "skill-guard: session proof is unavailable for a .agents mutation." };
   const proof = skillProofPath(root, event.platform, event.sessionId);

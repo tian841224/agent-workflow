@@ -31,7 +31,15 @@ export function writeAtomic(path: string, value: string | Buffer): void {
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporary, value);
-  renameSync(temporary, path);
+  // Windows fails the rename with EPERM/EBUSY while another process still holds a handle on the
+  // destination — a scanner, or a concurrent reader — so the swap is retried briefly before giving up.
+  for (let attempt = 0; ; attempt += 1) {
+    try { renameSync(temporary, path); return; } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 10 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) { try { rmSync(temporary, { force: true }); } catch { /* the rename failure is what matters */ } throw error; }
+      const until = Date.now() + 20; while (Date.now() < until) { /* brief spin: renameSync is sync, so there is no tick to await */ }
+    }
+  }
 }
 
 export function readJson(path: string): JsonObject {
@@ -205,7 +213,11 @@ export function schemaPath(name: string): string {
   const bundleDirectory = dirname(fileURLToPath(import.meta.url));
   const packageCandidate = join(bundleDirectory, "..", "schemas", name);
   if (existsSync(packageCandidate)) return packageCandidate;
-  return join(bundleDirectory, "schemas", name);
+  const bundleCandidate = join(bundleDirectory, "schemas", name);
+  if (existsSync(bundleCandidate)) return bundleCandidate;
+  // The PATH copy of the bundle sits on its own, away from the schemas the install laid down, so a
+  // bundle that cannot find them beside itself falls back to the installed runtime.
+  return join(stateRoot(), "runtime", "schemas", name);
 }
 
 export function canonicalJson(value: Json): string {

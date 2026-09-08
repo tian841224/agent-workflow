@@ -50,9 +50,10 @@ test("execution-packet is the complete worker execution contract", () => {
   assert.ok(packet.workflow.selected.includes("reviewer"));
   assert.ok(packet.workflow.selected.includes("execution_path_review"));
   assert.ok(packet.workflow.capabilities.some((capability) => capability.name === "execution_path_review"));
-  // reviewer has a named pointer; execution_path_review falls back to the policy itself.
-  assert.ok(packet.procedures.includes(".agents/skills/workflow/SKILL.md"));
-  assert.ok(packet.procedures.includes("schemas/workflow-policy.json"));
+  // The packet carries selected steps directly; workers receive the concise evidence procedure
+  // instead of reopening the full policy, while reviewer keeps its dedicated review pointer.
+  assert.ok(packet.procedures.includes(".agents/skills/workflow/review.md"));
+  assert.ok(packet.procedures.includes(".agents/skills/workflow/evidence.md"));
   assert.ok(packet.required_evidence.includes("role.reviewer"));
   assert.match(packet.plan_hash, /^[a-f0-9]{64}$/);
   assert.equal(packet.plan_revision, 1);

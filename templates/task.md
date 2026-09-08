@@ -11,7 +11,7 @@ workflow_facts: only affects which steps appear within an already-selected capab
 intent_approval: required when a freeze-required flag is hit — confirm the goal, non-goals, and completion criteria with the
            user first, then run `agent-workflow approve-intent --confirmed-by <who> --as-user`; it binds only this file's
            Goal/Scope/Completion criteria sections, so editing other sections afterwards does not invalidate it.
-lifecycle.stop_reason: required when status changes to paused or blocked; if left blank, the next Stop in the same worktree will prompt once.
+lifecycle.stop_reason: required when status changes to paused or blocked; state what is being waited on and what the next step is.
 waivers: written only by `agent-workflow waive --requirement-id <id> --confirmed-by-user '<text>'`; a waiver binds the plan's
            plan_hash, so it lapses the moment the task's classification changes. Direct edits are not a valid waiver.
 independence: defaults to native; record degraded when a native role fails to load or the main agent fills in a role section on its behalf.
@@ -118,7 +118,9 @@ planning and evidence prose — revising them after approval is expected and doe
      `agent-workflow workflow-plan --task-path <path>` to see the selected list. Section titles follow the `section`
      field in schemas/workflow-policy.json (data_impact and contract_review share "Contract and data impact",
      execution_path_review and regression_validation share "Execution path and regression evidence").
-     Only write the steps actually selected within that capability (which steps are selected is determined by
+     Build one shared evidence map for entrypoints, callers, shared state, important error branches, validation
+     scope and gaps; selected step lines may reference that map and only add their unique conclusion. Only write
+     the steps actually selected within that capability (which steps are selected is determined by
      the same policy's steps[].when, driven by impact_scope/impact_effect/task_type/risk_flags/workflow_facts),
      one line per step as `- <step id>: <conclusion and evidence>`; unselected steps do not need to be filled in and are not checked.
 -->

@@ -12,7 +12,9 @@ The coordinator-supplied ExecutionPacket (`agent-workflow execution-packet`) is 
 - `intent.goal`, `intent.scope`, `intent.completion_criteria` are the implementation target.
 - `classification`, `workflow.selected`, `workflow.capabilities` are already-decided workflow state.
 - `constraints.repo_root` and `constraints.file_ownership` are the execution boundary.
-- `procedures` lists the procedure documents the compiled plan requires; load only those.
+- `procedures` lists the procedure documents the compiled plan requires; load only those. Evidence
+  capabilities point to the concise evidence procedure, while the packet already contains their
+  selected step titles. Do not reopen the full workflow policy to reconstruct the plan.
 
 ## Preflight
 

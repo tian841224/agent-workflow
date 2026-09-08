@@ -22,11 +22,13 @@ function installedRuntimeHome() {
   return home;
 }
 
-const guard = (kind, command, home) => spawnSync(process.execPath, [cli, kind, "--platform", "Claude"], {
+// PATH is controlled for the same reason HOME is: a bare `agent-workflow` resolves through it, so an
+// installed copy on the developer's own PATH would otherwise decide the outcome of these tests.
+const guard = (kind, command, home, path = "") => spawnSync(process.execPath, [cli, kind, "--platform", "Claude"], {
   cwd: process.cwd(),
   encoding: "utf8",
   input: JSON.stringify({ tool_name: "bash", session_id: "s1", tool_input: { command } }),
-  env: { ...process.env, AGENT_WORKFLOW_STATE_ROOT: "", HOME: home, USERPROFILE: home }
+  env: { ...process.env, AGENT_WORKFLOW_STATE_ROOT: "", HOME: home, USERPROFILE: home, PATH: path }
 });
 
 // The deny message points the caller at `agent-workflow task-write`; denying the installed runtime
@@ -63,6 +65,23 @@ test("a bare agent-workflow invocation that resolves to nothing hash-verified is
   const result = guard("git-guard", "agent-workflow task-write --task-path /tmp/t/task.json", home);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /permissionDecision":"deny/);
+});
+
+// The install puts a byte-identical copy of the bundle on PATH under the bare name, so this is the
+// one way a bare invocation can carry runtime identity. It is the extensionless copy that has to
+// match: an npm-style shim wrapping the bundle hashes to something else and stays denied.
+test("a bare agent-workflow invocation resolving to the byte-identical bundle is allowed", () => {
+  const home = installedRuntimeHome();
+  const binDirectory = join(tmpdir(), `agent-workflow-bin-${process.pid}-${Date.now()}`);
+  mkdirSync(binDirectory, { recursive: true });
+  writeFileSync(join(binDirectory, "agent-workflow"), readFileSync(cli));
+  const allowed = guard("skill-guard", "agent-workflow project-doc --action Lookup --paths .agents/skills/workflow/SKILL.md", home, binDirectory);
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.doesNotMatch(allowed.stdout, /permissionDecision":"deny/);
+
+  writeFileSync(join(binDirectory, "agent-workflow"), `#!/bin/sh\nexec node "${cli}" "$@"\n`);
+  const shimmed = guard("skill-guard", "agent-workflow project-doc --action Lookup --paths .agents/skills/workflow/SKILL.md", home, binDirectory);
+  assert.match(shimmed.stdout, /permissionDecision":"deny/);
 });
 
 test("a non-runtime command that writes task.json is still denied", () => {
