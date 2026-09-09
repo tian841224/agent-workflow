@@ -24,6 +24,12 @@ reviewer 這一趟派一般 subagent（`general-purpose`），只讀已穩定的
 
 coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。已由 shared map 證實的搜尋與測試結果直接引用，不重新建立相同脈絡。
 
+## Review 範圍與工作樹綁定
+
+Review 前主對話用 `agent-workflow pre-review` 跑 `git diff --check`，再用 `agent-workflow worktree-fingerprint` 取得 `workspace_sha256`，傳給 `review-record --expected-workspace-sha256 <sha256>`；工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。
+
+`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 會重算 digest：reviewed paths 以外的修改讓既有 review 保持有效，範圍內的修改則要求重新複審。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。
+
 ## 結果回填
 
 Reviewer 結果只透過 `review-record` 寫入 task.json；summary 保留 blocker、path、symbol／hunk、可觸發情境、影響與最小修正方向。`agent-workflow task-report` 會把 role evidence 呈現給人閱讀，task.md 不再保存第二份 Reviewer ledger。

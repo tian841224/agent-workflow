@@ -27,7 +27,7 @@ flag 會讓 runtime 強制對應的 capability，實際結果以 `agent-workflow
 
 ## 單向宣告
 
-flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回事，capability 的執行結果也不會抑制它。判斷錯了要移除 flag，唯一路徑是 `agent-workflow reclassify --confirmed-by-user <文字> --reason <文字>`，runtime 會把這筆決定記進 `workflow_decision`；一般 `task-write` 會拒絕移除既有 `risk_flags`。移除 flag 時連同對應段落一併移除。
+flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回事，capability 的執行結果也不會抑制它。判斷錯了要移除 flag，唯一路徑是 `agent-workflow reclassify --confirmed-by-user <文字> --reason <文字>`，runtime 會把這筆決定記進 `workflow_decision`；一般 `task-write` 會拒絕移除既有 `risk_flags`。
 
 ## Freeze-required
 

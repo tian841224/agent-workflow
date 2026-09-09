@@ -33,7 +33,9 @@ export function resolveProcedures(plan: Pick<import("../workflow-policy.js").Com
   if (task.managed_change === false) return [];
   const procedures = plan.order.map((name) => PROCEDURE_POINTERS[name] || DEFAULT_PROCEDURE);
   const role = String(task.subtask_role || "");
-  if (plan.exploration_profile === "expanded" || role === "coordinator" || role === "worker") procedures.push(PROFILE_PROCEDURES.expanded);
+  // Exploration depth is the only thing the expanded document owns; a role's own rules live in its
+  // role document, so a focused coordinator or worker never needs this one.
+  if (plan.exploration_profile === "expanded") procedures.push(PROFILE_PROCEDURES.expanded);
   if (role === "coordinator") procedures.push(PROFILE_PROCEDURES.coordinator);
   if (role === "worker") procedures.push(PROFILE_PROCEDURES.worker);
   if (task.code_change === true) procedures.push(PROFILE_PROCEDURES.projectDocs);
