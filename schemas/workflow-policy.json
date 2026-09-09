@@ -649,14 +649,15 @@
         },
         {
           "id": "RV3",
-          "title": "執行受影響測試並記錄結果；每個 CLI option 需有會改變輸出的 read-side regression test",
+          "title": "執行受影響測試並記錄結果（以 evidence-run 產生 runtime evidence）；每個 CLI option 需有會改變輸出的 read-side regression test",
           "when": [
             [
               {
                 "always": true
               }
             ]
-          ]
+          ],
+          "runtime_execution": "required"
         },
         {
           "id": "RV4",

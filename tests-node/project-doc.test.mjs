@@ -131,3 +131,39 @@ test("Check rejects duplicate singleton overview documents", () => {
   assert.notEqual(result.status, 0);
   assert.match(JSON.parse(result.stdout)[0].issues.join(";"), /duplicate singleton/);
 });
+
+// Remember addresses documents by name instead of picking them out of the tree walk, so the walk's
+// `.md`-only filter no longer stands between a mistyped --paths value and the file read.
+test("Remember rejects a directory and a non-Markdown path with a JSON error", () => {
+  const root = fixture("remember-rejects", {
+    "docs/architecture.md": "---\ndoc_type: architecture\ncovers: []\n---\n\n# architecture\n",
+    "docs/modules/note.txt": "---\ndoc_type: architecture\ncovers: []\n---\n\n# not markdown\n",
+    "task/20260101-000000-reject/task.md": "# Reject\n\n## Goal\n\nReject invalid paths.\n\n## Scope\n\nOne document.\n\n## Completion criteria\n\n- [ ] invalid paths are rejected\n"
+  });
+  const task = join(root, "task/20260101-000000-reject");
+  assert.equal(run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false }) }).status, 0);
+  for (const [path, pattern] of [["docs/modules", /not a file/], ["docs/modules/note.txt", /must be a \.md file/]]) {
+    const rejected = run(["project-doc", "--action", "Remember", "--repo-root", root, "--task-path", task, "--paths", path]);
+    assert.equal(rejected.status, 1, rejected.stdout || rejected.stderr);
+    const body = JSON.parse(rejected.stdout);
+    assert.equal(body.valid, false);
+    assert.match(body.errors.join(";"), pattern);
+  }
+});
+
+// A case-insensitive filesystem accepts a mis-cased request, and Lookup compares the recorded path
+// against the tree walk's verbatim, so an un-canonicalized record becomes a digest that never matches.
+test("Remember records the on-disk path even when the request is mis-cased", () => {
+  const root = fixture("remember-case", {
+    "docs/modules/auth.md": "---\ndoc_type: module\ncovers:\n  - src/auth.ts\n---\n\n# auth\n\n## Responsibility\n\nOne thing.\n\n## Entrypoints\n\nCLI.\n\n## Flow\n\nA > B.\n\n## Shared state\n\nnone.\n\n## Invariants and gotchas\n\nnone.\n\n## Unverified\n\nnone.\n",
+    "task/20260101-000000-case/task.md": "# Case\n\n## Goal\n\nRecord a mis-cased path.\n\n## Scope\n\nOne document.\n\n## Completion criteria\n\n- [ ] the digest is reusable\n"
+  });
+  const task = join(root, "task/20260101-000000-case");
+  assert.equal(run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false }) }).status, 0);
+  const remembered = run(["project-doc", "--action", "Remember", "--repo-root", root, "--task-path", task, "--paths", "docs/MODULES/Auth.md"]);
+  // Only a case-insensitive filesystem reaches the file at all; elsewhere the request is a miss.
+  if (remembered.status !== 0) { assert.match(JSON.parse(remembered.stdout).errors.join(";"), /does not exist/); return; }
+  assert.deepEqual(JSON.parse(remembered.stdout).remembered.map((item) => item.path), ["docs/modules/auth.md"]);
+  const lookup = JSON.parse(run(["project-doc", "--action", "Lookup", "--repo-root", root, "--task-path", task, "--paths", "src/auth.ts"]).stdout);
+  assert.equal(lookup.docs[0].digest_status, "reusable");
+});

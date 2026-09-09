@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { JsonObject, git, isWithin, normalizeRepoPath, output, readJson, sha256 } from "./core.js";
 import { taskWrite } from "./lifecycle/transitions.js";
@@ -46,6 +46,10 @@ function docs(root: string, directory: string): JsonObject[] {
 }
 function checkDocument(root: string, docRoot: string, path: string, entries?: JsonObject[]): string[] {
   if (!existsSync(path)) return ["document does not exist"];
+  // The tree walk only ever yields `.md` files, so every caller that reaches a document by name has
+  // to reject a directory or a non-Markdown path here or read a file the walk would never list.
+  if (!statSync(path).isFile()) return ["document is not a file"];
+  if (!path.endsWith(".md")) return ["document must be a .md file"];
   if (!isWithin(path, join(root, docRoot))) return ["document is outside the configured doc-root"];
   const body = readFileSync(path, "utf8");
   const headerMatch = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -101,25 +105,24 @@ function digestStatus(root: string, item: JsonObject, state: ProjectDocState, ta
   return recorded === String(item.content_sha256) ? "reusable" : "stale";
 }
 
-function remember(options: Options, entries?: JsonObject[]): number {
+function remember(options: Options): number {
   const taskValue = text(options, "task-path");
   if (!taskValue) throw new Error("project-doc Remember requires --task-path");
   const root = resolve(text(options, "repo-root", process.cwd()));
   const docRoot = text(options, "doc-root", "docs");
   const requested = paths(options);
   if (!requested.length) throw new Error("project-doc Remember requires --paths");
-  const scanned = entries || docs(root, docRoot);
-  const byPath = new Map(scanned.map((item) => [projectDocPath(root, String(item.path)), item]));
   const remembered: JsonObject[] = [];
   const issues: string[] = [];
   for (const requestedPath of requested) {
     const absolute = resolve(root, requestedPath);
-    const canonical = projectDocPath(root, absolute);
-    const item = byPath.get(canonical);
-    if (!item) { issues.push(`${requestedPath}: document is missing or has invalid frontmatter`); continue; }
-    const documentIssues = checkDocument(root, docRoot, absolute, scanned);
+    const documentIssues = checkDocument(root, docRoot, absolute);
     if (documentIssues.length) { issues.push(`${requestedPath}: ${documentIssues.join("; ")}`); continue; }
-    remembered.push({ path: canonical, content_sha256: String(item.content_sha256) });
+    // Lookup compares this path verbatim against the tree walk's, which a case-insensitive
+    // filesystem would otherwise let drift.
+    const real = realpathSync.native(absolute);
+    // A realpath outside doc-root means a symlinked tree the walk reports unresolved.
+    remembered.push({ path: projectDocPath(root, isWithin(real, join(root, docRoot)) ? real : absolute), content_sha256: sha256(readFileSync(absolute, "utf8")) });
   }
   if (issues.length) { output({ valid: false, errors: issues }); return 1; }
   const state = readJson(taskStatePath(taskValue)) as JsonObject;
@@ -149,11 +152,14 @@ function remember(options: Options, entries?: JsonObject[]): number {
 }
 
 export function projectDoc(options: Options): number {
-  const action = text(options, "action"); const root = resolve(text(options, "repo-root", process.cwd())); const docRoot = text(options, "doc-root", "docs"); const result = docs(root, docRoot);
+  const action = text(options, "action"); const root = resolve(text(options, "repo-root", process.cwd())); const docRoot = text(options, "doc-root", "docs");
+  // Only the whole-tree actions pay for a whole-tree walk; Check and Remember address named
+  // documents, and checkDocument reaches for siblings itself when a singleton doc_type needs them.
+  if (action === "Check") { const path = resolve(root, text(options, "doc")); const issues = checkDocument(root, docRoot, path); output([{ path, issues }]); return issues.length ? 1 : 0; }
+  if (action === "Remember") return remember(options);
+  const result = docs(root, docRoot);
   if (action === "List") { output(result); return 0; }
-  if (action === "Check") { const requested = text(options, "doc"); const path = resolve(root, requested); const issues = checkDocument(root, docRoot, path, result); output([{ path, issues }]); return issues.length ? 1 : 0; }
   if (action === "Stale") { output(result.filter((item) => { const rel = relative(root, String(item.path)); const covered = Array.isArray(item.covers) ? item.covers.map(String) : []; const docTime = Number(git(root, ["log", "-1", "--format=%ct", "--", rel]).stdout || 0); const codeTime = covered.length ? Number(git(root, ["log", "-1", "--format=%ct", "--", ...covered]).stdout || 0) : 0; return codeTime > docTime; })); return 0; }
-  if (action === "Remember") return remember(options, result);
   if (action !== "Lookup") throw new Error(`unsupported project-doc action: ${action}`);
   const taskValue = text(options, "task-path"); const prior = projectDocState(root, taskValue);
   const requested = paths(options).map((path) => path.replaceAll("\\", "/")); const normalizedRequested = requested.map(normalizeRepoPath); const matched = new Set<string>();

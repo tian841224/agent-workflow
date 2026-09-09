@@ -85,7 +85,7 @@
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "workflowFacts": {
       "type": "object",
-      "description": "Declared facts that steer step selection inside an already-selected capability. Names are the closed set referenced by schemas/workflow-policy.json; an undeclared fact stays unknown and keeps its step.",
+      "description": "Declared facts that steer step selection inside an already-selected capability. Names are the closed set referenced by schemas/workflow-policy.json; an undeclared fact leaves its step unknown, which lists the step in step_classification_incomplete and blocks the gate for a managed_change task until the fact is declared.",
       "propertyNames": {
         "enum": [
           "changes_module_interface", "data_transform", "debug_requested", "destructive_operation",

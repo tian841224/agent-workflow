@@ -38,6 +38,10 @@ tasks, assigning file ownership, building each worker's ExecutionPacket, dispatc
 through the host platform, collecting worker results, integrating the changes, final validation,
 Reviewer, task-gate, and closing the task. Orchestration lifecycle actions stay with the coordinator.
 
+`file_ownership` is a hard boundary, not a review filter: any path changed outside it fails the gate as an
+ownership violation. A delivery that legitimately reaches further needs the owner widened and its impact
+re-confirmed, so assign each worker the scope its sub-task actually needs.
+
 ## Worker execution
 
 Each worker receives one ExecutionPacket (`agent-workflow execution-packet`), containing intent

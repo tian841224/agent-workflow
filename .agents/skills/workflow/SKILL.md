@@ -32,11 +32,11 @@ close-task（自動重跑 completion gate）
 1. 先判斷 `managed_change`。它是 workflow 的唯一 entry gate；`code_change` 只描述是否修改 application source code。設定、script、schema、測試可信度與交付行為依是否可能改變執行結果判斷，不以檔案副檔名 bypass。
 2. `managed_change: true` 時建立 task intent，執行 `agent-workflow task-init --task-path <path>`，一次傳入已知分類與 `workflow_request`。回應已包含 `required`、`selected`、`order`、`exploration_profile` 與 procedure pointers；後續分類變更或 `project_docs.updated`／`independence` bookkeeping 才使用 `task-write`。分類變更會回傳新的 plan，非分類更新只回傳 task 與 `state_revision`。
 3. 只依 compiled plan 載入 procedure。capability 名稱、step 條件與執行順序以 `schemas/workflow-policy.json` 和 `workflow-plan` 輸出為準；不要在入口文件複製清單。
-4. 修改 application source code 前依 [project-docs skill](../project-docs/SKILL.md) 做 Lookup，先讀真正命中的文件；`overview_candidates` 只在 `exploration_profile: expanded`、共享狀態或影響面需要時讀取。用 `project-doc --action Remember --task-path` 記錄讀過的路徑與 `content_sha256`，同 digest 可重用。
-5. `focused`／`expanded` 由 runtime 從同一份分類推導，不另判 Standard／Elevated。`expanded` 的 reverse search、execution path、fingerprint 與 reviewer 規則在 [elevated.md](elevated.md)；selected capability 的操作規則在 [capability-selection.md](capability-selection.md)、[evidence.md](evidence.md)、[review.md](review.md) 及各專屬 skill。
-6. 依 compiled plan 選擇適當的驗證命令，執行 `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]`：focused 只跑明列目標，affected 使用明列的受影響集合，regression 跑指定 subsystem 或預設完整 regression set，full 跑全部 tests。`validation_profile` 是保留的選填 metadata，不要為了執行測試額外用 task-write 填寫；真正執行的 command 與結果以 `evidence-run` receipt 為準，但仍須確認 profile／路徑符合 completion criteria 與必要 evidence。開發期間可保留必要的 focused／affected 快速回饋；昂貴的整合、回歸與最終 delivery receipt 盡量等交付內容穩定後批次執行。純分析使用 `evidence-record`，`pre-review` 只補 `git diff --check`。
-7. 每個 `managed_change: true` 交付至少要有 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自需要自己的 evidence。runtime evidence 綁定 plan、intent 與完整 delivery fingerprint；目前不做 path-scoped execution reuse，交付內容任何變更都要重新執行受影響的 runtime checks。
-8. `reviewer` 被 required 或 requested 時，用 `review-record` 記錄唯一角色結果；主對話的 degraded review 要誠實記錄 `independence: degraded`。Review cause 可隨 `review-record` 附帶，不阻塞正常成功路徑。
+4. 修改 application source code 前依 [project-docs skill](../project-docs/SKILL.md) 走 Lookup → 讀命中文件 → Remember，它擁有查詢、閱讀與回填的完整規則。
+5. `focused`／`expanded` 由 runtime 從同一份分類推導，不另判 Standard／Elevated。compiled plan 回報 `expanded` 時讀 [elevated.md](elevated.md)；selected capability 的操作規則在 [capability-selection.md](capability-selection.md)、[evidence.md](evidence.md)、[review.md](review.md) 及各專屬 skill。
+6. 依 compiled plan 決定驗證範圍，執行 `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]`；runner 自己拒絕不合法的 profile／路徑組合。`validation_profile` 是選填 metadata，不需為了執行測試填寫。開發期間保留必要的快速回饋，昂貴的回歸與最終 delivery receipt 等交付內容穩定後批次執行。純分析使用 `evidence-record`。
+7. 每個 `managed_change: true` 交付至少要有 `delivery_validation.DV1` runtime receipt；宣告 `runtime_execution` 的 step 只接受 `evidence-run`。記錄方式與 freshness 見 [evidence.md](evidence.md)。
+8. `reviewer` 被 required 或 requested 時，用 `review-record` 記錄唯一角色結果，主對話代跑時誠實記錄 `independence: degraded`；執行方式見 [review.md](review.md)。
 9. `task.md` 只保存 Goal、Scope、Completion criteria，以及 freeze-required task 的 Non-goals／Acceptance cases。evidence、validation、review、lifecycle、project docs 與 hashes 只在 `task.json`；需要人讀時用 `agent-workflow task-report`。
 10. 完成條件、evidence 與 reviewer 都完成後直接執行 `agent-workflow close-task`。只有需要診斷 blocker 時才先執行 `task-gate`；不要直接編輯 lifecycle 或 task.json。
 
@@ -53,7 +53,7 @@ close-task（自動重跑 completion gate）
 
 - 分類與 capability selection：[capability-selection.md](capability-selection.md)、[risk-flags.md](risk-flags.md)
 - evidence、runtime receipt 與 freshness：[evidence.md](evidence.md)
-- expanded exploration、ownership 與 review scope：[elevated.md](elevated.md)
-- reviewer 與 delta-first 複查：[review.md](review.md)
+- expanded exploration 深度：[elevated.md](elevated.md)
+- reviewer、review scope 與 delta-first 複查：[review.md](review.md)
 - coordinator／worker：[orchestration.md](orchestration.md)
 - memory 與 project-doc bookkeeping：[memory.md](memory.md)、[project-docs skill](../project-docs/SKILL.md)
