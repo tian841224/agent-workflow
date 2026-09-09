@@ -390,7 +390,7 @@ function verifiedRuntimeSubcommand(segment: string, root = stateRoot()): string 
 // (schema check + file lock), never by the shell segment touching the file directly.
 const TASK_STATE_WRITER_COMMANDS = new Set([
   "task-init", "task-write", "reclassify", "close-task", "pause", "block", "resume", "supersede",
-  "waive", "approve-intent", "evidence-record", "review-record"
+  "waive", "approve-intent", "evidence-record", "review-record", "project-doc"
 ]);
 // install/repair/skill are the sanctioned writers for .agents content; every other runtime command
 // gets no .agents mutation exemption.

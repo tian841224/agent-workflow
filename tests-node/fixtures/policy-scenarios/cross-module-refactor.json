@@ -11,12 +11,14 @@
   },
   "expected": {
     "required": [
+      "delivery_validation",
       "baseline_validation",
       "execution_path_review",
       "regression_validation",
       "reviewer"
     ],
     "required_evidence": [
+      "delivery_validation.DV1",
       "baseline_validation.BV1",
       "baseline_validation.BV2",
       "baseline_validation.BV3",

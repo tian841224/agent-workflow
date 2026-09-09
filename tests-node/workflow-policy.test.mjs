@@ -69,6 +69,18 @@ test("a require_when-backed capability's evidence is required even with an empty
   assert.ok(plan.required_evidence.some((id) => id.startsWith("schema_compatibility.")), JSON.stringify(plan.required_evidence));
 });
 
+test("a local behavior flag stays focused while a boundary risk stays expanded", () => {
+  const root = join(tmpdir(), `agent-workflow-plan-exploration-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const planFor = (risk_flags, name) => {
+    const path = join(root, `${name}.json`);
+    writeFileSync(path, JSON.stringify({ managed_change: true, workflow_request: [], risk_flags, impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix" }));
+    return JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "workflow-plan", "--task-path", path], { cwd: process.cwd(), encoding: "utf8" }).stdout);
+  };
+  assert.equal(planFor(["behavior_change"], "local").exploration_profile, "focused");
+  assert.equal(planFor(["contract"], "contract").exploration_profile, "expanded");
+});
+
 test("an unknown workflow_facts key reports a step as classification-incomplete instead of selecting it", () => {
   const root = join(tmpdir(), `agent-workflow-plan-unknown-fact-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });

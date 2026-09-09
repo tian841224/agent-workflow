@@ -1,12 +1,12 @@
-# Elevated-only rules
+# Expanded exploration rules
 
-Read this only for Elevated tasks or coordinator/worker tasks. Standard tasks are not bound by any rule here, and skipping this file costs them nothing.
+Read this when the compiled plan reports `exploration_profile: expanded`, or for coordinator/worker tasks. Focused tasks are not bound by these extra exploration rules.
 
 ## Before creation and implementation
 
-- Read the docs matched by the [project-docs skill](../project-docs/SKILL.md) lookup before reading the related code, and record those paths in the task's `## Project docs` `read:`.
-- After reading the related code, before changing the first line of code, fill in the task's `Impact surface`: for every symbol, route, and event name to be changed, do a reverse search, record the search command and hit count, and attach `path:line` to every hit that needs judgment; list the actual trigger entrypoints, shared state, and unconfirmed nodes.
-- Trace the execution path from the real entrypoints to all significant endpoints, covering error, retry, concurrency, and async branches (a Standard task only needs the execution path directly related to the points being created or changed).
+- Read the docs matched by the [project-docs skill](../project-docs/SKILL.md) lookup before reading the related code, and record those paths in task.json's `project_docs.read`; use `agent-workflow task-report` for a human-readable view.
+- After reading the related code, record one concise impact map: relevant entrypoints, callers, shared state, external contracts, important error／retry／concurrency branches, and unconfirmed nodes. Reverse-search changed public symbols, shared state, and every unresolved node; do not enumerate unrelated hits only to satisfy a count.
+- Trace the execution path from the real entrypoints through the boundaries selected by the compiled plan. Expand into retry, concurrency, or async branches when the change reaches those branches or leaves an unknown; a focused task keeps the direct path only.
 
 ## Before pre-review and roles
 
@@ -16,5 +16,5 @@ Read this only for Elevated tasks or coordinator/worker tasks. Standard tasks ar
 
 ## Completion
 
-- Fill in the Reviewer result with the review conclusion and record `independence` honestly: `native` when the role ran as its own agent, `degraded` when the main agent filled in a role section on its behalf. The runtime computes `reviewed_base`, `reviewed_paths`, `reviewed_diff_sha256`, and `delivery_hash`; do not copy those machine fields into task.md.
+- Record the Reviewer conclusion through `review-record` and record `independence` honestly: `native` when the role ran as its own agent, `degraded` when the main agent filled in a role section on its behalf. The runtime computes `reviewed_base`, `reviewed_paths`, `reviewed_diff_sha256`, and `delivery_hash`; do not copy these machine fields into task.md.
 - Run `agent-workflow close-task` to re-run the completion gate; the main agent must not decide completion criteria on its own and edit `lifecycle.status` directly (there is no `done` value — `closed` is the only terminal status, and only `close-task` may write it).

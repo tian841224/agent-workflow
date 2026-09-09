@@ -4,7 +4,7 @@
 
 ## 三個欄位
 
-- **`required`**：runtime 依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 `schemas/workflow-policy.json` 的 `require_when` 算出的下限。`managed_change: true` 本身不強制任何 capability；單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空。
+- **`required`**：runtime 依 `schemas/workflow-policy.json` 的 `require_when` 算出的下限。每個 `managed_change: true` task 固定包含 `delivery_validation`；其他 capability 由 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 決定。單檔、局部行為、高信心且無高風險 flag 的修改只需要這份最低 runtime receipt。
 - **`requested`**：主對話依已知需求與程式脈絡寫入 `workflow_request` 的額外項目，只能疊加。少填 `workflow_request` 不會讓 `required` 的項目消失。
 - **`selected`**：`required` ∪ `requested`，也就是 gate 實際驗收的清單。
 

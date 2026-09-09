@@ -19,15 +19,15 @@ for (const file of fixtures) {
   const fixture = JSON.parse(readFileSync(join(fixtureDir, file), "utf8"));
   test(`policy scenario: ${fixture.scenario}`, () => {
     const compiled = plan(fixture.task);
-    assert.deepEqual([...compiled.required].sort(), fixture.expected.required);
-    assert.deepEqual([...compiled.required_evidence].sort(), fixture.expected.required_evidence);
+    assert.deepEqual([...compiled.required].sort(), [...fixture.expected.required].sort());
+    assert.deepEqual([...compiled.required_evidence].sort(), [...fixture.expected.required_evidence].sort());
     assert.deepEqual(compiled.classification_incomplete, fixture.expected.classification_incomplete);
     assert.deepEqual(compiled.step_classification_incomplete, fixture.expected.step_classification_incomplete);
   });
 }
 
 // An unmanaged task is the negative space the whole policy rests on: it must pull in nothing at all,
-// baseline_validation included, or a docs/read-only bypass would still owe evidence.
+// delivery_validation included, or a docs/read-only bypass would still owe evidence.
 test("an unmanaged task requires no capability at all", () => {
   const docOnly = JSON.parse(readFileSync(join(fixtureDir, "doc-only.json"), "utf8"));
   assert.equal(docOnly.task.managed_change, false);
@@ -35,15 +35,14 @@ test("an unmanaged task requires no capability at all", () => {
   assert.deepEqual(docOnly.expected.required_evidence, []);
 });
 
-// The whole point of gating on classification rather than on managed_change: a change the agent
-// has looked at, understands, and can point at one file for owes the runtime nothing. Everything it
-// still runs — tests, review, diagnosis — is its own call, made in the task, not forced by the gate.
-test("a confident, local, risk-free managed change requires no capability", () => {
+// A confident, local, risk-free managed change still owes the minimum runtime receipt, while larger
+// baseline and reviewer capabilities remain classification-driven.
+test("a confident, local, risk-free managed change requires delivery validation only", () => {
   for (const name of ["normal-bugfix", "local-feature"]) {
     const fixture = JSON.parse(readFileSync(join(fixtureDir, `${name}.json`), "utf8"));
     assert.equal(fixture.task.managed_change, true);
-    assert.deepEqual(fixture.expected.required, [], name);
-    assert.deepEqual(fixture.expected.required_evidence, [], name);
+    assert.deepEqual(fixture.expected.required, ["delivery_validation"], name);
+    assert.deepEqual(fixture.expected.required_evidence, ["delivery_validation.DV1"], name);
   }
 });
 
@@ -52,7 +51,7 @@ test("a confident, local, risk-free managed change requires no capability", () =
 test("a change the agent is unsure about pulls in impact discovery and baseline validation", () => {
   const fixture = JSON.parse(readFileSync(join(fixtureDir, "uncertain-local-change.json"), "utf8"));
   assert.equal(fixture.task.impact_confidence, "medium");
-  assert.deepEqual(fixture.expected.required, ["baseline_validation", "impact_discovery"]);
+  assert.deepEqual([...fixture.expected.required].sort(), ["baseline_validation", "delivery_validation", "impact_discovery"].sort());
 });
 
 // Deliberately breaking working logic to prove the tests catch it is priced for money and one-way

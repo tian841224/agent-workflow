@@ -1,5 +1,6 @@
 import { Ajv } from "ajv";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { canonicalJson, Json, JsonObject, schemaPath, sha256 } from "./core.js";
 import { classificationContext, WorkflowContext } from "./classification/change-classifier.js";
 
@@ -11,6 +12,9 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 const validatePolicySchema = ajv.compile(JSON.parse(readFileSync(schemaPath("workflow-policy.schema.json"), "utf8")) as JsonObject);
 
 export type MatchResult = "match" | "no_match" | "unknown";
+
+type LoadedPolicy = { policy: JsonObject; sha256: string };
+const policyCache = new Map<string, LoadedPolicy>();
 
 // An undeclared or unrecognized rank is genuinely unknown, not a match. Collapsing it to "match"
 // is what silently forced every at-least capability to be required on a half-filled task.
@@ -72,8 +76,13 @@ function undeclaredFields(groups: JsonObject[][], ctx: WorkflowContext): string[
   return [...missing].sort();
 }
 
-export function loadPolicy(path: string): JsonObject {
-  const policy = JSON.parse(readFileSync(path, "utf8")) as JsonObject;
+function loadPolicyRecord(path: string): LoadedPolicy {
+  const resolved = resolve(path);
+  const raw = readFileSync(resolved);
+  const digest = sha256(raw);
+  const cached = policyCache.get(resolved);
+  if (cached && cached.sha256 === digest) return cached;
+  const policy = JSON.parse(raw.toString("utf8")) as JsonObject;
   if (!validatePolicySchema(policy)) {
     const errors = (validatePolicySchema.errors || []).map((error) => `workflow-policy${error.instancePath || ""} ${error.message}`.trim());
     throw new Error(`workflow-policy schema invalid:\n${errors.join("\n")}`);
@@ -91,14 +100,21 @@ export function loadPolicy(path: string): JsonObject {
     const duplicateSteps = stepIds.filter((id, index) => stepIds.indexOf(id) !== index);
     if (duplicateSteps.length) throw new Error(`workflow-policy: ${capability.name} has duplicate step id(s): ${[...new Set(duplicateSteps)].join(", ")}`);
   }
-  return policy;
+  const loaded = { policy, sha256: digest };
+  policyCache.set(resolved, loaded);
+  return loaded;
+}
+
+export function loadPolicy(path: string): JsonObject {
+  return loadPolicyRecord(path).policy;
 }
 
 // The one hash-relevant input set (policy + classification) every command must feed
 // compileWorkflowPlan identically, so task-gate / waive / workflow-plan never disagree on
 // plan_hash for the same task.json on disk. task.md's content feeds intent_hash separately (intent.ts).
 export function compilePlanForTaskPath(task: JsonObject, taskJsonPath: string, policyPath = schemaPath("workflow-policy.json")): CompiledWorkflowPlan {
-  return compileWorkflowPlan(task, loadPolicy(policyPath), { policySha256: sha256(readFileSync(policyPath)) });
+  const loaded = loadPolicyRecord(policyPath);
+  return compileWorkflowPlan(task, loaded.policy, { policySha256: loaded.sha256 });
 }
 
 // Mirrors the capability-level split: only a proven match selects a step, while an undecidable
@@ -143,6 +159,7 @@ export type CompiledWorkflowPlan = {
   selected: JsonObject[];
   required_evidence: string[];
   runtime_required_evidence: string[];
+  exploration_profile: "focused" | "expanded";
   policy_version: number;
   policy_sha256?: string;
   plan_hash: string;
@@ -192,8 +209,12 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
     ...selected.filter((capability) => capability.kind === "role").map((capability) => `role.${capability.name}`)
   ];
   const suggested = (!managedChange ? [] : capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match")).map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
+  // A local behavior flag does not by itself justify expanded repository exploration. Scope,
+  // confidence, effect and cross-boundary risks already identify the cases that need the deeper map.
+  const expandedRisk = ["contract", "schema", "data_write", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity", "security", "operational"];
+  const exploration_profile = !managedChange ? "focused" : (ctx.impact_scope === "multi_module" || ctx.impact_scope === "cross_project" || ["medium", "low"].includes(ctx.impact_confidence) || ["schema", "data", "contract", "destructive"].includes(ctx.impact_effect) || ctx.risk_flags.some((flag) => expandedRisk.includes(flag)) ? "expanded" : "focused");
   const policy_version = Number(policy.version || 0);
-  const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => String(step.id))))].sort();
+  const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => `${String(capability.name)}.${String(step.id)}`)))].sort();
   // plan_hash covers policy + classification only — not task.md's prose, which is intent_hash's job
   // (see intent.ts). A task.md typo no longer invalidates evidence/waivers recorded against this plan.
   const plan_hash = sha256(canonicalJson({
@@ -201,7 +222,24 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
     code_change: task.code_change ?? null, managed_change: task.managed_change ?? null, workflow_mode: task.workflow_mode ?? null,
     task_type: ctx.task_type, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
     risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
-    required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), selected_step_ids
+    required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), exploration_profile, selected_step_ids
   }));
-  return { required, classification_incomplete, step_classification_incomplete, suggested, requested, effective, order, selected, required_evidence, runtime_required_evidence, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), plan_hash };
+  return { required, classification_incomplete, step_classification_incomplete, suggested, requested, effective, order, selected, required_evidence, runtime_required_evidence, exploration_profile, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), plan_hash };
+}
+
+export function planOutput(plan: CompiledWorkflowPlan): JsonObject {
+  return {
+    required: plan.required,
+    classification_incomplete: plan.classification_incomplete,
+    step_classification_incomplete: plan.step_classification_incomplete,
+    suggested: plan.suggested,
+    requested: plan.requested,
+    selected: plan.selected.map((capability) => capability.name),
+    exploration_profile: plan.exploration_profile,
+    order: plan.order,
+    steps: plan.selected,
+    required_evidence: plan.required_evidence,
+    plan_hash: plan.plan_hash,
+    roles: plan.selected.filter((capability) => capability.kind === "role").map((capability) => capability.name)
+  } as unknown as JsonObject;
 }

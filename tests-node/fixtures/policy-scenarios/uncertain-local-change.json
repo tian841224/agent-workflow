@@ -11,10 +11,12 @@
   },
   "expected": {
     "required": [
+      "delivery_validation",
       "baseline_validation",
       "impact_discovery"
     ],
     "required_evidence": [
+      "delivery_validation.DV1",
       "baseline_validation.BV1",
       "baseline_validation.BV2",
       "baseline_validation.BV3",

@@ -8,24 +8,22 @@ flag 會讓 runtime 強制對應的 capability，實際結果以 `agent-workflow
 
 ## 什麼情況標記
 
-| Flag | 定義 | task 另需補的段落 |
-|---|---|---|
-| `behavior_change` | 使用者可觀察到的行為或輸出會改變 | `## Completion criteria` 下的 `### Acceptance cases` |
-| `ui` | 修改畫面、互動或前端行為 | — |
-| `data_write` | 會寫入或修改持久化資料 | Contract and data impact |
-| `contract` | 修改對外 API、介面或函式簽章 | Contract and data impact |
-| `schema` | 修改資料結構（DB schema、訊息格式、設定檔結構） | Contract and data impact |
-| `financial` | 涉及金額、賠付、計費等金流邏輯 | Contract and data impact |
-| `authorization` | 修改權限或存取控制邏輯 | — |
-| `cross_feature` | 一次改動影響多個功能或模組 | Implementation sequence |
-| `migration` | 需要資料或版本遷移 | Contract and data impact、Implementation sequence |
-| `irreversible` | 改動無法簡單回滾（例如刪除資料、發送外部通知） | Implementation sequence |
-| `unclear_requirements` | 需求本身不明確，需先與使用者釐清才能動工 | — |
-| `test_integrity` | 刪除或弱化既有測試斷言、skip／disable 既有測試、或大量改動 snapshot／fixture | Test integrity |
-| `security` | 修改認證、秘密處理、輸入信任邊界、指令執行或檔案路徑邊界 | Security review |
-| `operational` | 修改部署、runtime 設定、服務啟動、網路或 CI/CD 執行路徑 | Operational verification |
-
-`Implementation sequence` 記實作順序、依賴與回滾點。
+| Flag | 定義 |
+|---|---|
+| `behavior_change` | 使用者可觀察到的行為或輸出會改變 |
+| `ui` | 修改畫面、互動或前端行為 |
+| `data_write` | 會寫入或修改持久化資料 |
+| `contract` | 修改對外 API、介面或函式簽章 |
+| `schema` | 修改資料結構（DB schema、訊息格式、設定檔結構） |
+| `financial` | 涉及金額、賠付、計費等金流邏輯 |
+| `authorization` | 修改權限或存取控制邏輯 |
+| `cross_feature` | 一次改動影響多個功能或模組 |
+| `migration` | 需要資料或版本遷移 |
+| `irreversible` | 改動無法簡單回滾（例如刪除資料、發送外部通知） |
+| `unclear_requirements` | 需求本身不明確，需先與使用者釐清才能動工 |
+| `test_integrity` | 刪除或弱化既有測試斷言、skip／disable 既有測試、或大量改動 snapshot／fixture |
+| `security` | 修改認證、秘密處理、輸入信任邊界、指令執行或檔案路徑邊界 |
+| `operational` | 修改部署、runtime 設定、服務啟動、網路或 CI/CD 執行路徑 |
 
 ## 單向宣告
 
@@ -35,7 +33,7 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 
 命中 `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 任一值時：
 
-- Task 增加段落：現況與影響面、方案與取捨、邊界與異常、使用者確認；另在 `## Scope` 下補 `### Non-goals and compatibility`、在 `## Completion criteria` 下補 `### Acceptance cases`。這兩段刻意放在 `intent_hash` 涵蓋的段落之內，使用者批准的非目標與驗收案例才不會在批准後被改掉而雜湊不變。
+- 只在 `## Scope` 下補 `### Non-goals and compatibility`，在 `## Completion criteria` 下補 `### Acceptance cases`。這兩段位於 `intent_hash` 涵蓋的區域，使用者批准的非目標與驗收案例才不會在批准後被改掉而雜湊不變；影響面、方案與證據留在 task.json 的分類、plan 與 evidence。
 - task-gate 在通過時比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、修錯字不受影響。取得使用者對目標、非目標與完成條件的確認後執行 `agent-workflow approve-intent --confirmed-by <who> --as-user`（runtime 自己算雜湊），task-gate 才會放行。這三段內容再變動就必須重新 `approve-intent`。
 - 通過雜湊比對前，目標、非目標與完成條件維持不動；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)。
 

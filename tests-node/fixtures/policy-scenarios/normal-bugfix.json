@@ -10,8 +10,8 @@
     "risk_flags": []
   },
   "expected": {
-    "required": [],
-    "required_evidence": [],
+    "required": ["delivery_validation"],
+    "required_evidence": ["delivery_validation.DV1"],
     "classification_incomplete": [],
     "step_classification_incomplete": []
   }

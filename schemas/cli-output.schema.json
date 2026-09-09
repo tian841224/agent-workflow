@@ -7,7 +7,7 @@
   "$defs": {
     "workflow-plan": {
       "type": "object",
-      "required": ["required", "classification_incomplete", "step_classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "plan_hash", "roles"],
+      "required": ["required", "classification_incomplete", "step_classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "exploration_profile", "plan_hash", "roles"],
       "properties": {
         "required": { "type": "array", "items": { "type": "string" } },
         "classification_incomplete": {
@@ -35,6 +35,7 @@
         "order": { "type": "array", "items": { "type": "string" } },
         "steps": { "type": "array", "items": { "type": "object" } },
         "required_evidence": { "type": "array", "items": { "type": "string" } },
+        "exploration_profile": { "enum": ["focused", "expanded"] },
         "plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "roles": { "type": "array", "items": { "type": "string" } }
       },
@@ -83,11 +84,12 @@
             },
             "workflow": {
               "type": "object",
-              "required": ["required", "requested", "selected", "capabilities"],
+              "required": ["required", "requested", "selected", "capabilities", "exploration_profile"],
               "properties": {
                 "required": { "type": "array", "items": { "type": "string" } },
                 "requested": { "type": "array", "items": { "type": "string" } },
                 "selected": { "type": "array", "items": { "type": "string" } },
+                "exploration_profile": { "enum": ["focused", "expanded"] },
                 "capabilities": {
                   "type": "array",
                   "items": {
@@ -221,21 +223,56 @@
     },
     "project-doc-lookup": {
       "type": "object",
-      "required": ["docs", "uncovered"],
+      "required": ["docs", "overview_candidates", "uncovered"],
       "properties": {
         "docs": { "type": "array", "items": { "$ref": "#/$defs/projectDocEntry" } },
+        "overview_candidates": { "type": "array", "items": { "$ref": "#/$defs/projectDocOverviewCandidate" } },
         "uncovered": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
+    "project-doc-remember": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["valid", "task", "state_revision", "remembered"],
+          "properties": {
+            "valid": { "const": true },
+            "task": { "type": "string" },
+            "state_revision": { "type": "integer", "minimum": 0 },
+            "remembered": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "content_sha256"],
+                "properties": {
+                  "path": { "type": "string" },
+                  "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["valid", "errors"],
+          "properties": { "valid": { "const": false }, "errors": { "type": "array", "items": { "type": "string" } } },
+          "additionalProperties": false
+        }
+      ]
+    },
     "projectDocEntry": {
       "type": "object",
-      "required": ["path", "doc_type", "covers"],
+      "required": ["path", "doc_type", "covers", "content_sha256"],
       "properties": {
         "path": { "type": "string" },
         "doc_type": { "type": "string" },
         "covers": { "type": "array", "items": { "type": "string" } },
+        "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "matched_by": { "type": "array", "items": { "type": "string" } },
+        "digest_status": { "enum": ["untracked", "unread", "digest_missing", "reusable", "stale"] },
         "issues": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
@@ -255,6 +292,18 @@
         },
         "additionalProperties": false
       }
+    },
+    "projectDocOverviewCandidate": {
+      "type": "object",
+      "required": ["path", "doc_type", "content_sha256", "reason"],
+      "properties": {
+        "path": { "type": "string" },
+        "doc_type": { "type": "string" },
+        "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "reason": { "type": "string" },
+        "digest_status": { "enum": ["untracked", "unread", "digest_missing", "reusable", "stale"] }
+      },
+      "additionalProperties": false
     },
     "skill-draft-scan": {
       "type": "array",

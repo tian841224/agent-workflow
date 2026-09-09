@@ -4,7 +4,7 @@ import { Json, JsonObject, output, projectIdentity } from "../core.js";
 import { intentHash } from "../intent.js";
 import { PROCEDURE_POINTERS } from "../execution/execution-packet.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
-import { evidenceSatisfied, latestEvidence, roleFreshnessErrors } from "./evidence.js";
+import { deliverySnapshot, evidenceSatisfied, executionFreshnessErrors, latestEvidence, roleFreshnessErrors } from "./evidence.js";
 import { ownershipErrors } from "./ownership.js";
 import { freezeRequired, schemaErrors } from "./task-schema.js";
 import { lifecycleOf, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
@@ -36,7 +36,7 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
   let compiled: JsonObject = {};
   try {
     const plan = compilePlanForTaskPath(state, path);
-    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], step_classification_incomplete: plan.step_classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence };
+    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], step_classification_incomplete: plan.step_classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence, exploration_profile: plan.exploration_profile };
     // Only a managed-change task owes an impact classification: an unmanaged (docs/read-only/etc.)
     // task never reaches the capabilities these fields gate, so demanding them would leave it with
     // no way to close. code_change no longer decides this — see managed_change in task.schema.json.
@@ -54,6 +54,8 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
     // fingerprint has to come from the caller's location rather than from the task's own path.
     const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
     errors.push(...ownershipErrors(state, repoRoot, evidence));
+    let liveDelivery: ReturnType<typeof deliverySnapshot> | undefined;
+    let liveDeliveryError: string | undefined;
     for (const key of plan.required_evidence) {
       if (waived.has(key)) continue;
       const item = latestEvidence(evidence, key);
@@ -67,6 +69,14 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       if (Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) { errors.push(`evidence predates the current plan revision, re-verification required: ${key}`); continue; }
       if (String(item.intent_hash || "") !== liveIntentHash) { errors.push(`evidence was recorded against a different intent (task.md Goal/Scope/Completion criteria changed), re-verification required: ${key}`); continue; }
       if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state));
+      else {
+        if (!liveDelivery && !liveDeliveryError) {
+          try { liveDelivery = deliverySnapshot(repoRoot, state); }
+          catch (error) { liveDeliveryError = String((error as Error).message || error); }
+        }
+        if (liveDeliveryError) errors.push(`execution evidence freshness cannot be recomputed for ${key}: ${liveDeliveryError}`);
+        else errors.push(...executionFreshnessErrors(item, key, repoRoot, state, liveDelivery));
+      }
     }
   } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
   return { valid: errors.length === 0, status: String(life.status), compiled, errors };
@@ -105,7 +115,7 @@ export function taskNext(value: string, repoRoot = process.cwd()): number {
       if (pendingEvidence.some((key) => error.includes(key))) return "evidence";
       if (classification.includes(error)) return "classification";
       if (error.includes("intent_approval") || error.includes("task.md")) return "intent";
-      if (/^task is S+, not in_progress;/.test(error)) return "lifecycle";
+      if (/^task is \S+, not in_progress;/.test(error)) return "lifecycle";
       return "task";
     };
     let runtimeRequired: string[] = [];
@@ -129,4 +139,3 @@ export function taskNext(value: string, repoRoot = process.cwd()): number {
     return gate.valid ? 0 : 1;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
-

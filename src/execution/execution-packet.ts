@@ -16,8 +16,29 @@ export const PROCEDURE_POINTERS: Record<string, string> = {
   reviewer: ".agents/skills/workflow/review.md"
 };
 export const DEFAULT_PROCEDURE = ".agents/skills/workflow/evidence.md";
+export const PROFILE_PROCEDURES = {
+  expanded: ".agents/skills/workflow/elevated.md",
+  coordinator: ".agents/skills/workflow/orchestration.md",
+  worker: ".agents/agents/worker.md",
+  projectDocs: ".agents/skills/project-docs/SKILL.md"
+} as const;
 
 type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };
+
+// Resolve every agent-facing procedure from the same compiled plan. Profile and role documents
+// are added only when their context is present, so focused tasks do not pay for expanded guidance.
+export function resolveProcedures(plan: Pick<import("../workflow-policy.js").CompiledWorkflowPlan, "order" | "exploration_profile">, task: JsonObject = {}): string[] {
+  // managed_change:false is the explicit workflow bypass. Keep the packet free of workflow
+  // procedures even if a caller supplies stale role/code metadata alongside that classification.
+  if (task.managed_change === false) return [];
+  const procedures = plan.order.map((name) => PROCEDURE_POINTERS[name] || DEFAULT_PROCEDURE);
+  const role = String(task.subtask_role || "");
+  if (plan.exploration_profile === "expanded" || role === "coordinator" || role === "worker") procedures.push(PROFILE_PROCEDURES.expanded);
+  if (role === "coordinator") procedures.push(PROFILE_PROCEDURES.coordinator);
+  if (role === "worker") procedures.push(PROFILE_PROCEDURES.worker);
+  if (task.code_change === true) procedures.push(PROFILE_PROCEDURES.projectDocs);
+  return [...new Set(procedures)].sort();
+}
 
 export type ExecutionPacket = {
   task_id: string;
@@ -28,7 +49,7 @@ export type ExecutionPacket = {
     risk_flags: string[]; workflow_facts: JsonObject;
   };
   constraints: { repo_root: string; file_ownership: string[]; subtask_role?: string; parent_task_id?: string; base_commit?: string };
-  workflow: { required: string[]; requested: string[]; selected: string[]; capabilities: ExecutionCapability[] };
+  workflow: { required: string[]; requested: string[]; selected: string[]; capabilities: ExecutionCapability[]; exploration_profile: "focused" | "expanded" };
   procedures: string[];
   required_evidence: string[];
   plan_hash: string;
@@ -96,7 +117,7 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
     steps: (capability.steps as JsonObject[]).map((step) => ({ id: String(step.id), title: String(step.title) }))
   }));
   const selectedNames = capabilities.map((capability) => capability.name);
-  const procedures = [...new Set(selectedNames.map((name) => PROCEDURE_POINTERS[name] || DEFAULT_PROCEDURE))].sort();
+  const procedures = resolveProcedures(plan, task);
   const constraints: ExecutionPacket["constraints"] = { repo_root: resolve(repoRoot), file_ownership: asStrings(task.file_ownership) };
   if (typeof task.subtask_role === "string") constraints.subtask_role = task.subtask_role;
   if (typeof task.parent_task_id === "string") constraints.parent_task_id = task.parent_task_id;
@@ -116,7 +137,7 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
       workflow_facts: asObject(task.workflow_facts)
     },
     constraints,
-    workflow: { required: plan.required, requested: plan.requested, selected: selectedNames, capabilities },
+    workflow: { required: plan.required, requested: plan.requested, selected: selectedNames, capabilities, exploration_profile: plan.exploration_profile },
     procedures,
     required_evidence: plan.required_evidence,
     plan_hash: plan.plan_hash,

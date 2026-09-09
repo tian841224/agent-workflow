@@ -13,10 +13,12 @@
   },
   "expected": {
     "required": [
+      "delivery_validation",
       "baseline_validation",
       "operational_verification"
     ],
     "required_evidence": [
+      "delivery_validation.DV1",
       "baseline_validation.BV1",
       "baseline_validation.BV2",
       "baseline_validation.BV3",

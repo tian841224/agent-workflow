@@ -4,7 +4,8 @@ import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, st
 import { deriveModelProfile } from "../classification/model-profile.js";
 import { intentHash } from "../intent.js";
 import { memoryReviewPrompt } from "../memory-review.js";
-import { compilePlanForTaskPath } from "../workflow-policy.js";
+import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
+import { resolveProcedures } from "../execution/execution-packet.js";
 import { evaluateTaskGate } from "./task-gate.js";
 import { schemaErrors } from "./task-schema.js";
 import { assertMutable, lifecycleOf, OPEN_STATUSES, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
@@ -60,8 +61,9 @@ export function transitionTask(value: string, action: Transition, actor = "cli",
 // future task.schema.json addition) is rejected by default instead of silently passing through.
 const TASK_INIT_WRITABLE_FIELDS = new Set([
   "code_change", "managed_change", "workflow_mode", "task_type",
-  "impact_scope", "impact_effect", "impact_confidence", "risk_flags",
+  "impact_scope", "impact_effect", "impact_confidence", "validation_profile", "risk_flags",
   "workflow_facts", "workflow_request", "workflow_decision",
+  "project_docs",
   "independence", "subtask_role", "parent_task_id", "file_ownership",
   "delivery_status", "integration_status"
 ]);
@@ -102,8 +104,9 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
         if (codeChange) writeLease(root, identity.worktreeId, taskId, path);
         return state;
       };
-      if (codeChange) withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask); else createTask();
-      output({ valid: true, task: path });
+      const created = codeChange ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask) : createTask();
+      const plan = compilePlanForTaskPath(created, path);
+      output({ valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created) });
       return 0;
     } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
@@ -124,9 +127,9 @@ function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
   return errors;
 }
 
-const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision"]);
+const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "validation_profile", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision", "project_docs", "independence"]);
 const CLASSIFICATION_KEYS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
-export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }): number {
+export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }, emitOutput = true): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
@@ -181,9 +184,10 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
       return state;
     };
     const state = root && identity ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, applyWrite) : applyWrite();
-    output({ valid: true, task: path, state_revision: state.state_revision, plan_revision: state.plan_revision });
+    const plan = compilePlanForTaskPath(state, path);
+    if (emitOutput) output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state) });
     return 0;
-  } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+  } catch (error) { if (emitOutput) output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
 
 // The only path allowed to drop managed_change or remove an existing risk flag.

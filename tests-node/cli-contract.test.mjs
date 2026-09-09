@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 
@@ -55,6 +55,7 @@ test("workflow-plan output matches its declared shape in cli-output.schema.json"
   const validate = validatorFor("workflow-plan");
   const plan = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
   assert.ok(validate(plan), JSON.stringify(validate.errors));
+  assert.equal(plan.exploration_profile, "expanded");
 });
 
 test("execution-packet output matches its declared shape in cli-output.schema.json", () => {
@@ -64,9 +65,87 @@ test("execution-packet output matches its declared shape in cli-output.schema.js
   writeFileSync(join(task, "task.md"), "# Packet shape\n\n## Goal\n\nVerify execution packet output.\n\n## Scope\n\nNo source change.\n\n## Completion criteria\n\n- [ ] output validates\n");
   const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false }) });
   assert.equal(init.status, 0, init.stderr);
+  const initBody = JSON.parse(init.stdout);
+  assert.ok(initBody.plan && Array.isArray(initBody.procedures), init.stdout);
   const result = run(["execution-packet", "--task-path", task]);
   assert.equal(result.status, 0, result.stderr);
   const validate = validatorFor("execution-packet");
+  assert.ok(validate(JSON.parse(result.stdout)), JSON.stringify(validate.errors));
+  assert.equal(JSON.parse(result.stdout).workflow.exploration_profile, "focused");
+});
+
+test("task-report renders intent, compiled plan, project docs, evidence, and gate status without writing", () => {
+  const root = join(tmpdir(), `agent-workflow-task-report-${process.pid}-${Date.now()}`);
+  const task = join(root, "20260101-000000-task-report"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Report\n\n## Goal\n\nRender a report.\n\n## Scope\n\nOnly report output.\n\n## Completion criteria\n\n- [ ] report contains the current plan\n");
+  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false, validation_profile: "focused", project_docs: { read: ["docs/architecture.md"], updated: ["none - no document change"], digests: [{ path: "docs/architecture.md", content_sha256: "0000000000000000000000000000000000000000000000000000000000000000" }] } }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const before = readFileSync(join(task, "task.json"), "utf8");
+  const report = run(["task-report", "--task-path", task]);
+  assert.equal(report.status, 0, report.stdout || report.stderr);
+  assert.match(report.stdout, /## Goal/);
+  assert.match(report.stdout, /## Compiled plan/);
+  assert.match(report.stdout, /exploration profile: focused/);
+  assert.match(report.stdout, /"validation_profile": "focused"/);
+  assert.match(report.stdout, /docs\/architecture\.md/);
+  assert.match(report.stdout, /digests:/);
+  assert.equal(readFileSync(join(task, "task.json"), "utf8"), before, "task-report must be read-only");
+});
+
+test("review-record can attach optional cause telemetry without a separate critical-path command", () => {
+  const root = join(tmpdir(), `agent-workflow-review-cause-inline-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["-C", repo, "init", "-q"]); spawnSync("git", ["-C", repo, "config", "user.email", "test@example.com"]); spawnSync("git", ["-C", repo, "config", "user.name", "test"]);
+  writeFileSync(join(repo, "f.txt"), "one"); spawnSync("git", ["-C", repo, "add", "."]); spawnSync("git", ["-C", repo, "commit", "-q", "-m", "init"]); writeFileSync(join(repo, "f.txt"), "two");
+  const task = join(root, "20260101-000000-review-cause"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Review\n\n## Goal\n\nRecord review cause.\n\n## Scope\n\nOne file.\n\n## Completion criteria\n\n- [ ] cause is stored\n");
+  const stateRoot = join(root, "state");
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--adopt-current-diff"], { input: JSON.stringify({ code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const reviewed = run(["review-record", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--role", "reviewer", "--result", "fail", "--summary", "found a missing invariant", "--cause-round", "2", "--cause", "logic_error", "--cause-evidence", "The branch condition was inverted.", "--cause-paths", "f.txt"]);
+  assert.equal(reviewed.status, 0, reviewed.stdout || reviewed.stderr);
+  const body = JSON.parse(reviewed.stdout);
+  assert.equal(body.review_cause.cause, "logic_error");
+  const index = JSON.parse(readFileSync(join(stateRoot, "review-causes", "index.json"), "utf8"));
+  assert.equal(index.entries.length, 1);
+});
+
+test("the focused test runner rejects missing or outside paths instead of silently running the full suite", () => {
+  const missing = spawnSync(process.execPath, ["scripts/run-tests.mjs", "tests-node/no-such-test.test.mjs"], { cwd: process.cwd(), encoding: "utf8" });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /no requested test files found/);
+  const outside = spawnSync(process.execPath, ["scripts/run-tests.mjs", "package.json"], { cwd: process.cwd(), encoding: "utf8" });
+  assert.notEqual(outside.status, 0);
+  assert.match(outside.stderr, /no requested test files found/);
+});
+
+test("the validation runner exposes deterministic focused, affected, regression, and full profiles", () => {
+  const focused = spawnSync(process.execPath, ["scripts/run-tests.mjs", "--profile", "focused", "--", "tests-node/cli.test.mjs"], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(focused.status, 0, focused.stderr);
+  assert.match(focused.stderr, /profile=focused files=1/);
+  const affected = spawnSync(process.execPath, ["scripts/run-tests.mjs", "--profile=affected", "--", "tests-node/cli.test.mjs"], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(affected.status, 0, affected.stderr);
+  assert.match(affected.stderr, /profile=affected files=1/);
+  const fullWithPath = spawnSync(process.execPath, ["scripts/run-tests.mjs", "--profile", "full", "--", "tests-node/cli.test.mjs"], { cwd: process.cwd(), encoding: "utf8" });
+  assert.notEqual(fullWithPath.status, 0);
+  assert.match(fullWithPath.stderr, /full profile does not accept explicit paths/);
+  const unknown = spawnSync(process.execPath, ["scripts/run-tests.mjs", "--profile", "unknown"], { cwd: process.cwd(), encoding: "utf8" });
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /unknown validation profile/);
+});
+
+test("project-doc Remember output matches its declared shape", () => {
+  const root = join(tmpdir(), `agent-workflow-project-doc-remember-${process.pid}-${Date.now()}`);
+  const task = join(root, "20260101-000000-project-doc-remember");
+  mkdirSync(join(root, "docs"), { recursive: true });
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(root, "docs", "architecture.md"), "---\ndoc_type: architecture\ncovers: []\n---\n\n# architecture\n");
+  writeFileSync(join(task, "task.md"), "# Remember\n\n## Goal\n\nRecord a digest.\n\n## Scope\n\nOne document.\n\n## Completion criteria\n\n- [ ] digest is recorded\n");
+  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const result = run(["project-doc", "--action", "Remember", "--repo-root", root, "--task-path", task, "--paths", "docs/architecture.md"]);
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  const validate = validatorFor("project-doc-remember");
   assert.ok(validate(JSON.parse(result.stdout)), JSON.stringify(validate.errors));
 });
 
@@ -155,6 +234,10 @@ function lintFixture(templateLines, extraSkills = {}) {
   writeFileSync(join(root, ".agents", "skills", "workflow", "SKILL.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "SKILL.md")));
   writeFileSync(join(root, ".agents", "skills", "workflow", "evidence.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "evidence.md")));
   writeFileSync(join(root, ".agents", "skills", "workflow", "review.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "review.md")));
+  for (const pointer of [".agents/skills/workflow/elevated.md", ".agents/skills/workflow/orchestration.md", ".agents/agents/worker.md", ".agents/skills/project-docs/SKILL.md"]) {
+    mkdirSync(join(root, dirname(pointer)), { recursive: true });
+    cpSync(join(process.cwd(), pointer), join(root, pointer));
+  }
   writeFileSync(join(root, "templates", "task.md"), templateLines.join("\n"));
   for (const [name, lines] of Object.entries(extraSkills)) {
     mkdirSync(join(root, ".agents", "skills", name), { recursive: true });

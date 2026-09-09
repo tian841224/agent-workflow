@@ -26,9 +26,7 @@ coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚
 
 ## 結果回填
 
-`templates/task-minimal.md` 不預先帶 `## Reviewer result`；reviewer 進入 `selected` 時才在 task.md 補上這一段。
-
-各趟結果合併寫入 `## Reviewer result`：`- result:` 記 PASS 或 FAIL，`- findings:` 只列 blocker，每項附 path、symbol／hunk、可觸發情境、影響與最小修正方向；沒有 blocker 時 findings 記 none。
+Reviewer 結果只透過 `review-record` 寫入 task.json；summary 保留 blocker、path、symbol／hunk、可觸發情境、影響與最小修正方向。`agent-workflow task-report` 會把 role evidence 呈現給人閱讀，task.md 不再保存第二份 Reviewer ledger。
 
 - Review 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task。
 - 回填後的 task 路徑即為唯一版本，後續複審與 knowledge 回寫都以它為準。
@@ -38,8 +36,8 @@ subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制
 
 ## Review round 與增量錨定
 
-第一輪建立完整脈絡，`## Review round` 只有 `- round:` 與 `- unverified nodes:`。Blocker 修正後，第二輪起在該段補記 `- prior findings:`、`- fix delta:`、`- impact delta:`、`- validation delta:` 與 `- cause:`；可用它導航，但仍須自行核對 diff，task 敘述不是正確性證據。
+第一輪建立完整脈絡。Blocker 修正後，第二輪起把 prior findings、fix delta、impact delta、validation delta 與 cause 留在 Reviewer summary／review-cause record；可用它導航，但仍須自行核對 diff，task report 不是正確性證據。
 
-開下一輪前先做歸因：這次被打回，是當初缺文件、任務描述沒講清楚、慣例沒寫成規範、有文件規範但沒讀到，還是單純寫錯。執行 `agent-workflow review-cause --action Record --task-path <task> --round <n> --cause <cause> --evidence <當初缺的是什麼> --paths <本次改動路徑>`，把回傳的 id 填進該輪的 `- cause:`。分類定義與累積後的補救路由見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。
+開下一輪時可在同一次失敗回報附上歸因：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。這會由 runtime 自動寫入 review-cause telemetry；沒有要立即做學習歸因時，不必另跑 command 阻塞交付。既有資料也可繼續用 `review-cause --action Record` 維護。分類定義與累積後的補救路由見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。
 
 後續輪次採 delta-first：先檢查修復項、直接呼叫端與本輪新增波及項，不重複輸出未變更內容。若修改入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前輪存在未確認節點，則重新展開完整 execution path。Diff anchor 使用 repo-relative path、symbol 與 diff hunk，行號只作輔助。

@@ -20,10 +20,32 @@
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
+    "validation_profile": { "enum": ["focused", "affected", "regression", "full"] },
     "workflow_request": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
     "workflow_facts": { "$ref": "#/$defs/workflowFacts" },
     "workflow_decision": { "type": "string", "minLength": 2 },
     "risk_flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["behavior_change", "ui", "data_write", "contract", "schema", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity", "security", "operational"] } },
+    "project_docs": {
+      "type": "object",
+      "properties": {
+        "read": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "updated": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "digests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "content_sha256"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            },
+            "additionalProperties": false
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "independence": { "enum": ["native", "degraded"] },
     "subtask_role": { "enum": ["coordinator", "worker"] },
     "parent_task_id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
@@ -143,7 +165,7 @@
         },
         {
           "if": { "properties": { "evidence_kind": { "const": "execution" } }, "required": ["evidence_kind"] },
-          "then": { "required": ["command", "cwd", "exit_code", "duration_ms", "started_at", "output_digest"] }
+          "then": { "required": ["command", "cwd", "exit_code", "duration_ms", "started_at", "output_digest", "delivery_mode", "delivery_paths", "delivery_fingerprint"] }
         }
       ],
       "properties": {
@@ -163,7 +185,11 @@
         "exit_code": { "type": "integer" },
         "started_at": { "type": "string", "format": "date-time" },
         "duration_ms": { "type": "integer", "minimum": 0 },
-        "output_digest": { "$ref": "#/$defs/sha256" }
+        "output_digest": { "$ref": "#/$defs/sha256" },
+        "delivery_mode": { "enum": ["base", "workspace"] },
+        "delivery_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "delivery_paths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "delivery_fingerprint": { "$ref": "#/$defs/sha256" }
       },
       "additionalProperties": false
     },

@@ -13,6 +13,7 @@
   },
   "expected": {
     "required": [
+      "delivery_validation",
       "baseline_validation",
       "data_impact",
       "mutation_validation",
@@ -20,6 +21,7 @@
       "reviewer"
     ],
     "required_evidence": [
+      "delivery_validation.DV1",
       "baseline_validation.BV1",
       "baseline_validation.BV2",
       "baseline_validation.BV3",

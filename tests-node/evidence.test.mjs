@@ -106,8 +106,8 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Freshness\n\n## Goal\n\nVerify diff-scoped role evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  // managed_change: true (baseline_validation is unconditionally required whenever it is) with its
-  // three steps stubbed as satisfied below, so the only thing left to go stale is role.reviewer.
+  // managed_change: true with the minimum delivery receipt waived for this role-freshness fixture,
+  // so the only thing left to go stale is role.reviewer.
   const classification = { managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
   const reviewedPaths = "reviewed.txt,unrelated.txt";
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
@@ -120,7 +120,8 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
     baselineStep("BV1", "attested"), baselineStep("BV2", "runtime"), baselineStep("BV3", "attested"),
     { kind: "role", id: "role.reviewer", result: "pass", at: "2026-01-01T00:00:00.000Z", plan_hash: planHash, intent_hash: intentHash, plan_revision: 1, reviewed_base: head, reviewed_paths: reviewedPaths.split(","), reviewed_diff_sha256: scopedDigest(), delivery_hash: "0".repeat(64) }
   ];
-  writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence })));
+  const waiver = { at: "2026-01-01T00:00:00.000Z", actor: "test", confirmed_by_user: "test", requirement_id: "delivery_validation.DV1", plan_hash: planHash, plan_revision: 1, intent_hash: intentHash };
+  writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence, waivers: [waiver] })));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.equal(gate().valid, true, JSON.stringify(gate().errors));
   // Committing the reviewed work leaves the tree identical to what was reviewed. A HEAD-based
@@ -189,6 +190,32 @@ test("a later failing role evidence entry overrides an earlier passing one for t
   writeFileSync(path, JSON.stringify(validTask({ ...classification, evidence: [role("pass", "2026-01-01T00:00:00.000Z"), role("fail", "2026-01-02T00:00:00.000Z")] })));
   const gated = JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   assert.ok(gated.errors.some((error) => error.includes("role.reviewer")), gated.errors.join("; "));
+});
+
+test("runtime evidence becomes stale when the delivered worktree changes after validation", () => {
+  const root = join(tmpdir(), `agent-workflow-delivery-freshness-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  vcs(repo, ["init", "-q"]); vcs(repo, ["config", "user.email", "t@e.com"]); vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "tracked.txt"), "one");
+  vcs(repo, ["add", "."]); vcs(repo, ["commit", "-q", "-m", "init"]);
+  const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
+  const task = join(root, "state", "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Delivery freshness\n\n## Goal\n\nVerify runtime evidence follows the delivered diff.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] stale delivery is rejected\n");
+  const path = join(task, "task.json");
+  const classification = { code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", risk_flags: [], workflow_request: [], base_commit: head };
+  writeFileSync(path, JSON.stringify(validTask(classification)));
+  writeFileSync(join(repo, "tracked.txt"), "two");
+  const recorded = run(["evidence-run", "--task-path", path, "--cwd", repo, "--requirement-id", "delivery_validation.DV1", "--summary", "targeted delivery check", "--", process.execPath, "-e", "process.stdout.write('ok')"]);
+  assert.equal(recorded.status, 0, recorded.stdout || recorded.stderr);
+  const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
+  assert.equal(gate().valid, true, JSON.stringify(gate().errors));
+  writeFileSync(join(repo, "tracked.txt"), "three");
+  const stale = gate();
+  assert.equal(stale.valid, false);
+  assert.ok(stale.errors.some((error) => /execution evidence is stale/.test(error)), stale.errors.join("; "));
+  writeFileSync(join(repo, "added.txt"), "new");
+  assert.ok(gate().errors.some((error) => /execution evidence is stale/.test(error)));
 });
 
 test("task-write refuses to write evidence at all — it is not a classification field", () => {

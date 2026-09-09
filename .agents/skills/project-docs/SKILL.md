@@ -13,7 +13,9 @@ description: 修改 application source code 前載入；先以 project-doc Looku
 agent-workflow project-doc --action Lookup --paths '<本次要動的路徑>'
 ```
 
-回傳命中的文件、永遠附帶的總覽文件（`architecture`／`structure`／`dataflow`／`glossary`），以及 `uncovered`。讀命中的文件建立脈絡；文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容。
+回傳真正命中的文件、可延後讀取的 `overview_candidates`（含 `content_sha256`），以及 `uncovered`。先讀命中的文件；只有 compiled plan 的 `exploration_profile`、影響面或共享狀態需要時才讀 overview。Agent 可用 digest 判斷同一 session 是否已讀過且內容仍相同。文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容。
+
+讀完文件後，使用 `agent-workflow project-doc --action Remember --task-path <task> --paths <doc,...> --repo-root <repo-root>` 將實際讀過的路徑與 `content_sha256` 寫入 task.json。下一次 Lookup 傳入相同 `--task-path` 時，`digest_status: reusable` 代表內容未變且可重用；`unread`、`digest_missing` 或 `stale` 都不能當成已讀證據。overview candidate 永遠先保持 `unread`，不因 Lookup 列出而自動記入 `project_docs.read`。
 
 ## 2. 改完後：依查詢結果處理
 
@@ -83,4 +85,4 @@ agent-workflow project-doc --action Check --doc docs/structure.md     # frontmat
 
 ## 5. 在 workflow task 內
 
-`## Project docs` 的 `updated:` 一律要填：本次建立或更新的文件路徑，沒有文件要動就寫 `none - <具體理由>`。Elevated task 另有 `- read:`，填動手前 Lookup 命中並讀過的文件路徑。從 task 既有欄位收割內容的對照表見 [doc-types.md](references/doc-types.md)。
+透過 `agent-workflow task-write` 填入 task.json 的 `project_docs.updated`：本次建立或更新的文件路徑，沒有文件要動就填 `none - <具體理由>`；`exploration_profile: expanded` 的 task 同時填 `project_docs.read`，記錄動手前 Lookup 命中並讀過的文件路徑。需要人工閱讀時執行 `agent-workflow task-report`。從 task 既有欄位收割內容的對照表見 [doc-types.md](references/doc-types.md)。

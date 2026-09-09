@@ -37,13 +37,14 @@ test("a waiver missing intent_hash fails schema validation", () => {
   assert.ok(validate.errors.some((error) => /intent_hash/.test(error.message || "")), JSON.stringify(validate.errors));
 });
 
-// evidence_kind is a discriminator, not a label: execution evidence has to carry the six fields that
-// make a run reproducible, and analysis evidence must not borrow any of them to look like one.
+// evidence_kind is a discriminator, not a label: execution evidence has to carry command facts and
+// the delivery fingerprint that makes freshness reproducible, and analysis evidence must not borrow
+// any of them to look like one.
 test("stepEvidence's evidence_kind discriminated union rejects a half-filled execution record", () => {
   const validate = validatorFor("stepEvidence");
-  const execution = stepEvidence({ evidence_kind: "execution", command: "npm test", cwd: ".", exit_code: 0, started_at: "2026-01-01T00:00:00.000Z", duration_ms: 10, output_digest: HASH });
+  const execution = stepEvidence({ evidence_kind: "execution", command: "npm test", cwd: ".", exit_code: 0, started_at: "2026-01-01T00:00:00.000Z", duration_ms: 10, output_digest: HASH, delivery_mode: "base", delivery_base: "b".repeat(40), delivery_paths: ["src"], delivery_fingerprint: HASH });
   assert.equal(validate(execution), true, JSON.stringify(validate.errors));
-  for (const field of ["command", "cwd", "exit_code", "started_at", "duration_ms", "output_digest"]) {
+  for (const field of ["command", "cwd", "exit_code", "started_at", "duration_ms", "output_digest", "delivery_mode", "delivery_paths", "delivery_fingerprint"]) {
     const { [field]: _dropped, ...missing } = execution;
     assert.equal(validate(missing), false, `execution evidence without ${field} was accepted`);
   }

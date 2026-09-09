@@ -13,6 +13,7 @@ import { memoryReview } from "./memory-review.js";
 import { projectDoc } from "./project-doc.js";
 import { contractLint } from "./contract-lint.js";
 import { policyMatrixCommand } from "./policy-matrix.js";
+import { taskReport } from "./task-report.js";
 
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
@@ -32,6 +33,7 @@ export const commandOptions: Record<string, string[]> = {
   "task-write": [...TASK_TARGET_OPTIONS, "state-root", "repo-root", "adopt-current-diff"],
   reclassify: [...TASK_TARGET_OPTIONS, "confirmed-by-user", "reason", "actor", "state-root", "repo-root"],
   "task-gate": [...TASK_TARGET_OPTIONS, "repo-root"],
+  "task-report": [...TASK_TARGET_OPTIONS, "repo-root"],
   next: [...TASK_TARGET_OPTIONS, "repo-root"],
   "close-task": [...TASK_TARGET_OPTIONS, "actor", "confirmed-by-user", "state-root", "repo-root"],
   pause: ["task", "actor"], block: ["task", "actor"], resume: ["task", "actor"], supersede: ["task", "actor"],
@@ -39,7 +41,7 @@ export const commandOptions: Record<string, string[]> = {
   "approve-intent": [...TASK_TARGET_OPTIONS, "confirmed-by", "as-user"],
   "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "command", "cwd", "exit-code", "started-at", "duration-ms", "output-digest"],
   "evidence-run": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "cwd"],
-  "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root"],
+  "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "cause", "cause-evidence", "cause-round", "cause-paths"],
   learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "supersedes", "forget", "id", "reason", "approved-by-user"],
   knowledge: ["action", "state-root", "scope", "project-id", "cwd", "query", "limit", "topic", "content", "approved-by-user"],
   "knowledge-verify": ["state-root", "scope", "project-id", "cwd", "id", "source-path", "approved-by-user"],
@@ -48,7 +50,7 @@ export const commandOptions: Record<string, string[]> = {
   retro: ["action", "state-root", "status", "id", "task-path", "proposed-change"],
   "review-cause": ["action", "state-root", "cause", "status", "id", "task-path", "evidence", "round", "paths", "min-occurrences"],
   "project-resolver": ["path", "state-root"],
-  "project-doc": ["action", "paths", "doc", "doc-root", "repo-root"],
+  "project-doc": ["action", "paths", "doc", "doc-root", "repo-root", "task-path"],
   "pre-review": ["path"],
   orchestrate: ["action", "id", "state-root"],
   "split-plan": ["plan-path"],
@@ -143,6 +145,7 @@ async function main(): Promise<void> {
   else if (command === "task-write") process.exitCode = taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
   else if (command === "next") process.exitCode = taskNext(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "task-report") process.exitCode = taskReport(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "approve-intent") process.exitCode = approveIntent(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "confirmed-by"), flag(parsed.values, "as-user"));
   else if (command === "evidence-record") {
@@ -152,7 +155,11 @@ async function main(): Promise<void> {
   }
   else if (command === "evidence-run") process.exitCode = evidenceRun(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), trailing, option(parsed.values, "cwd", process.cwd()));
   else if (command === "reclassify") process.exitCode = reclassify(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "confirmed-by-user"), option(parsed.values, "reason"), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()));
-  else if (command === "review-record") process.exitCode = reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "review-record") {
+    const cause = option(parsed.values, "cause"); const causeEvidence = option(parsed.values, "cause-evidence"); const causeRound = option(parsed.values, "cause-round"); const causePaths = optionList(parsed.values, "cause-paths");
+    const causeInput = cause || causeEvidence || causeRound || causePaths.length ? { round: Number(causeRound), cause, evidence: causeEvidence, paths: causePaths } : undefined;
+    process.exitCode = reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()), causeInput, option(parsed.values, "state-root") || undefined);
+  }
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
   else if (["pause", "block", "resume", "supersede", "waive"].includes(command)) {
     const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "resume" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));

@@ -54,6 +54,9 @@ test("execution-packet is the complete worker execution contract", () => {
   // instead of reopening the full policy, while reviewer keeps its dedicated review pointer.
   assert.ok(packet.procedures.includes(".agents/skills/workflow/review.md"));
   assert.ok(packet.procedures.includes(".agents/skills/workflow/evidence.md"));
+  assert.ok(packet.procedures.includes(".agents/skills/workflow/elevated.md"));
+  assert.ok(packet.procedures.includes(".agents/agents/worker.md"));
+  assert.ok(packet.procedures.includes(".agents/skills/project-docs/SKILL.md"));
   assert.ok(packet.required_evidence.includes("role.reviewer"));
   assert.match(packet.plan_hash, /^[a-f0-9]{64}$/);
   assert.equal(packet.plan_revision, 1);
@@ -65,6 +68,18 @@ test("execution-packet reports a missing task state instead of throwing", () => 
   const body = JSON.parse(missing.stdout);
   assert.equal(body.valid, false);
   assert.equal(missing.status, 1);
+});
+
+test("execution-packet keeps the explicit managed_change bypass procedure-free", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-unmanaged-${process.pid}-${Date.now()}`);
+  const { repo, task } = setupPreflightTask(root);
+  const reclassified = run(["reclassify", "--task-path", task, "--confirmed-by-user", "user", "--reason", "workflow bypass"] , { input: JSON.stringify({ managed_change: false }) });
+  assert.equal(reclassified.status, 0, reclassified.stdout);
+  const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.equal(result.status, 0, result.stdout);
+  const packet = JSON.parse(result.stdout);
+  assert.deepEqual(packet.workflow.selected, []);
+  assert.deepEqual(packet.procedures, []);
 });
 
 // A worker must never start from a packet whose premise is already wrong: unresolved

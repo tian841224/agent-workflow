@@ -31,15 +31,15 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 ### 角色與 ExecutionPacket
 
-`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作，且只執行 coordinator 提供的 ExecutionPacket；task 分類、capability 選取與 task lifecycle 都由 coordinator 持有。`agent-workflow execution-packet` 是 implementation Worker 的唯一 execution contract，內容包含 task intent、classification、compiled capability／step、execution constraints、procedure pointers、required evidence 與 plan identity；task.md／task.json 仍是 coordinator 與 runtime 的 authority。Packet 直接帶 selected step titles；一般 evidence capability 指向精簡的 `workflow/evidence.md`，只有需要完整操作規則時才指向專屬 skill，避免 Worker 為了還原已完成的決策重新讀取整份 policy。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。
+`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作，且只執行 coordinator 提供的 ExecutionPacket；task 分類、capability 選取與 task lifecycle 都由 coordinator 持有。`agent-workflow execution-packet` 是 implementation Worker 的唯一 execution contract，內容包含 task intent、classification、compiled capability／step、execution constraints、procedure pointers、required evidence 與 plan identity；task.md／task.json 仍是 coordinator 與 runtime 的 authority。Packet 直接帶 selected step titles；一般 evidence capability 指向精簡的 `workflow/evidence.md`，只有需要完整操作規則時才指向專屬 skill，避免 Worker 為了還原已完成的決策重新讀取整份 policy。task-init、task-write 與 ExecutionPacket 共用同一個 procedure resolver，依 compiled exploration profile、角色與 code_change 加入必要的 expanded／role／project-doc 文件。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。
 
 ### task.md 與 task.json 的分工
 
-`task.md` 保存 human-readable intent、completion criteria 與 workflow 所需的人類可讀 evidence section；`task.json` 是 classification、lifecycle、transition、waiver、machine evidence 與 gate evaluation 的 machine authority，並保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 記錄高風險任務已取得的使用者確認。
+`task.md` 只保存 human-readable intent：Goal、Scope、Completion criteria，以及 freeze-required 任務的 Non-goals and compatibility／Acceptance cases。`task.json` 是 classification、lifecycle、transition、waiver、project_docs、machine evidence 與 gate evaluation 的 machine authority，並保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 記錄高風險任務已取得的使用者確認。`agent-workflow task-report` 從兩者產生一次性的 Markdown 檢視，不形成第三個 authority。
 
 ### task.json 的寫入路徑
 
-`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立用 `task-init`；分類欄位用 `task-write`（allowlist，非分類欄位一律拒絕）；`task-write` 另外拒絕兩種降級（`managed_change` true→false、移除既有 `risk_flags`），唯一入口是 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason` 並把該決定記進 `workflow_decision`；`impact_confidence` 不屬於受保護的降級，調低它只會讓 gate 要求更多而非更少，屬於 agent 自己的分析狀態，可直接用 `task-write` 更新，不需要使用者確認，也不必走 `reclassify`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step，`trust_level: attested`——agent 自述）／`evidence-run`（step，`trust_level: runtime`——runtime 實際執行該指令並記下 exit code、耗時與輸出 digest），兩者都接受重複或逗號分隔的 `--requirement-id`，一次執行可在同一鎖內建立多筆同批 evidence；`review-record`（role）；policy 上宣告 `runtime_execution` 的 step 只接受 runtime evidence，`evidence_kind: execution` 且 exit code 非 0 一律不算通過；lifecycle 轉換用 `TaskLifecycle` 指令。hash／timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對 `task.json` 的直接檔案寫入由 `src/hooks.ts` fail-closed 攔截。
+`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立用 `task-init`；分類與 `project_docs` 用 `task-write`（allowlist，非允許欄位一律拒絕）；讀完 project doc 後用 `project-doc --action Remember --task-path` 寫入 `project_docs.read` 與 `project_docs.digests`，Lookup 只有 digest 和 read 路徑都相符才回報 `reusable`；`task-write` 另外拒絕兩種降級（`managed_change` true→false、移除既有 `risk_flags`），唯一入口是 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason` 並把該決定記進 `workflow_decision`；`impact_confidence` 不屬於受保護的降級，調低它只會讓 gate 要求更多而非更少，屬於 agent 自己的分析狀態，可直接用 `task-write` 更新，不需要使用者確認，也不必走 `reclassify`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step，`trust_level: attested`——agent 自述）／`evidence-run`（step，`trust_level: runtime`——runtime 實際執行該指令並記下 exit code、耗時、輸出 digest 與 delivery fingerprint），兩者都接受重複或逗號分隔的 `--requirement-id`，一次執行可在同一鎖內建立多筆同批 evidence；`review-record`（role）；policy 上宣告 `runtime_execution` 的 step 只接受 runtime evidence，`evidence_kind: execution` 且 exit code 非 0 一律不算通過；lifecycle 轉換用 `TaskLifecycle` 指令。hash／timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對 `task.json` 的直接檔案寫入由 `src/hooks.ts` fail-closed 攔截。
 
 ### Lifecycle 與終端狀態
 
@@ -47,7 +47,9 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 
 ### Plan、intent 與 waiver 的雜湊綁定
 
-`workflow-policy.ts` 編譯出的 plan 區分 `required`（runtime 強制、無法透過省略 `workflow_request` 移除）、`suggested` 與 `requested` 三種 capability，其 `plan_hash` 只覆蓋 policy 與分類欄位；task.md 的 Goal／Scope／Completion criteria 另由 `intent_hash` 覆蓋，兩者各自獨立計算。Waiver 必須包含明確使用者確認及 transition history，且同時綁定當下的 `plan_hash` 與 `plan_revision`（`plan_hash` 是分類的純函式，分類改走一圈再改回來會還原同一個 hash；沒有 `plan_revision` 的舊 waiver 一律視為過期）。`evidence-record`／`review-record`／waiver 落地時會同時記錄當下的 `plan_hash` 與 `intent_hash`；`task-gate` 檢查兩者是否都與現況相符，任一項改變都會使該筆 evidence／waiver 失效並要求重新驗證，避免計畫沒變但需求（Goal／Scope／Completion criteria）已改的情況下驗收仍被視為有效。
+`workflow-policy.ts` 編譯出的 plan 區分 `required`（runtime 強制、無法透過省略 `workflow_request` 移除）、`suggested` 與 `requested` 三種 capability，並從同一份分類推導 `exploration_profile: focused | expanded`；高信心、局部行為且無高風險邊界維持 focused，低信心、較大影響面、契約／資料／schema／不可逆或其他高風險情境才使用 expanded，agent 不再另判 Standard／Elevated。其 `plan_hash` 只覆蓋 policy 與分類欄位；task.md 的 Goal／Scope／Completion criteria 另由 `intent_hash` 覆蓋，兩者各自獨立計算。每個 `managed_change: true` plan 都包含最低 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自要求自己的 evidence。Waiver 必須包含明確使用者確認及 transition history，且同時綁定當下的 `plan_hash` 與 `plan_revision`（`plan_hash` 是分類的純函式，分類改走一圈再改回來會還原同一個 hash；沒有 `plan_revision` 的舊 waiver 一律視為過期）。`evidence-record`／`review-record`／waiver 落地時會同時記錄當下的 `plan_hash` 與 `intent_hash`；runtime execution evidence 另外綁定完整 delivery fingerprint，`task-gate` 檢查三者是否都與現況相符，任一項改變都會使該筆 evidence／waiver 失效並要求重新驗證，避免計畫沒變但需求或交付內容已改的情況下驗收仍被視為有效。
+
+`validation_profile` 是 task 的執行選擇，不改變 compiled plan：`focused` 與 `affected` 由呼叫端明列測試路徑，`regression` 可指定 subsystem 或執行完整 regression set，`full` 固定執行整個 `tests-node`。`scripts/run-tests.mjs` 會拒絕 profile 與路徑組合不合法的呼叫，避免 focused task 意外退化成 full 或 full task 靜默漏測。
 
 `OrchestrationEngine` 是 experimental phase-tracker 子系統，目前只管理 `planned -> split -> executing -> integrating -> integrated -> cleaned` 與 failure phase transition。它不是正式的 worker protocol，也尚未實作 worker dispatch、worker-level state、worktree creation、snapshot、patch collect／integrate／apply 或 multi-worker completion aggregation。它的 state 與 task state 走同一把檔案鎖。所有 mutating orchestration action 都需要 `AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1`；正常 workflow 預設 sequential execution，host-native isolated parallelism 則由主對話手動建立／綁定 worktree、提供 ExecutionPacket、收集 Worker 結果並統一整合與驗證。
 
@@ -74,7 +76,7 @@ Managed hook 對未知 mutation、缺少 session id、無法正規化的路徑�
 
 ## 文件路由
 
-文件只摘要並指向 authority，不複製 workflow 規則或 contract。修改 agents、skills、hooks 或 workflow contract 前，先讀本文件，再依目標路徑讀取其 owner 文件與 schema。
+文件只摘要並指向 authority，不複製 workflow 規則或 contract。`project-doc Lookup` 將 path 命中的文件放在 `docs`，將 architecture／structure／dataflow／glossary 放在附有 `content_sha256` 的 `overview_candidates`；傳入 `--task-path` 時會以 `project_docs.read` + `project_docs.digests` 判斷 `reusable`／`stale`，未讀的 overview candidate 不會自動成為 read evidence。修改 agents、skills、hooks 或 workflow contract 前，先讀本文件，再依目標路徑讀取其 owner 文件與 schema。
 
 ## Framework 變更政策
 

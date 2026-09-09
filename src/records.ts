@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { JsonObject, mutateJsonState, now, option, optionList, output, readJson, schemaPath, sha256, stateRoot, writeAtomic } from "./core.js";
+import { Json, JsonObject, mutateJsonState, now, option, optionList, output, readJson, schemaPath, sha256, stateRoot, writeAtomic } from "./core.js";
 
 function taskIdFor(taskFilePath: string): string {
   const directory = dirname(taskFilePath); const taskJson = join(directory, "task.json");
@@ -13,6 +13,30 @@ const string = option; // single-value reads share one implementation, so a dupl
 const values = optionList;
 function index(root: string, store: string): [string, JsonObject] { const path = join(root, store, "index.json"); return [path, existsSync(path) ? readJson(path) : { schema_version: 1, entries: [] }]; }
 function entries(data: JsonObject): JsonObject[] { if (!Array.isArray(data.entries)) throw new Error("index has no entries array"); return data.entries.filter((value): value is JsonObject => !!value && !Array.isArray(value) && typeof value === "object"); }
+export type ReviewCauseInput = { root: string; taskPath: string; round: number; cause: string; evidence: string; paths: string[] };
+
+// Review cause is learning telemetry, not a second completion gate. Keeping the write helper
+// callable from review-record makes attribution optional on the delivery critical path while
+// preserving the standalone review-cause command for explicit maintenance or older integrations.
+export function recordReviewCause(input: ReviewCauseInput): JsonObject {
+  if (!existsSync(input.taskPath) || input.round < 2 || !input.cause || !input.evidence) throw new Error("review cause needs an existing task path, round >= 2, cause, and evidence");
+  const [path] = index(input.root, "review-causes");
+  const schema = readJson(schemaPath("review-cause.schema.json")); const configuration = (schema.x_agent_workflow || {}) as JsonObject; const threshold = Number(configuration.escalate_threshold || 2); const routing = (configuration.remedy_routing || {}) as JsonObject;
+  const allowedCauses = Array.isArray((schema.properties as JsonObject | undefined)?.cause && ((schema.properties as JsonObject).cause as JsonObject).enum) ? (((schema.properties as JsonObject).cause as JsonObject).enum as Json[]).map(String) : [];
+  if (allowedCauses.length && !allowedCauses.includes(input.cause)) throw new Error(`review cause has unsupported cause: ${input.cause}`);
+  const taskId = taskIdFor(input.taskPath); let ident = "";
+  const locked = mutateJsonState(path, (state: JsonObject) => {
+    if (!Array.isArray(state.entries)) state.entries = [];
+    const list = entries(state); const existing = list.find((item) => item.task_id === taskId && item.round === input.round);
+    ident = existing ? String(existing.id) : `${now().slice(0, 19).replace(/[:T]/g, "")}-${sha256(`${taskId}|${input.round}`).slice(0, 8)}`;
+    const item = existing || { id: ident, task_id: taskId, round: input.round, created_at: now() };
+    Object.assign(item, { cause: input.cause, evidence: input.evidence, paths: input.paths, status: "open", updated_at: now() });
+    if (!existing) list.push(item); state.entries = list; state.updated_at = now();
+  });
+  writeAtomic(join(input.root, "review-causes", "findings", `${ident}.md`), `---\nid: ${ident}\ntask_id: ${taskId}\nround: ${input.round}\ncause: ${input.cause}\nstatus: open\n---\n\n# ${taskId} round ${input.round}\n\n## What was missing\n\n${input.evidence}\n`);
+  const occurrences = entries(locked).filter((entry) => entry.cause === input.cause && entry.status === "open").length;
+  return { ok: true, id: ident, cause: input.cause, remedy_kind: routing[input.cause] || "none", occurrences, escalate: routing[input.cause] !== "none" && occurrences >= threshold };
+}
 export function reviewCause(options: Options): number {
   const root = stateRoot(string(options, "state-root") || undefined); const action = string(options, "action"); const [path, data] = index(root, "review-causes"); const all = entries(data); const cause = string(options, "cause"); const status = string(options, "status");
   if (action === "List") { output(all.filter((item) => (!cause || item.cause === cause) && (!status || item.status === status)).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))); return 0; }

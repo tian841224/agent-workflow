@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { JsonObject, output, readJson } from "./core.js";
-import { DEFAULT_PROCEDURE, PROCEDURE_POINTERS } from "./execution/execution-packet.js";
+import { DEFAULT_PROCEDURE, PROCEDURE_POINTERS, PROFILE_PROCEDURES } from "./execution/execution-packet.js";
 
 // Retired names that a schema/CLI reference check cannot catch on its own, because nothing in the
 // current contract is shaped like them any more. Each entry says what replaced it so the finding is
@@ -164,7 +164,10 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
 
   const skillPath = join(root, ".agents", "skills", "workflow", "SKILL.md");
   const skillText = existsSync(skillPath) ? readFileSync(skillPath, "utf8") : "";
-  for (const name of capabilityNames) if (!skillText.includes(name)) findings.push({ file: ".agents/skills/workflow/SKILL.md", line: 0, rule: "undocumented-capability", detail: `capability '${name}' exists in workflow-policy.json but the workflow skill never names it` });
+  // The policy is the capability-name authority. A router that explicitly points to it does not
+  // need to copy every name; retain the fallback check for older routers that still enumerate them.
+  const policyIsNamedAuthority = skillText.includes("schemas/workflow-policy.json") && skillText.includes("workflow-plan");
+  if (!policyIsNamedAuthority) for (const name of capabilityNames) if (!skillText.includes(name)) findings.push({ file: ".agents/skills/workflow/SKILL.md", line: 0, rule: "undocumented-capability", detail: `capability '${name}' exists in workflow-policy.json but the workflow skill never names it` });
 
   const declaredFacts = new Set(((((taskSchema.$defs as JsonObject).workflowFacts as JsonObject).propertyNames as JsonObject).enum as string[]) || []);
   const usedFacts = new Set<string>();
@@ -187,6 +190,9 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
     const skillRoot = join(root, ".agents", "skills");
     if (!existsSync(skillRoot)) continue;
     if (existsSync(dirname(join(root, pointer))) && !existsSync(join(root, pointer))) findings.push({ file: "src/execution/execution-packet.ts", line: 0, rule: "missing-procedure-pointer", detail: `procedure pointer for '${capability}' points to '${pointer}', which does not exist` });
+  }
+  for (const [context, pointer] of Object.entries(PROFILE_PROCEDURES)) {
+    if (!existsSync(join(root, pointer))) findings.push({ file: "src/execution/execution-packet.ts", line: 0, rule: "missing-procedure-pointer", detail: `procedure pointer for '${context}' points to '${pointer}', which does not exist` });
   }
 
   output({ valid: findings.length === 0, root, scanned: SCANNED, findings });

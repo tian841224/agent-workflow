@@ -48,14 +48,16 @@ npx --yes @tian/agent-workflow@latest
 
 是否進入 workflow 由 `managed_change` 決定，不是「有沒有改到程式碼」的 `code_change`：`managed_change` 判準是這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果，因此 CI/CD、Dockerfile、migration script 等非 application source code 的高風險修改一樣要走 workflow。
 
-1. **Managed change**：`managed_change: true` 時建立 task 並載入 `workflow` skill；capability 由 policy 與主對話依實際 impact／risk 選擇。
+1. **Managed change**：`managed_change: true` 時建立 task，runtime 一次編譯 plan 與 procedure pointers；capability 由 policy 與任務脈絡決定。
 2. **Test-only change**：新增測試、強化 assertion 或安全 test refactor 可 `managed_change: false` 直接 bypass；刪除／skip 測試、弱化 assertion 或大量重寫 snapshot／fixture baseline 時改為 `managed_change: true`，並加入 `test_integrity` risk flag。
 3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
 4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀或 orchestration 情境才使用 `task_type: read_only`，此時 `model_profile`（`cheap_read`／`deep_read`）由 runtime 依 `impact_scope`／`impact_effect`／`risk_flags` 推導，不由 agent 自由選擇。
 
-流程沒有固定 pipeline，由主對話依 task metadata、`workflow_facts` 與實際程式脈絡判斷需要的 capability，並把要跑的角色與檢查寫進 task 的 `workflow_request`；需求本身還不清楚時先載入 `planning` skill 釐清。runtime 另外會依 `impact_scope`／`impact_effect`／`impact_confidence`／`risk_flags` 透過 policy 的 `require_when` 計算出 `required` capability——這是主對話不能靠少填 `workflow_request` 略過的下限。`managed_change: true` 本身不強制任何 capability：單檔、局部行為、高信心且無 risk flag 的修改 `required` 為空，要跑哪些測試、要不要 review 或 diagnosis 全由主對話決定；不確定（`impact_confidence` 為 `medium`／`low`）、影響面擴大或命中高風險 flag 時才由 runtime 強制，`workflow_request` 只能在這個下限之上疊加，唯一移除方式是明確執行 `waive --confirmed-by-user`，且該 waiver 只在對應的 `plan_hash` 沒有改變時有效。每個 selected evidence task 先建立一份 shared evidence map，跨 step 與 Reviewer 引用同一份入口、影響面、驗證範圍與缺口分析；同一 command 可用重複或逗號分隔的 `--requirement-id` 一次記錄多個 step。可透過 `agent-workflow workflow-plan` 查看 required／suggested／requested／effective 與理由。
+流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration；低信心、影響面擴大、契約／資料／schema／不可逆或其他高風險情境才使用 expanded exploration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
+
+本機驗證用 `node scripts/run-tests.mjs --profile <focused|affected|regression|full>`：`focused` 與 `affected` 要明列測試路徑，`regression` 可指定 subsystem 或省略路徑跑完整 regression set，`full` 固定跑全部 `tests-node/**/*.test.mjs` 且拒絕混入路徑。CI 仍使用 full profile；runtime evidence 應記錄實際使用的 profile 與路徑。
 
 ### Review 與角色化品質檢查
 
@@ -188,7 +190,7 @@ agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](do
 | `adapters/` | 各 AI 平台的設定、manifest 與 hooks |
 | `schemas/` | task、workflow、knowledge、project、retro、review-cause 等資料契約 |
 | `skills-lock.json` | 從外部來源 vendor 進來的 optional skill 的來源與雜湊紀錄 |
-| `templates/` | Standard、Minimal 與其他 task 範本 |
+| `templates/` | Minimal、expanded 與其他 task 範本 |
 | `runtime/` | Node runtime contract 與執行限制 |
 | `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity 與 migration 完整驗證 |
 

@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { changedPaths, deliveryHash, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity } from "../core.js";
+import { changedPaths, deliveryHash, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, stateRoot, workspaceFingerprint } from "../core.js";
 import { intentHash } from "../intent.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
+import { recordReviewCause, ReviewCauseInput } from "../records.js";
 import { covers } from "./ownership.js";
 import { schemaErrors } from "./task-schema.js";
 import { assertMutable, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
@@ -44,6 +45,53 @@ export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: str
   } catch (error) { return [`role evidence freshness cannot be recomputed for ${key}: ${String((error as Error).message || error)}`]; }
   return [];
 }
+
+export type DeliverySnapshot = { mode: "base" | "workspace"; base?: string; paths: string[]; fingerprint: string };
+
+// Execution evidence is tied to the complete delivery visible from the task's repository. Code
+// tasks use their immutable activation baseline; managed non-code tasks fall back to the current
+// HEAD/worktree fingerprint because they do not acquire a code-task lease.
+export function deliverySnapshot(repoRoot: string, state: JsonObject): DeliverySnapshot {
+  const base = String(state.base_commit || "");
+  if (base) {
+    const paths = changedPaths(repoRoot, base);
+    return { mode: "base", base, paths, fingerprint: deliveryHash(repoRoot, base) };
+  }
+  const head = gitHead(repoRoot);
+  const paths = head ? changedPaths(repoRoot, head) : [];
+  return { mode: "workspace", ...(head ? { base: head } : {}), paths, fingerprint: workspaceFingerprint(repoRoot) };
+}
+
+function gitHead(repoRoot: string): string | undefined {
+  try {
+    const result = projectIdentity(repoRoot);
+    // projectIdentity confirms the path is a repository; rev-parse is still kept separate so a
+    // repository with no commit fails closed instead of producing a fake baseline.
+    const probe = spawnSync("git", ["-C", result.root, "rev-parse", "HEAD"], { encoding: "utf8" });
+    return probe.status === 0 ? String(probe.stdout || "").trim() || undefined : undefined;
+  } catch { return undefined; }
+}
+
+function deliveryEvidenceErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
+  if (item.evidence_kind !== "execution" && item.trust_level !== "runtime") return [];
+  const recorded = String(item.delivery_fingerprint || "");
+  const mode = String(item.delivery_mode || "");
+  const paths = Array.isArray(item.delivery_paths) ? item.delivery_paths.map(String) : [];
+  if (!recorded || !["base", "workspace"].includes(mode) || !Array.isArray(item.delivery_paths)) return [`execution evidence is missing delivery freshness fields, re-run required: ${key}`];
+  try {
+    const live = liveSnapshot || deliverySnapshot(repoRoot, state);
+    const recordedBase = String(item.delivery_base || "");
+    const liveBase = String(live.base || "");
+    if (mode !== live.mode || recordedBase !== liveBase || recorded !== live.fingerprint || JSON.stringify(paths) !== JSON.stringify(live.paths)) {
+      return [`execution evidence is stale (delivered worktree changed since validation), re-run required: ${key}`];
+    }
+  } catch (error) { return [`execution evidence freshness cannot be recomputed for ${key}: ${String((error as Error).message || error)}`]; }
+  return [];
+}
+
+export function executionFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
+  return deliveryEvidenceErrors(item, key, repoRoot, state, liveSnapshot);
+}
 export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): boolean {
   if (item.kind === "step") {
     if (item.status !== "recorded") return false;
@@ -81,7 +129,7 @@ export function evidenceRecord(value: string, requirementId: string | string[], 
   const ids = requirementIds(requirementId);
   if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
   if (execution && (!execution.cwd || !execution.startedAt || !execution.outputDigest || !Number.isInteger(execution.exitCode) || !Number.isInteger(execution.durationMs))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, --started-at, --duration-ms, and --output-digest together"] }); return 1; }
-  return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested", execution);
+  return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested", execution, undefined, execution?.cwd || process.cwd());
 }
 
 // The one write path both evidence commands funnel through, so the plan/intent stamping, the
@@ -91,7 +139,7 @@ export function evidenceRecord(value: string, requirementId: string | string[], 
 // pre-lock computation the caller passed in: a task concurrently rewritten between that pre-lock read
 // and this callback actually running must reject the write outright, not just let task-gate catch it
 // afterward and leave a stale entry sitting in evidence history.
-function appendStepEvidence(command: string, path: string, ids: string[], summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string }): number {
+function appendStepEvidence(command: string, path: string, ids: string[], summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string; delivery: DeliverySnapshot }, repoRootValue = process.cwd()): number {
   try {
     const state = mutateJsonState<JsonObject>(path, (current) => {
       assertMutable(current, command, RUNNING_STATUSES);
@@ -100,12 +148,15 @@ function appendStepEvidence(command: string, path: string, ids: string[], summar
       const invalid = ids.filter((id) => !selectedStepIds.has(id));
       if (invalid.length) throw new Error(`${command}: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
       const intent_hash = currentIntentHash(path);
+      const repoRoot = projectIdentity(repoRootValue).root;
+      const delivery = execution ? deliverySnapshot(repoRoot, current) : undefined;
       if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
+      if (expected && (!delivery || expected.delivery.mode !== delivery.mode || String(expected.delivery.base || "") !== String(delivery.base || "") || expected.delivery.fingerprint !== delivery.fingerprint || JSON.stringify(expected.delivery.paths) !== JSON.stringify(delivery.paths))) throw new Error(`${command}: delivered worktree changed during evidence-run, re-run required`);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       const at = now();
       for (const id of ids) evidence.push({
         kind: "step", id, status: "recorded", at, plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: trustLevel,
-        ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest } : { evidence_kind: "analysis" })
+        ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest, delivery_mode: delivery!.mode, ...(delivery!.base ? { delivery_base: delivery!.base } : {}), delivery_paths: delivery!.paths, delivery_fingerprint: delivery!.fingerprint } : { evidence_kind: "analysis" })
       });
       current.evidence = evidence;
       current.updated_at = now();
@@ -125,7 +176,7 @@ export function evidenceRun(value: string, requirementId: string | string[], sum
   const ids = requirementIds(requirementId);
   if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-run requires --requirement-id and --summary"] }); return 1; }
   if (!argv.length) { output({ valid: false, errors: ["evidence-run requires a command after `--`"] }); return 1; }
-  let expected: { plan_hash: string; intent_hash: string };
+  let expected: { plan_hash: string; intent_hash: string; delivery: DeliverySnapshot };
   // Checked before the spawn as well as inside the lock: a task that can never accept the result has
   // no business running the command at all.
   try {
@@ -135,7 +186,8 @@ export function evidenceRun(value: string, requirementId: string | string[], sum
     const selectedStepIds = selectedEvidenceIds(plan);
     const invalid = ids.filter((id) => !selectedStepIds.has(id));
     if (invalid.length) throw new Error(`evidence-run: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
-    expected = { plan_hash: plan.plan_hash, intent_hash: currentIntentHash(path) };
+    const repoRoot = projectIdentity(cwdValue).root;
+    expected = { plan_hash: plan.plan_hash, intent_hash: currentIntentHash(path), delivery: deliverySnapshot(repoRoot, current) };
   }
   catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   // Nothing holds the task lock across the spawn: a long command must not block every other writer.
@@ -148,17 +200,19 @@ export function evidenceRun(value: string, requirementId: string | string[], sum
     durationMs: Date.now() - startedAt.getTime(),
     outputDigest: createHash("sha256").update(result.stdout || Buffer.alloc(0)).update(result.stderr || Buffer.alloc(0)).digest("hex")
   };
-  return appendStepEvidence("evidence-run", path, ids, summary, actor, "runtime", execution, expected);
+  return appendStepEvidence("evidence-run", path, ids, summary, actor, "runtime", execution, expected, cwdValue);
 }
 
 // Records one role capability's review result. reviewed_base/reviewed_paths/reviewed_diff_sha256/
 // delivery_hash are computed here from git, not accepted from the caller — the reviewer can no
 // longer assert a scope or a digest it did not actually derive from the working tree.
-export function reviewRecord(value: string, roleId: string, result: string, summary: string, repoRootValue = process.cwd()): number {
+export function reviewRecord(value: string, roleId: string, result: string, summary: string, repoRootValue = process.cwd(), cause?: Omit<ReviewCauseInput, "taskPath" | "root">, stateRootValue = stateRoot()): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   if (!["pass", "fail"].includes(result)) { output({ valid: false, errors: ["review-record requires --result pass or fail"] }); return 1; }
   if (!summary) { output({ valid: false, errors: ["review-record requires --summary"] }); return 1; }
+  if (cause && result !== "fail") { output({ valid: false, errors: ["review-record cause attribution is only valid for a failed review"] }); return 1; }
+  if (cause && (cause.round < 2 || !cause.cause || !cause.evidence)) { output({ valid: false, errors: ["review-record cause attribution requires --cause-round >= 2, --cause, and --cause-evidence"] }); return 1; }
   try {
     const roleKey = roleId.startsWith("role.") ? roleId : `role.${roleId}`;
     const repoRoot = projectIdentity(repoRootValue).root;
@@ -189,7 +243,8 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
       if (errors.length) throw new Error(`review-record: resulting task.json fails schema: ${errors.join("; ")}`);
     });
     const recorded = (state.evidence as JsonObject[]).at(-1) as JsonObject;
-    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision });
+    const reviewCause = cause ? recordReviewCause({ ...cause, root: stateRootValue, taskPath: path }) : undefined;
+    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision, ...(reviewCause ? { review_cause: reviewCause } : {}) });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
