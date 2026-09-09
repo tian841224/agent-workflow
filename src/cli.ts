@@ -41,7 +41,7 @@ export const commandOptions: Record<string, string[]> = {
   "approve-intent": [...TASK_TARGET_OPTIONS, "confirmed-by", "as-user"],
   "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "command", "cwd", "exit-code", "started-at", "duration-ms", "output-digest"],
   "evidence-run": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "cwd"],
-  "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "cause", "cause-evidence", "cause-round", "cause-paths"],
+  "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "expected-workspace-sha256", "cause", "cause-evidence", "cause-round", "cause-paths"],
   learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "supersedes", "forget", "id", "reason", "approved-by-user"],
   knowledge: ["action", "state-root", "scope", "project-id", "cwd", "query", "limit", "topic", "content", "approved-by-user"],
   "knowledge-verify": ["state-root", "scope", "project-id", "cwd", "id", "source-path", "approved-by-user"],
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
   else if (command === "review-record") {
     const cause = option(parsed.values, "cause"); const causeEvidence = option(parsed.values, "cause-evidence"); const causeRound = option(parsed.values, "cause-round"); const causePaths = optionList(parsed.values, "cause-paths");
     const causeInput = cause || causeEvidence || causeRound || causePaths.length ? { round: Number(causeRound), cause, evidence: causeEvidence, paths: causePaths } : undefined;
-    process.exitCode = reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()), causeInput, option(parsed.values, "state-root") || undefined);
+    process.exitCode = reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()), causeInput, option(parsed.values, "state-root") || undefined, option(parsed.values, "expected-workspace-sha256"));
   }
   else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
   else if (["pause", "block", "resume", "supersede", "waive"].includes(command)) {

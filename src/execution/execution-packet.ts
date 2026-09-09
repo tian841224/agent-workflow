@@ -70,7 +70,9 @@ function asStrings(value: Json | undefined): string[] {
 // a stale freeze-required approval would leave it building against a Goal/Scope/Completion criteria
 // the user never actually confirmed. This is a preflight, not the close gate: it only demands what
 // must hold before implementation starts, never post-implementation evidence (task-gate owns that).
-function readinessErrors(task: JsonObject, taskJsonPath: string, taskMdContent: string | null): string[] {
+type ReadinessResult = { errors: string[]; plan?: ReturnType<typeof compilePlanForTaskPath> };
+
+function readinessErrors(task: JsonObject, taskJsonPath: string, taskMdContent: string | null): ReadinessResult {
   const errors = schemaErrors(task);
   const status = String((task.lifecycle as JsonObject | undefined)?.status || "");
   if (status !== "in_progress") errors.push(`task lifecycle.status must be 'in_progress' to build an execution packet, got '${status || "(missing)"}'`);
@@ -80,8 +82,9 @@ function readinessErrors(task: JsonObject, taskJsonPath: string, taskMdContent: 
     try { liveIntentHash = intentHash(taskMdContent); }
     catch (error) { errors.push(String((error as Error).message || error)); }
   }
+  let plan: ReturnType<typeof compilePlanForTaskPath> | undefined;
   try {
-    const plan = compilePlanForTaskPath(task, taskJsonPath);
+    plan = compilePlanForTaskPath(task, taskJsonPath);
     // Same exemption task-gate applies: an unmanaged task never reaches the capabilities these
     // fields gate, so demanding them here would leave a legitimate managed_change:false task unable
     // to ever produce a packet.
@@ -97,7 +100,7 @@ function readinessErrors(task: JsonObject, taskJsonPath: string, taskMdContent: 
     else if (!liveIntentHash) errors.push("intent_approval cannot be verified: sibling task.md is missing or has no valid intent");
     else if (String((approval as JsonObject).intent_hash || "") !== liveIntentHash) errors.push("intent_approval.intent_hash is stale: Goal/Scope/Completion criteria changed since approval");
   }
-  return errors;
+  return { errors, plan };
 }
 
 // The single execution contract a dispatched worker runs from: intent, already-decided
@@ -108,8 +111,9 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
   const taskMdPath = join(dirname(taskJsonPath), "task.md");
   const taskMdContent = existsSync(taskMdPath) ? readFileSync(taskMdPath, "utf8") : null;
   const readiness = readinessErrors(task, taskJsonPath, taskMdContent);
-  if (readiness.length) throw new Error(`execution-packet is not ready: ${readiness.join("; ")}`);
-  const plan = compilePlanForTaskPath(task, taskJsonPath);
+  if (readiness.errors.length) throw new Error(`execution-packet is not ready: ${readiness.errors.join("; ")}`);
+  if (!readiness.plan) throw new Error("execution-packet is not ready: workflow plan is unavailable");
+  const plan = readiness.plan;
   const intent = taskMdContent !== null ? sections(taskMdContent) : new Map<string, string>();
   const section = (name: string): string => (intent.get(name) || "").trim();
   const capabilities: ExecutionCapability[] = plan.selected.map((capability) => ({

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { JsonObject, git, isWithin, output, readJson, sha256 } from "./core.js";
+import { JsonObject, git, isWithin, normalizeRepoPath, output, readJson, sha256 } from "./core.js";
 import { taskWrite } from "./lifecycle/transitions.js";
 type Options = Map<string, string | boolean | string[]>;
 const text = (o: Options, n: string, f = "") => typeof o.get(n) === "string" ? o.get(n) as string : f;
@@ -156,13 +156,16 @@ export function projectDoc(options: Options): number {
   if (action === "Remember") return remember(options, result);
   if (action !== "Lookup") throw new Error(`unsupported project-doc action: ${action}`);
   const taskValue = text(options, "task-path"); const prior = projectDocState(root, taskValue);
-  const requested = paths(options).map((path) => path.replaceAll("\\", "/").toLowerCase()); const matched = new Set<string>();
+  const requested = paths(options).map((path) => path.replaceAll("\\", "/")); const normalizedRequested = requested.map(normalizeRepoPath); const matched = new Set<string>();
   const mapped = result.map((item) => {
-    const covers = Array.isArray(item.covers) ? item.covers.map(String) : [];
-    const matchedBy = requested.filter((path) => covers.some((cover) => path === cover.toLowerCase() || (cover.endsWith("/") && path.startsWith(cover.toLowerCase()))));
-    matchedBy.forEach((path) => matched.add(path));
+    const coverValues = Array.isArray(item.covers) ? item.covers.map(String) : [];
+    const matchedBy = requested.filter((path, index) => coverValues.some((cover) => {
+      const normalizedCover = normalizeRepoPath(cover);
+      return normalizedRequested[index] === normalizedCover || (normalizedCover.endsWith("/") && normalizedRequested[index].startsWith(normalizedCover));
+    }));
+    matchedBy.forEach((path) => matched.add(normalizeRepoPath(path)));
     return { ...item, doc_type: String(item.doc_type), matched_by: matchedBy, digest_status: digestStatus(root, item, prior, taskValue) };
   }).filter((item) => !OVERVIEW_TYPES.includes(String(item.doc_type)) && item.matched_by.length > 0).sort((left, right) => Number(right.matched_by.length) - Number(left.matched_by.length));
   const overview_candidates = result.filter((item) => OVERVIEW_TYPES.includes(String(item.doc_type))).map((item) => ({ path: item.path, doc_type: item.doc_type, content_sha256: item.content_sha256, reason: "repo-wide overview; read when the compiled exploration profile or task impact requires it", digest_status: digestStatus(root, item, prior, taskValue) }));
-  output({ docs: mapped, overview_candidates, uncovered: requested.filter((path) => !matched.has(path)) }); return 0;
+  output({ docs: mapped, overview_candidates, uncovered: requested.filter((path) => !matched.has(normalizeRepoPath(path))) }); return 0;
 }

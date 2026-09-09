@@ -327,8 +327,13 @@ export function diffFingerprint(cwd: string, base: string, paths: string[]): str
 // The whole-delivery counterpart to diffFingerprint: every path changed since base, not a
 // reviewer-chosen subset. Used for the task-level delivery_hash rather than role-evidence's
 // deliberately narrower reviewed_paths scoping.
-export function deliveryHash(cwd: string, base: string): string {
-  return diffFingerprint(cwd, base, changedPaths(cwd, base));
+export function deliveryHash(cwd: string, base: string, paths: string[] = changedPaths(cwd, base)): string {
+  return diffFingerprint(cwd, base, paths);
+}
+
+export function normalizeRepoPath(value: string): string {
+  const normalized = value.replaceAll("\\", "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 export function changedPaths(cwd: string, base: string): string[] {

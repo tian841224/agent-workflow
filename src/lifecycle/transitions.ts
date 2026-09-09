@@ -158,6 +158,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     // Same worktree-keyed lock as task-init: without it, two task-write calls activating
     // different tasks against the same worktree can both pass the conflict check before either
     // lease write lands, letting both end up "active" at once.
+    let postPatchPlan: ReturnType<typeof compilePlanForTaskPath> | undefined;
     const applyWrite = (): JsonObject => {
       const baseCommit = root && identity ? activateCodeTask("task-write", String(before.id || ""), root, identity, repoRootValue, adoptCurrentDiff, path) : undefined;
       const state = mutateJsonState<JsonObject>(path, (current) => {
@@ -170,7 +171,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
           const downgrades = downgradeErrors(current, patch);
           if (downgrades.length) throw new Error(`task-write: ${downgrades.join("; ")}; use \`agent-workflow reclassify --confirmed-by-user <text> --reason <text>\` if the user really re-assessed this task`);
         }
-        const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
+        const beforePlan = classificationTouched ? compilePlanForTaskPath(current, path) : undefined;
         for (const [key, fieldValue] of Object.entries(patch)) {
           if (key === "project_docs" && !allowProjectDocEvidence && fieldValue && typeof fieldValue === "object" && !Array.isArray(fieldValue)) {
             const existing = current.project_docs && typeof current.project_docs === "object" && !Array.isArray(current.project_docs) ? current.project_docs as JsonObject : {};
@@ -193,7 +194,10 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
         current.updated_at = now();
         const errors = schemaErrors(current);
         if (errors.length) throw new Error(`task-write: resulting task.json fails schema: ${errors.join("; ")}`);
-        if (beforePlanHash !== undefined && compilePlanForTaskPath(current, path).plan_hash !== beforePlanHash) current.plan_revision = Number(current.plan_revision || 0) + 1;
+        if (beforePlan) {
+          postPatchPlan = compilePlanForTaskPath(current, path);
+          if (postPatchPlan.plan_hash !== beforePlan.plan_hash) current.plan_revision = Number(current.plan_revision || 0) + 1;
+        }
       });
       if (root && identity) writeLease(root, identity.worktreeId, String(before.id || ""), path);
       return state;
@@ -201,7 +205,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     const state = root && identity ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, applyWrite) : applyWrite();
     if (emitOutput) {
       if (classificationTouched) {
-        const plan = compilePlanForTaskPath(state, path);
+        const plan = postPatchPlan || compilePlanForTaskPath(state, path);
         output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state) });
       } else output({ valid: true, task: path, state_revision: state.state_revision });
     }

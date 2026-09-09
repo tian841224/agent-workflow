@@ -1,6 +1,6 @@
 # Capability selection
 
-實際會選到哪些 capability，一律以 `agent-workflow workflow-plan --task-path <path>` 的輸出為準；本檔只定義各欄位的意義與不可繞過的邊界。
+實際會選到哪些 capability，一律以 runtime compiled plan 為準；優先重用 `task-init`／分類型 `task-write` 已回傳的 plan。只有目前沒有有效 compiled output 時才執行 `agent-workflow workflow-plan --task-path <path>`；本檔只定義各欄位的意義與不可繞過的邊界。
 
 ## 三個欄位
 

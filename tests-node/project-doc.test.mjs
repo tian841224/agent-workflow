@@ -49,6 +49,20 @@ test("an empty covers list leaves the document unmatched instead of failing", ()
   assert.deepEqual(result.uncovered, ["src/anything.ts"]);
 });
 
+test("Lookup applies repository path case rules instead of lowercasing every platform", () => {
+  const root = fixture("covers-case", {
+    "docs/modules/case.md": "---\ndoc_type: module\ncovers: [src/Foo.ts]\n---\n\n# case\n"
+  });
+  const result = lookup(root, "src/foo.ts");
+  if (process.platform === "win32") {
+    assert.deepEqual(result.uncovered, []);
+    assert.equal(result.docs[0].matched_by[0], "src/foo.ts");
+  } else {
+    assert.deepEqual(result.docs, []);
+    assert.deepEqual(result.uncovered, ["src/foo.ts"]);
+  }
+});
+
 // Need-driven doc types grow without bound, so returning the unmatched ones would make every
 // Lookup cost scale with the size of docs/ rather than with the paths being changed.
 test("Lookup returns matched docs and lazy overview candidates, not the whole docs tree", () => {

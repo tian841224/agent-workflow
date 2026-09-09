@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { changedPaths, deliveryHash, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, stateRoot, workspaceFingerprint } from "../core.js";
+import { changedPaths, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, stateRoot, workspaceFingerprint } from "../core.js";
 import { intentHash } from "../intent.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { recordReviewCause, ReviewCauseInput } from "../records.js";
@@ -27,9 +27,11 @@ export function latestEvidence(evidence: JsonObject[], key: string): JsonObject 
   const instant = (entry: JsonObject): number => { const parsed = Date.parse(String(entry.at || "")); return Number.isNaN(parsed) ? -Infinity : parsed; };
   return matches.length ? matches.reduce((best, entry) => instant(entry) >= instant(best) ? entry : best) : undefined;
 }
+export type DeliverySnapshot = { mode: "base" | "workspace"; base?: string; paths: string[]; fingerprint: string };
+
 // Role evidence goes stale only when the diff it actually reviewed changes, or when the task's
 // classification moved under it — not when some unrelated file elsewhere in the repo is touched.
-export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject): string[] {
+export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
   if (Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) return [`role evidence predates the current plan revision, re-review required: ${key}`];
   const paths = Array.isArray(item.reviewed_paths) ? item.reviewed_paths.map(String) : [];
   const base = String(item.reviewed_base || "");
@@ -39,14 +41,18 @@ export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: str
     // review has to cover every path this task delivers. Nothing is filtered out by ownership here —
     // a change outside file_ownership is an ownership violation reported by the gate itself, never a
     // path the reviewer is allowed to ignore.
-    const uncovered = changedPaths(repoRoot, base).filter((changed) => !covers(paths, changed));
+    const livePaths = liveSnapshot && String(liveSnapshot.base || "") === base ? liveSnapshot.paths : changedPaths(repoRoot, base);
+    const uncovered = livePaths.filter((changed) => !covers(paths, changed));
     if (uncovered.length) return [`role evidence does not cover every changed path (${uncovered.slice(0, 3).join(", ")}${uncovered.length > 3 ? `, +${uncovered.length - 3} more` : ""}), re-review required: ${key}`];
-    if (diffFingerprint(repoRoot, base, paths) !== String(item.reviewed_diff_sha256 || "")) return [`role evidence is stale (reviewed diff changed since review), re-review required: ${key}`];
+    const reviewedPaths = [...new Set(paths.map((value) => value.trim()).filter(Boolean))].sort();
+    const liveReviewedPaths = [...new Set(livePaths.map((value) => value.trim()).filter(Boolean))].sort();
+    const currentFingerprint = liveSnapshot && String(liveSnapshot.base || "") === base && JSON.stringify(reviewedPaths) === JSON.stringify(liveReviewedPaths)
+      ? liveSnapshot.fingerprint
+      : diffFingerprint(repoRoot, base, paths);
+    if (currentFingerprint !== String(item.reviewed_diff_sha256 || "")) return [`role evidence is stale (reviewed diff changed since review), re-review required: ${key}`];
   } catch (error) { return [`role evidence freshness cannot be recomputed for ${key}: ${String((error as Error).message || error)}`]; }
   return [];
 }
-
-export type DeliverySnapshot = { mode: "base" | "workspace"; base?: string; paths: string[]; fingerprint: string };
 
 // Execution evidence is tied to the complete delivery visible from the task's repository. Code
 // tasks use their immutable activation baseline; managed non-code tasks fall back to the current
@@ -55,7 +61,7 @@ export function deliverySnapshot(repoRoot: string, state: JsonObject): DeliveryS
   const base = String(state.base_commit || "");
   if (base) {
     const paths = changedPaths(repoRoot, base);
-    return { mode: "base", base, paths, fingerprint: deliveryHash(repoRoot, base) };
+    return { mode: "base", base, paths, fingerprint: diffFingerprint(repoRoot, base, paths) };
   }
   const head = gitHead(repoRoot);
   const paths = head ? changedPaths(repoRoot, head) : [];
@@ -203,10 +209,9 @@ export function evidenceRun(value: string, requirementId: string | string[], sum
   return appendStepEvidence("evidence-run", path, ids, summary, actor, "runtime", execution, expected, cwdValue);
 }
 
-// Records one role capability's review result. reviewed_base/reviewed_paths/reviewed_diff_sha256/
-// delivery_hash are computed here from git, not accepted from the caller — the reviewer can no
-// longer assert a scope or a digest it did not actually derive from the working tree.
-export function reviewRecord(value: string, roleId: string, result: string, summary: string, repoRootValue = process.cwd(), cause?: Omit<ReviewCauseInput, "taskPath" | "root">, stateRootValue = stateRoot()): number {
+// Records one role capability's review result. The optional workspace digest only guards the
+// review-start snapshot; all persisted review fields remain runtime-computed from the current tree.
+export function reviewRecord(value: string, roleId: string, result: string, summary: string, repoRootValue = process.cwd(), cause?: Omit<ReviewCauseInput, "taskPath" | "root">, stateRootValue = stateRoot(), expectedWorkspaceSha256 = ""): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   if (!["pass", "fail"].includes(result)) { output({ valid: false, errors: ["review-record requires --result pass or fail"] }); return 1; }
@@ -230,10 +235,11 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
       // something safe to paper over with the working tree's current HEAD.
       const base = String(current.base_commit || "");
       if (!base) throw new Error("review-record: task has no base_commit; the code task was not correctly activated");
+      if (expectedWorkspaceSha256 && workspaceFingerprint(repoRoot) !== expectedWorkspaceSha256) throw new Error("review-record: workspace changed since the pre-review fingerprint; re-run the review");
       const paths = changedPaths(repoRoot, base);
       if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
       const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
-      const delivery = deliveryHash(repoRoot, base);
+      const delivery = reviewedDiffSha256;
       const intent_hash = currentIntentHash(path);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, intent_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, delivery_hash: delivery, summary });

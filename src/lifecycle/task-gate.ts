@@ -36,7 +36,7 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
   let compiled: JsonObject = {};
   try {
     const plan = compilePlanForTaskPath(state, path);
-    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], step_classification_incomplete: plan.step_classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence, exploration_profile: plan.exploration_profile };
+    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], step_classification_incomplete: plan.step_classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence, runtime_required_evidence: plan.runtime_required_evidence, exploration_profile: plan.exploration_profile };
     // Only a managed-change task owes an impact classification: an unmanaged (docs/read-only/etc.)
     // task never reaches the capabilities these fields gate, so demanding them would leave it with
     // no way to close. code_change no longer decides this — see managed_change in task.schema.json.
@@ -46,16 +46,24 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       // task never established was needed, dropping it would silently retire a check.
       for (const entry of plan.step_classification_incomplete) errors.push(`workflow step classification is incomplete: ${String(entry.capability)}.${String(entry.id)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
     }
+    const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
+    let liveDelivery: ReturnType<typeof deliverySnapshot> | undefined;
+    let liveDeliveryError: string | undefined;
+    const ensureLiveDelivery = (): ReturnType<typeof deliverySnapshot> | undefined => {
+      if (!liveDelivery && !liveDeliveryError) {
+        try { liveDelivery = deliverySnapshot(repoRoot, state); }
+        catch (error) { liveDeliveryError = String((error as Error).message || error); }
+      }
+      return liveDelivery;
+    };
     // A waiver missing plan_revision entirely was written by a runtime that could not tell a
     // round-trip from a plan that never changed, so it is stale by construction and has to be
     // re-granted rather than trusted.
     const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan.plan_hash && Number(item.plan_revision || 0) === Number(state.plan_revision || 0) && String(item.intent_hash || "") === liveIntentHash).map((item) => String(item.requirement_id || "")));
     // The task directory normally lives in the state root, not in the repo, so the worktree to
     // fingerprint has to come from the caller's location rather than from the task's own path.
-    const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
-    errors.push(...ownershipErrors(state, repoRoot, evidence));
-    let liveDelivery: ReturnType<typeof deliverySnapshot> | undefined;
-    let liveDeliveryError: string | undefined;
+    const ownershipSnapshot = Array.isArray(state.file_ownership) && state.file_ownership.length ? ensureLiveDelivery() : undefined;
+    errors.push(...ownershipErrors(state, repoRoot, evidence, ownershipSnapshot?.paths));
     for (const key of plan.required_evidence) {
       if (waived.has(key)) continue;
       const item = latestEvidence(evidence, key);
@@ -68,12 +76,9 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       // task-write in transitions.ts) and never reused, so comparing it closes that replay gap.
       if (Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) { errors.push(`evidence predates the current plan revision, re-verification required: ${key}`); continue; }
       if (String(item.intent_hash || "") !== liveIntentHash) { errors.push(`evidence was recorded against a different intent (task.md Goal/Scope/Completion criteria changed), re-verification required: ${key}`); continue; }
-      if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state));
+      if (key.startsWith("role.")) errors.push(...roleFreshnessErrors(item, key, repoRoot, state, ensureLiveDelivery()));
       else {
-        if (!liveDelivery && !liveDeliveryError) {
-          try { liveDelivery = deliverySnapshot(repoRoot, state); }
-          catch (error) { liveDeliveryError = String((error as Error).message || error); }
-        }
+        ensureLiveDelivery();
         if (liveDeliveryError) errors.push(`execution evidence freshness cannot be recomputed for ${key}: ${liveDeliveryError}`);
         else errors.push(...executionFreshnessErrors(item, key, repoRoot, state, liveDelivery));
       }
@@ -118,8 +123,7 @@ export function taskNext(value: string, repoRoot = process.cwd()): number {
       if (/^task is \S+, not in_progress;/.test(error)) return "lifecycle";
       return "task";
     };
-    let runtimeRequired: string[] = [];
-    try { runtimeRequired = compilePlanForTaskPath(state, path).runtime_required_evidence; } catch { /* the gate already reported the compile failure */ }
+    const runtimeRequired = strings("runtime_required_evidence");
     const missingFields = [...new Set(classification.flatMap((error) => (error.split("until ")[1] || "").replace(" is declared", "").split(", ").filter(Boolean)))];
     const nextAction = classification.length ? `resolve classification_incomplete for: ${missingFields.join(", ")}`
       : pendingEvidence.length ? runtimeRequired.includes(pendingEvidence[0])
