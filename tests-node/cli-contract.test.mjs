@@ -78,8 +78,10 @@ test("task-report renders intent, compiled plan, project docs, evidence, and gat
   const root = join(tmpdir(), `agent-workflow-task-report-${process.pid}-${Date.now()}`);
   const task = join(root, "20260101-000000-task-report"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Report\n\n## Goal\n\nRender a report.\n\n## Scope\n\nOnly report output.\n\n## Completion criteria\n\n- [ ] report contains the current plan\n");
-  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false, validation_profile: "focused", project_docs: { read: ["docs/architecture.md"], updated: ["none - no document change"], digests: [{ path: "docs/architecture.md", content_sha256: "0000000000000000000000000000000000000000000000000000000000000000" }] } }) });
+  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false, validation_profile: "focused" }) });
   assert.equal(init.status, 0, init.stdout || init.stderr);
+  const remembered = run(["project-doc", "--action", "Remember", "--repo-root", process.cwd(), "--task-path", task, "--paths", "docs/architecture.md"]);
+  assert.equal(remembered.status, 0, remembered.stdout || remembered.stderr);
   const before = readFileSync(join(task, "task.json"), "utf8");
   const report = run(["task-report", "--task-path", task]);
   assert.equal(report.status, 0, report.stdout || report.stderr);

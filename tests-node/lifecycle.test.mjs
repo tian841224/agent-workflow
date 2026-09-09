@@ -308,6 +308,17 @@ test("task-init still accepts legitimate worker/classification metadata", () => 
   assert.equal(state.intent_approval, undefined);
 });
 
+test("task-init rejects project_docs read and digest writes outside Remember", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-project-docs-boundary-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-init", "--task-path", path], {
+    cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ project_docs: { read: ["docs/architecture.md"], digests: [] } })
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /project_docs\.read\/project_docs\.digests/);
+});
+
 test("task-write merges fields through the lock, bumps plan_revision on a classification change, and rejects lifecycle edits", () => {
   const root = join(tmpdir(), `agent-workflow-task-write-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
@@ -324,6 +335,37 @@ test("task-write merges fields through the lock, bumps plan_revision on a classi
   const blocked = run(["task-write", "--task-path", path], JSON.stringify({ lifecycle: { status: "closed" } }));
   assert.notEqual(blocked.status, 0);
   assert.match(JSON.parse(blocked.stdout).errors[0], /not writable via task-write/);
+});
+
+test("task-write project_docs updates preserve read/digests and return no compiled plan", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-project-docs-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  const digest = "a".repeat(64);
+  writeFileSync(path, JSON.stringify(validTask({
+    project_docs: { read: ["docs/architecture.md"], updated: ["none - no document change"], digests: [{ path: "docs/architecture.md", content_sha256: digest }] }
+  })));
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], {
+    cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ project_docs: { updated: ["docs/workflow-runtime.md"] } })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(Object.keys(JSON.parse(result.stdout)).sort(), ["state_revision", "task", "valid"]);
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  assert.deepEqual(state.project_docs, {
+    read: ["docs/architecture.md"], updated: ["docs/workflow-runtime.md"], digests: [{ path: "docs/architecture.md", content_sha256: digest }]
+  });
+});
+
+test("task-write rejects direct project_docs read and digest updates", () => {
+  const root = join(tmpdir(), `agent-workflow-task-write-project-docs-boundary-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask()));
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], {
+    cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ project_docs: { read: ["docs/architecture.md"], digests: [] } })
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(JSON.parse(result.stdout).errors[0], /project_docs\.read\/project_docs\.digests/);
 });
 
 test("managed_change is part of plan identity: flipping it changes plan_hash and bumps plan_revision", () => {

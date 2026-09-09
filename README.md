@@ -190,7 +190,7 @@ agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](do
 | `adapters/` | 各 AI 平台的設定、manifest 與 hooks |
 | `schemas/` | task、workflow、knowledge、project、retro、review-cause 等資料契約 |
 | `skills-lock.json` | 從外部來源 vendor 進來的 optional skill 的來源與雜湊紀錄 |
-| `templates/` | Minimal、expanded 與其他 task 範本 |
+| `templates/` | task intent 與其他工作流程範本 |
 | `runtime/` | Node runtime contract 與執行限制 |
 | `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity 與 migration 完整驗證 |
 

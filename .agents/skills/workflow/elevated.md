@@ -4,7 +4,7 @@ Read this when the compiled plan reports `exploration_profile: expanded`, or for
 
 ## Before creation and implementation
 
-- Read the docs matched by the [project-docs skill](../project-docs/SKILL.md) lookup before reading the related code, and record those paths in task.json's `project_docs.read`; use `agent-workflow task-report` for a human-readable view.
+- Read the docs matched by the [project-docs skill](../project-docs/SKILL.md) lookup before reading the related code, then run `agent-workflow project-doc --action Remember --task-path <task> --paths <doc,...>` so the runtime records `project_docs.read` and `project_docs.digests`; use `agent-workflow task-report` for a human-readable view.
 - After reading the related code, record one concise impact map: relevant entrypoints, callers, shared state, external contracts, important error／retry／concurrency branches, and unconfirmed nodes. Reverse-search changed public symbols, shared state, and every unresolved node; do not enumerate unrelated hits only to satisfy a count.
 - Trace the execution path from the real entrypoints through the boundaries selected by the compiled plan. Expand into retry, concurrency, or async branches when the change reaches those branches or leaves an unknown; a focused task keeps the direct path only.
 

@@ -85,4 +85,4 @@ agent-workflow project-doc --action Check --doc docs/structure.md     # frontmat
 
 ## 5. 在 workflow task 內
 
-透過 `agent-workflow task-write` 填入 task.json 的 `project_docs.updated`：本次建立或更新的文件路徑，沒有文件要動就填 `none - <具體理由>`；`exploration_profile: expanded` 的 task 同時填 `project_docs.read`，記錄動手前 Lookup 命中並讀過的文件路徑。需要人工閱讀時執行 `agent-workflow task-report`。從 task 既有欄位收割內容的對照表見 [doc-types.md](references/doc-types.md)。
+透過 `agent-workflow task-write` 只填入 task.json 的 `project_docs.updated`：本次建立或更新的文件路徑，沒有文件要動就填 `none - <具體理由>`。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據，不得自行傳入這兩個欄位。需要人工閱讀時執行 `agent-workflow task-report`。從 task 既有欄位收割內容的對照表見 [doc-types.md](references/doc-types.md)。

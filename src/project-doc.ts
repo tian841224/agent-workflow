@@ -44,7 +44,7 @@ function docs(root: string, directory: string): JsonObject[] {
   };
   walk(base); return found;
 }
-function checkDocument(root: string, docRoot: string, path: string): string[] {
+function checkDocument(root: string, docRoot: string, path: string, entries?: JsonObject[]): string[] {
   if (!existsSync(path)) return ["document does not exist"];
   if (!isWithin(path, join(root, docRoot))) return ["document is outside the configured doc-root"];
   const body = readFileSync(path, "utf8");
@@ -62,7 +62,7 @@ function checkDocument(root: string, docRoot: string, path: string): string[] {
   const headings = new Set([...body.matchAll(/^##\s+(.+?)\s*$/gm)].map((match) => match[1].trim().toLowerCase()));
   for (const required of REQUIRED_SECTIONS[rawType] || []) if (!headings.has(required)) issues.push(`missing required section: ## ${required}`);
   if (OVERVIEW_TYPES.includes(rawType)) {
-    const siblings = docs(root, docRoot).filter((item) => String(item.doc_type) === rawType && String(item.path) !== path);
+    const siblings = (entries || docs(root, docRoot)).filter((item) => String(item.doc_type) === rawType && String(item.path) !== path);
     if (siblings.length) issues.push(`duplicate singleton doc_type '${rawType}': ${siblings.map((item) => String(item.path)).join(", ")}`);
   }
   return issues;
@@ -101,15 +101,15 @@ function digestStatus(root: string, item: JsonObject, state: ProjectDocState, ta
   return recorded === String(item.content_sha256) ? "reusable" : "stale";
 }
 
-function remember(options: Options): number {
+function remember(options: Options, entries?: JsonObject[]): number {
   const taskValue = text(options, "task-path");
   if (!taskValue) throw new Error("project-doc Remember requires --task-path");
   const root = resolve(text(options, "repo-root", process.cwd()));
   const docRoot = text(options, "doc-root", "docs");
   const requested = paths(options);
   if (!requested.length) throw new Error("project-doc Remember requires --paths");
-  const entries = docs(root, docRoot);
-  const byPath = new Map(entries.map((item) => [projectDocPath(root, String(item.path)), item]));
+  const scanned = entries || docs(root, docRoot);
+  const byPath = new Map(scanned.map((item) => [projectDocPath(root, String(item.path)), item]));
   const remembered: JsonObject[] = [];
   const issues: string[] = [];
   for (const requestedPath of requested) {
@@ -117,7 +117,7 @@ function remember(options: Options): number {
     const canonical = projectDocPath(root, absolute);
     const item = byPath.get(canonical);
     if (!item) { issues.push(`${requestedPath}: document is missing or has invalid frontmatter`); continue; }
-    const documentIssues = checkDocument(root, docRoot, absolute);
+    const documentIssues = checkDocument(root, docRoot, absolute, scanned);
     if (documentIssues.length) { issues.push(`${requestedPath}: ${documentIssues.join("; ")}`); continue; }
     remembered.push({ path: canonical, content_sha256: String(item.content_sha256) });
   }
@@ -140,7 +140,7 @@ function remember(options: Options): number {
   const previous = JSON.stringify(current); const next = JSON.stringify(nextProject);
   let stateRevision = Number(state.state_revision || 0);
   if (previous !== next) {
-    const code = taskWrite(taskValue, { project_docs: nextProject }, undefined, root, false, undefined, false);
+    const code = taskWrite(taskValue, { project_docs: nextProject }, undefined, root, false, undefined, false, true);
     if (code !== 0) { output({ valid: false, errors: ["project-doc Remember could not update task state"] }); return code; }
     stateRevision = Number((readJson(taskStatePath(taskValue)) as JsonObject).state_revision || stateRevision);
   }
@@ -151,9 +151,9 @@ function remember(options: Options): number {
 export function projectDoc(options: Options): number {
   const action = text(options, "action"); const root = resolve(text(options, "repo-root", process.cwd())); const docRoot = text(options, "doc-root", "docs"); const result = docs(root, docRoot);
   if (action === "List") { output(result); return 0; }
-  if (action === "Check") { const requested = text(options, "doc"); const path = resolve(root, requested); const issues = checkDocument(root, docRoot, path); output([{ path, issues }]); return issues.length ? 1 : 0; }
+  if (action === "Check") { const requested = text(options, "doc"); const path = resolve(root, requested); const issues = checkDocument(root, docRoot, path, result); output([{ path, issues }]); return issues.length ? 1 : 0; }
   if (action === "Stale") { output(result.filter((item) => { const rel = relative(root, String(item.path)); const covered = Array.isArray(item.covers) ? item.covers.map(String) : []; const docTime = Number(git(root, ["log", "-1", "--format=%ct", "--", rel]).stdout || 0); const codeTime = covered.length ? Number(git(root, ["log", "-1", "--format=%ct", "--", ...covered]).stdout || 0) : 0; return codeTime > docTime; })); return 0; }
-  if (action === "Remember") return remember(options);
+  if (action === "Remember") return remember(options, result);
   if (action !== "Lookup") throw new Error(`unsupported project-doc action: ${action}`);
   const taskValue = text(options, "task-path"); const prior = projectDocState(root, taskValue);
   const requested = paths(options).map((path) => path.replaceAll("\\", "/").toLowerCase()); const matched = new Set<string>();

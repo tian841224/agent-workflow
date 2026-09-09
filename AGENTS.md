@@ -6,7 +6,7 @@
 
 `managed_change` 是進入 managed workflow 的唯一 entry gate：這次修改可能影響系統實際行為、資料、契約、安全性、部署、執行結果、交付行為或 verification integrity 時為 `true`。`code_change` 只描述是否修改 application source code，不負責 workflow entry。
 
-`managed_change: true` 時載入 `.agents/skills/workflow/SKILL.md` 並依它執行；分類判準、capability 選取、Standard／Elevated 與 lifecycle 規則都以該 skill 與其指向的 schema 為準。
+`managed_change: true` 時載入 `.agents/skills/workflow/SKILL.md` 並依它執行；分類判準、capability 選取、focused／expanded exploration 與 lifecycle 規則都以該 skill 與其指向的 schema 為準。
 
 ## 硬護欄
 

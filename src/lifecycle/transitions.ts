@@ -67,6 +67,12 @@ const TASK_INIT_WRITABLE_FIELDS = new Set([
   "independence", "subtask_role", "parent_task_id", "file_ownership",
   "delivery_status", "integration_status"
 ]);
+function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
+  const projectDocsPatch = patch.project_docs;
+  if (!projectDocsPatch || typeof projectDocsPatch !== "object" || Array.isArray(projectDocsPatch)) return;
+  const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated");
+  if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated`);
+}
 export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
@@ -74,6 +80,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
     try {
       const disallowed = Object.keys(patch).filter((key) => !TASK_INIT_WRITABLE_FIELDS.has(key));
       if (disallowed.length) throw new Error(`task-init: field(s) are not writable via task-init: ${disallowed.join(", ")} (identity/evidence/intent_approval/model_profile/lifecycle are runtime-managed)`);
+      assertProjectDocsUpdateOnly(patch, "task-init");
       // Task identity always comes from the real repository being worked in (repoRootValue), never
       // from the task directory itself — that directory normally lives in the state root, not the
       // repo, so hashing it would produce a project_id/worktree_id no gate or lease could match.
@@ -129,13 +136,16 @@ function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
 
 const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "validation_profile", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision", "project_docs", "independence"]);
 const CLASSIFICATION_KEYS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
-export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }, emitOutput = true): number {
+export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }, emitOutput = true, allowProjectDocEvidence = false): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
     if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / resume / supersede / waive / close-task instead)`);
+    // Only project-doc Remember may replace read/digest evidence; ordinary task-write merges updated paths.
+    if (!allowProjectDocEvidence) assertProjectDocsUpdateOnly(patch, "task-write");
     const before = task(path);
+    const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
     // Only used to decide whether activation needs to run at all; the actual downgrade/code_change
     // authorization check below re-reads state inside the task lock, since this pre-lock read can be
     // stale under concurrent writers (see the in-lock checks in applyWrite).
@@ -160,9 +170,14 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
           const downgrades = downgradeErrors(current, patch);
           if (downgrades.length) throw new Error(`task-write: ${downgrades.join("; ")}; use \`agent-workflow reclassify --confirmed-by-user <text> --reason <text>\` if the user really re-assessed this task`);
         }
-        const classificationTouched = Object.keys(patch).some((key) => CLASSIFICATION_KEYS.has(key));
         const beforePlanHash = classificationTouched ? compilePlanForTaskPath(current, path).plan_hash : undefined;
-        for (const [key, fieldValue] of Object.entries(patch)) current[key] = fieldValue;
+        for (const [key, fieldValue] of Object.entries(patch)) {
+          if (key === "project_docs" && !allowProjectDocEvidence && fieldValue && typeof fieldValue === "object" && !Array.isArray(fieldValue)) {
+            const existing = current.project_docs && typeof current.project_docs === "object" && !Array.isArray(current.project_docs) ? current.project_docs as JsonObject : {};
+            const incoming = fieldValue as JsonObject;
+            current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}) };
+          } else current[key] = fieldValue;
+        }
         // model_profile is derived from task_type/risk_flags/impact_*, which task-write can change
         // after creation — recompute here so it never goes stale relative to the fields it derives from.
         if (current.task_type === "read_only") current.model_profile = deriveModelProfile(current);
@@ -184,8 +199,12 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
       return state;
     };
     const state = root && identity ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, applyWrite) : applyWrite();
-    const plan = compilePlanForTaskPath(state, path);
-    if (emitOutput) output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state) });
+    if (emitOutput) {
+      if (classificationTouched) {
+        const plan = compilePlanForTaskPath(state, path);
+        output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state) });
+      } else output({ valid: true, task: path, state_revision: state.state_revision });
+    }
     return 0;
   } catch (error) { if (emitOutput) output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

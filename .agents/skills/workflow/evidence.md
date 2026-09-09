@@ -18,9 +18,11 @@ Use one `evidence-record` or `evidence-run` command with repeated or comma-separ
 The runtime writes one evidence entry per id and one state revision for the batch. Every id must be a
 selected evidence step; role results use `review-record`.
 
-Runtime execution evidence must come from `evidence-run`. Reuse a result only while the task plan,
-intent, command scope, repository revision, and relevant environment remain the same. If any of those
-change, run the affected check again.
+Runtime execution evidence must come from `evidence-run`. Its freshness is currently delivery-wide:
+reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
+relevant environment remain the same. A change anywhere in the delivered worktree invalidates the
+receipt; run the affected check again after the delivery stabilizes. Do not infer path-scoped reuse
+without a separately verified dependency map.
 
 ## Scope
 
