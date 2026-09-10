@@ -44,10 +44,6 @@ test("a v2 task carrying retired fields and no transition history migrates into 
 // missed /(write|edit|delete|rename)/ was treated as a read wherever it pointed.
 const WRITE_TOOLS = ["str_replace", "create_file", "mcp__fs__move_file", "apply_diff", "insert_lines"];
 for (const tool of WRITE_TOOLS) {
-  test(`skill-guard treats ${tool} as a write when it targets .agents`, () => {
-    const result = guard("skill-guard", { tool_name: tool, session_id: "s1", tool_input: { file_path: join(".agents", "skills", "workflow", "SKILL.md") } });
-    assert.match(result.stdout, /"permissionDecision":"deny"/);
-  });
   test(`task-guard treats ${tool} as a write when it targets task.json`, () => {
     const result = guard("git-guard", { tool_name: tool, session_id: "s1", tool_input: { file_path: join("tasks", "t", "task.json") } });
     assert.match(result.stdout, /task-guard/);
@@ -56,13 +52,13 @@ for (const tool of WRITE_TOOLS) {
 
 test("a read tool pointed at protected content is still allowed", () => {
   for (const tool of ["read", "read_file", "mcp__fs__list_directory"]) {
-    const result = guard("skill-guard", { tool_name: tool, session_id: "s1", tool_input: { file_path: join(".agents", "skills", "workflow", "SKILL.md") } });
+    const result = guard("git-guard", { tool_name: tool, session_id: "s1", tool_input: { file_path: join("tasks", "t", "task.json") } });
     assert.doesNotMatch(result.stdout, /permissionDecision":"deny/, tool);
   }
 });
 
 test("git global options are consumed before the subcommand, and quoted prose is not an invocation", () => {
-  // A sole-segment mutation with a global option consumed ahead of its subcommand is deferred to
+  // An ordinary mutation with a global option consumed ahead of its subcommand is deferred to
   // the platform's own approval flow, same as one without a global option.
   for (const command of ["git --no-pager log --oneline -5", "git --git-dir=.git rev-parse HEAD", `grep -n "git push" README.md`, "git --no-pager push origin main"]) {
     const result = guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } });
@@ -87,18 +83,18 @@ test("git options that alter execution are denied outright, and a repository loc
 });
 
 test("the read-only allowlist covers the usual inspection tools but not their writing modes", () => {
-  const probe = (command) => guard("skill-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } }).stdout;
-  for (const command of ["jq . .agents/x.json", "less .agents/skills/workflow/SKILL.md", "head -20 .agents/skills/workflow/SKILL.md", "certutil -hashfile .agents/skills/workflow/SKILL.md SHA256"]) {
+  const probe = (command) => guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } }).stdout;
+  for (const command of ["jq . tasks/t/task.json", "less tasks/t/task.json", "head -20 tasks/t/task.json", "certutil -hashfile tasks/t/task.json SHA256"]) {
     assert.doesNotMatch(probe(command), /permissionDecision":"deny/, command);
   }
   // awk and sed are general interpreters with write paths no flag check can enumerate (`print > f`,
   // `w`, `s///w`), and certutil is a general certificate tool — only its -hashfile mode is a read.
   for (const command of [
-    "sed -n 1,20p .agents/skills/workflow/SKILL.md",
-    "sed -i s/a/b/ .agents/skills/workflow/SKILL.md",
-    "awk 'NR<5' .agents/skills/workflow/SKILL.md",
-    "certutil -decode .agents/in.b64 .agents/skills/workflow/SKILL.md",
-    "find .agents -name '*.md' -delete"
+    "sed -n 1,20p tasks/t/task.json",
+    "sed -i s/a/b/ tasks/t/task.json",
+    "awk 'NR<5' tasks/t/task.json",
+    "certutil -decode tasks/in.b64 tasks/t/task.json",
+    "find tasks -name task.json -delete"
   ]) {
     assert.match(probe(command), /permissionDecision":"deny/, command);
   }
@@ -260,8 +256,10 @@ test("risk-flags.md routes flag removal through reclassify instead of a direct t
 });
 
 test("impact_confidence stays a task-write field in the docs and in the reclassify comment", () => {
-  const skill = readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "SKILL.md"), "utf8");
-  assert.match(skill, /`impact_confidence` 不在受保護之列[^；]*`task-write`/);
+  const selection = readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "capability-selection.md"), "utf8");
+  const selectionClauses = selection.split("。").filter((part) => part.includes("`impact_confidence`"));
+  assert.ok(selectionClauses.some((part) => part.includes("`task-write`")), "capability-selection.md no longer offers task-write for impact_confidence");
+  assert.ok(!selectionClauses.some((part) => part.includes("reclassify")), "capability-selection.md drags reclassify into impact_confidence");
 
   // The clause is the doc's whole statement about impact_confidence: it must offer task-write and
   // must not drag in reclassify's user-confirmation requirement.

@@ -15,7 +15,7 @@ function antigravityStyle(toolName, args) {
 
 export const OPERATIONS = {
   safe_read: {
-    guard: "skill-guard",
+    guard: "git-guard",
     expectDeny: false,
     payloads: {
       Claude: anthropicStyle("read_file", { file_path: "README.md" }),
@@ -32,12 +32,10 @@ export const OPERATIONS = {
       Antigravity: antigravityStyle("run_command", { CommandLine: "git status", Cwd: ANTIGRAVITY_WORKSPACE })
     }
   },
-  // A directly parsed, unwrapped git mutation is deferred to the platform's own ask-for-approval
-  // flow rather than hard-denied here: the user sees the exact command and approves it before it
-  // runs, instead of being told to type it themselves.
+  // Destructive Git is denied even when directly invoked.
   mutating_git_reset: {
     guard: "git-guard",
-    expectDeny: false,
+    expectDeny: true,
     payloads: {
       Claude: anthropicStyle("bash", { command: "git reset --hard" }),
       Codex: anthropicStyle("bash", { command: "git reset --hard" }),
@@ -45,7 +43,7 @@ export const OPERATIONS = {
     }
   },
   task_json_direct_write: {
-    guard: "skill-guard",
+    guard: "git-guard",
     expectDeny: true,
     denyContains: "task-guard",
     payloads: {
@@ -55,9 +53,8 @@ export const OPERATIONS = {
     }
   },
   unlocatable_mutation: {
-    guard: "skill-guard",
-    expectDeny: true,
-    denyContains: "denied fail-closed",
+    guard: "git-guard",
+    expectDeny: false,
     payloads: {
       Claude: anthropicStyle("write_file", {}),
       Codex: anthropicStyle("write_file", {}),

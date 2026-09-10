@@ -1,10 +1,10 @@
 // Hook-only entrypoint. The guards run on every tool call, and bundling them with the rest of the
 // CLI made each run pay for loading installer, lifecycle, knowledge and policy code it never calls.
 import { option, parseArgs, stateRoot, stdinJson } from "./core.js";
-import { clearSkillProof, recordSkillRead, runGuard } from "./hooks.js";
+import { runGuard } from "./hooks.js";
 
 const [command, ...rest] = process.argv.slice(2);
-if (command !== "git-guard" && command !== "skill-guard") {
+if (command !== "git-guard") {
   process.stderr.write(`Unknown command: ${command}\n`);
   process.exitCode = 2;
 } else {
@@ -21,8 +21,6 @@ if (command !== "git-guard" && command !== "skill-guard") {
     const platform = option(parsed.values, "platform", "Codex");
     const event = option(parsed.values, "event", "PreToolUse");
     const root = option(parsed.values, "state-root", stateRoot());
-    if (command === "skill-guard" && event === "PostToolUse") recordSkillRead(platform, payload, root);
-    if (command === "skill-guard" && event === "SessionEnd") clearSkillProof(platform, payload, root);
-    runGuard(command === "git-guard" ? "git" : "skill", platform, event, payload, root);
+    runGuard(platform, event, payload, root);
   }
 }

@@ -34,13 +34,13 @@ const guard = (kind, command, home, path = "") => spawnSync(process.execPath, [c
 // The deny message points the caller at `agent-workflow task-write`; denying the installed runtime
 // itself would leave no permitted way to write task.json at all. Trust is granted to the recorded
 // runtime hash, never to the name, so the invocation has to resolve to that exact file.
-test("the installed runtime CLI is not blocked by the guards that protect task.json and .agents", () => {
+test("the installed runtime CLI is not blocked by the guards that protect task.json", () => {
   const home = installedRuntimeHome();
   for (const command of [
     "node ~/.agent-workflow/runtime/agent-workflow.mjs close-task --task-path /tmp/t/task.json",
     "node ~/.agent-workflow/runtime/agent-workflow.mjs repair --non-interactive"
   ]) {
-    for (const kind of ["git-guard", "skill-guard"]) {
+    for (const kind of ["git-guard"]) {
       const result = guard(kind, command, home);
       assert.equal(result.status, 0, result.stderr);
       assert.doesNotMatch(result.stdout, /permissionDecision":"deny/, `${kind}: ${command}`);
@@ -75,12 +75,12 @@ test("a bare agent-workflow invocation resolving to the byte-identical bundle is
   const binDirectory = join(tmpdir(), `agent-workflow-bin-${process.pid}-${Date.now()}`);
   mkdirSync(binDirectory, { recursive: true });
   writeFileSync(join(binDirectory, "agent-workflow"), readFileSync(cli));
-  const allowed = guard("skill-guard", "agent-workflow project-doc --action Lookup --paths .agents/skills/workflow/SKILL.md", home, binDirectory);
+  const allowed = guard("git-guard", "agent-workflow task-write --task-path tasks/t/task.json", home, binDirectory);
   assert.equal(allowed.status, 0, allowed.stderr);
   assert.doesNotMatch(allowed.stdout, /permissionDecision":"deny/);
 
   writeFileSync(join(binDirectory, "agent-workflow"), `#!/bin/sh\nexec node "${cli}" "$@"\n`);
-  const shimmed = guard("skill-guard", "agent-workflow project-doc --action Lookup --paths .agents/skills/workflow/SKILL.md", home, binDirectory);
+  const shimmed = guard("git-guard", "agent-workflow task-write --task-path tasks/t/task.json", home, binDirectory);
   assert.match(shimmed.stdout, /permissionDecision":"deny/);
 });
 

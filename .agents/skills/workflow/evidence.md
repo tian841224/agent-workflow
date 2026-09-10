@@ -39,3 +39,9 @@ Keep analysis proportional to the selected steps and the task impact. A direct, 
 does not need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. A
 parallel split is worthwhile only when its independent work is expected to save more time than context
 handoff, worktree setup, integration, and final verification.
+
+## Validation command
+
+Use `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]` with paths from the impact map. `focused` and `affected` require explicit paths; `regression` may target a subsystem or the full regression set; `full` always runs the whole suite. `validation_profile` is optional metadata, not a prerequisite for running tests.
+
+Every managed delivery needs a `delivery_validation.DV1` runtime receipt, whatever else the packet selected.

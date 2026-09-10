@@ -7,10 +7,6 @@
           {
             "type": "command",
             "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Codex"
-          },
-          {
-            "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Codex --event SessionStart"
           }
         ]
       }
@@ -23,31 +19,6 @@
             "type": "command",
             "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Codex",
             "statusMessage": "Checking Git safety"
-          },
-          {
-            "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Codex --event PreToolUse"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Codex --event PostToolUse"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" skill-guard --platform Codex --event SessionEnd"
           }
         ]
       }

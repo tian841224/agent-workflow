@@ -42,9 +42,13 @@ for (const [opName, op] of Object.entries(OPERATIONS)) {
   });
 }
 
-test("Antigravity PostToolUse answers with an empty object, not a PreToolUse decision", () => {
-  const stdout = runGuard("skill-guard", "Antigravity", OPERATIONS.safe_read.payloads.Antigravity, "PostToolUse");
-  assert.deepEqual(JSON.parse(stdout), {}, `Antigravity PostToolUse must answer {}, got: ${stdout}`);
+test("adapter templates contain exactly one PreToolUse guard and no proof lifecycle", () => {
+  for (const path of ["adapters/claude/settings.hooks.json", "adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
+    const body = readFileSync(path, "utf8");
+    assert.equal((body.match(/git-guard --platform/g) || []).length, 1, path);
+    assert.doesNotMatch(body, /skill-guard|PostToolUse|SessionEnd/, path);
+    assert.equal((body.match(/memory-context --platform/g) || []).length, 1, path);
+  }
 });
 
 test("the Antigravity adapter declares only lifecycle events the platform still supports", () => {
@@ -75,24 +79,3 @@ test("Antigravity memory context injects on the first invocation only", () => {
   assert.deepEqual(memory({}), { injectSteps: [] });
 });
 
-test("Antigravity .agents proof is established by view_file and scoped to one conversation", () => {
-  const root = join(tmpdir(), `agent-workflow-antigravity-proof-${process.pid}-${Date.now()}`);
-  const state = join(root, "state");
-  const repo = join(root, "repo");
-  const otherRepo = join(root, "other-repo");
-  const skillPath = join(repo, ".agents", "skills", "writing-for-agents", "SKILL.md");
-  mkdirSync(join(repo, ".agents", "skills", "writing-for-agents"), { recursive: true });
-  mkdirSync(join(otherRepo, ".agents"), { recursive: true });
-  writeFileSync(skillPath, "writing-for-agents guidance");
-  const guard = (event, payload) => run(["skill-guard", "--platform", "Antigravity", "--event", event, "--state-root", state], payload).stdout;
-  const readSkill = (conversationId) => guard("PostToolUse", { conversationId, workspacePaths: [repo], toolCall: { name: "view_file", args: { AbsolutePath: skillPath } } });
-  const mutate = (conversationId, cwd) => guard("PreToolUse", { conversationId, workspacePaths: [repo], toolCall: { name: "write_to_file", args: { TargetFile: join(".agents", "skills", "x", "SKILL.md"), Cwd: cwd } } });
-
-  assert.equal(JSON.parse(mutate("conversation-a", repo)).decision, "deny", "a .agents write without proof must be denied");
-  readSkill("conversation-a");
-  assert.equal(JSON.parse(mutate("conversation-a", repo)).decision, "allow", "view_file's AbsolutePath must establish the proof");
-  assert.equal(JSON.parse(mutate("conversation-b", repo)).decision, "deny", "proof is bound to one conversationId");
-  // Cwd, not the workspace root, is what a run_command/tool call resolves its relative paths
-  // against; reading the workspace root instead would resolve this into the proven .agents root.
-  assert.equal(JSON.parse(mutate("conversation-a", otherRepo)).decision, "deny", "Cwd must decide which .agents root the write targets");
-});

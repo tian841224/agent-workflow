@@ -33,32 +33,6 @@ test("contract-lint reports a retired name, an unknown CLI command and a missing
   assert.equal(result.status, 1);
 });
 
-// The guard used to decide "is this protected?" only after its mutation heuristics fired, so a write
-// performed inside an interpreter argument — no path parameter, no shell redirect — slipped past it.
-const AGENTS_WRITES = [
-  ["python inline script", `python -c "open('.agents/skills/x/SKILL.md','w').write('x')"`],
-  ["node inline script", `node -e "require('fs').writeFileSync('.agents/skills/x/SKILL.md','x')"`],
-  ["bash -c wrapper", `bash -c "cp /tmp/x .agents/skills/x/SKILL.md"`],
-  ["powershell -Command wrapper", `powershell -Command "Set-Content .agents/skills/x/SKILL.md 'x'"`],
-  ["shell redirect", `echo x > .agents/skills/x/SKILL.md`],
-  ["piped write", `cat /tmp/x | tee .agents/skills/x/SKILL.md`]
-];
-for (const [label, command] of AGENTS_WRITES) {
-  test(`skill-guard denies a .agents write hidden in a ${label}`, () => {
-    const result = run(["skill-guard", "--platform", "Claude"], { input: JSON.stringify({ tool_name: "bash", session_id: "s1", tool_input: { command } }) });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /"permissionDecision":"deny"/);
-  });
-}
-
-test("skill-guard allows a read-only inspection of .agents content", () => {
-  for (const command of ["cat .agents/skills/workflow/SKILL.md", "rg todo .agents/skills", "git status .agents"]) {
-    const result = run(["skill-guard", "--platform", "Claude"], { input: JSON.stringify({ tool_name: "bash", session_id: "s1", tool_input: { command } }) });
-    assert.equal(result.status, 0, result.stderr);
-    assert.doesNotMatch(result.stdout, /permissionDecision":"deny/, command);
-  }
-});
-
 test("task-guard denies a task.json write hidden in an interpreter argument", () => {
   const command = `python -c "open('task.json','w').write('{}')"`;
   const result = run(["git-guard", "--platform", "Claude"], { input: JSON.stringify({ tool_name: "bash", session_id: "s1", tool_input: { command } }) });
