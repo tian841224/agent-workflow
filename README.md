@@ -192,7 +192,8 @@ agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](do
 | `skills-lock.json` | 從外部來源 vendor 進來的 optional skill 的來源與雜湊紀錄 |
 | `templates/` | task intent 與其他工作流程範本 |
 | `runtime/` | Node runtime contract 與執行限制 |
-| `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity、migration 與 workflow cost budget 完整驗證 |
+| `docs/` | 本 repo 自己的 project docs：architecture 原則、module 文件、發布驗證與歷史記錄 |
+| `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity、migration 與 procedure budget 完整驗證 |
 
 ## 四、安裝方法
 
