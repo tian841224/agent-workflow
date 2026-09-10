@@ -177,7 +177,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 不同 AI 工具的原生設定由 installer 依平台建立，並透過 adapter 連結到 `.agents` 的 canonical source。未指定的平台不會建立或修改對應的 agent 資料夾。
 
-agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](docs/architecture.md)。
+agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](docs/architecture.md)；procedure bytes 之外的真實端到端成本（wall-clock、token、tool round trip、返工）量測方式見 [docs/replay-benchmark.md](docs/replay-benchmark.md)。
 
 ### 主要元件分工
 

@@ -54,7 +54,9 @@ export function writeJson(path: string, value: Json): void {
 
 export function stdinJson(): JsonObject {
   const raw = readFileSync(0, "utf8").replace(/^\uFEFF/, "");
-  const parsed: unknown = JSON.parse(raw);
+  if (!raw.trim()) throw new Error("this command requires a JSON object piped on stdin, e.g. echo '{}' | agent-workflow <command> ...");
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch (error) { throw new Error(`invalid JSON on stdin: ${(error as Error).message}`); }
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("JSON object stdin required");
   return parsed as JsonObject;
 }

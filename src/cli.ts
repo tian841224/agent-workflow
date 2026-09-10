@@ -71,6 +71,10 @@ async function main(): Promise<void> {
   const trailing = separator === -1 ? [] : rest.slice(separator + 1);
   const parsed = parseArgs(separator === -1 ? rest : rest.slice(0, separator));
   const allowedOptions = new Set(commandOptions[command]);
+  if (parsed.values.has("help") || rest.includes("-h")) {
+    process.stdout.write(`Usage: agent-workflow ${command} [options]\n\nOptions:\n${[...allowedOptions].map((name) => `  --${name}`).join("\n")}\n`);
+    return;
+  }
   const unknown = [...parsed.values.keys()].filter((key) => !allowedOptions.has(key));
   if (unknown.length) {
     process.stderr.write(`Unknown option(s) for ${command}: ${unknown.map((key) => `--${key}`).join(", ")}\n`);
@@ -156,4 +160,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+main().catch((error: unknown) => {
+  process.stderr.write(`${(error as Error).message || error}\n`);
+  process.exitCode = 1;
+});
