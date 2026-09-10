@@ -17,14 +17,25 @@ const WORKER = ".agents/agents/worker.md";
 const PROJECT_DOCS = ".agents/skills/project-docs/SKILL.md";
 const OPERATIONAL = ".agents/skills/operational-verification/SKILL.md";
 
-// The quality floor (capabilities, roles) may only grow; the cost ceiling (procedure documents and
-// their bytes) may only shrink.
+// This is a procedure regression guard, not a total workflow cost benchmark: it measures only what
+// the compiled packet points an agent at. Standing context (workflow/SKILL.md, AGENTS.md), the bytes
+// a project-doc Lookup actually reads, CLI round trips and rework re-reads are outside it, so a
+// passing budget here is not a claim that the end-to-end task got cheaper.
+//
+// The invariant is that quality and safety outcomes never drop — not that the step and capability
+// counts only grow. Merging capabilities or retiring a duplicated one is allowed once equivalent
+// verification evidence covers what it used to cover; a single evidence-run already satisfies several
+// requirement ids. Each entry therefore pins the capabilities and roles this scenario must still
+// reach, and the ceiling on the procedure bytes it may cost to reach them.
+//
+// `code_change` means application source code, so a config or deployment task keeps it false and
+// never pulls in the project-docs procedure.
 const BUDGETS = [
   { name: "doc-only", task: { ...scenario("doc-only"), code_change: false }, capabilities: [], roles: 0, procedures: [], bytes: 0 },
-  { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS], bytes: 7700 },
-  { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS, WORKER], bytes: 11000 },
-  { name: "cross-module-refactor", task: { ...scenario("cross-module-refactor"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "execution_path_review", "regression_validation", "reviewer"], roles: 1, procedures: [EVIDENCE, EXPANDED, PROJECT_DOCS, REVIEW], bytes: 14200 },
-  { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL, PROJECT_DOCS], bytes: 11500 }
+  { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS], bytes: 5900 },
+  { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS, WORKER], bytes: 9400 },
+  { name: "cross-module-refactor", task: { ...scenario("cross-module-refactor"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "execution_path_review", "regression_validation", "reviewer"], roles: 1, procedures: [EVIDENCE, EXPANDED, PROJECT_DOCS, REVIEW], bytes: 12900 },
+  { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: false }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL], bytes: 6100 }
 ];
 
 function packetFor(root, budget) {
@@ -47,7 +58,7 @@ function packetFor(root, budget) {
 }
 
 for (const budget of BUDGETS) {
-  test(`workflow cost budget: ${budget.name}`, () => {
+  test(`procedure budget: ${budget.name}`, () => {
     const root = join(tmpdir(), `agent-workflow-cost-${budget.name}-${process.pid}-${Date.now()}`);
     const packet = packetFor(root, budget);
     for (const capability of budget.capabilities) assert.ok(packet.workflow.selected.includes(capability), `${budget.name} no longer selects ${capability}: ${JSON.stringify(packet.workflow.selected)}`);
@@ -58,8 +69,8 @@ for (const budget of BUDGETS) {
   });
 }
 
-// The gates that force `evidence-run` rather than an attested claim. Each entry is a promise that a
-// result was actually produced by running something, so this list may grow but never shrink.
+// The gates that force `evidence-run` rather than an attested claim. Retiring one of these ids means
+// the result it stands for is proven somewhere else, or it is no longer proven at all.
 test("runtime-required evidence steps stay runtime-required", () => {
   const policy = JSON.parse(readFileSync(join(process.cwd(), "schemas", "workflow-policy.json"), "utf8"));
   const declared = new Set();

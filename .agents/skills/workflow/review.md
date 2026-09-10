@@ -26,9 +26,9 @@ coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚
 
 ## Review 範圍與工作樹綁定
 
-Review 前主對話用 `agent-workflow pre-review` 跑 `git diff --check`，再用 `agent-workflow worktree-fingerprint` 取得 `workspace_sha256`，傳給 `review-record --expected-workspace-sha256 <sha256>`；工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。
+每輪 review 前主對話跑一次 `agent-workflow pre-review`，它同時回傳 `git diff --check` 結果與 `workspace_sha256`；把該 sha256 傳給 `review-record --expected-workspace-sha256 <sha256>`，工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。
 
-`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 會重算 digest：reviewed paths 以外的修改讓既有 review 保持有效，範圍內的修改則要求重新複審。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。
+`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 對 role evidence fail-closed，下列任一情況都使既有 review 失效並要求重新複審：已 review 範圍內的內容改變、交付新增原 `reviewed_paths` 未涵蓋的 changed path、分類異動使 `plan_revision` 前進，或 `reviewed_base` 已無法解析而算不出 freshness。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。重跑時沿用下方的 delta-first 規則，不必重新探索未受影響的脈絡。
 
 ## 結果回填
 

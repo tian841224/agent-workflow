@@ -1,6 +1,47 @@
-# 各 doc_type 的區塊規格
+# 文件佈局與各 doc_type 的區塊規格
 
-只有要建立或改寫某個 doc_type 的內容時才讀本檔。
+只有要建立或改寫文件內容時才讀本檔。
+
+## doc_type 路由
+
+```text
+docs/
+├─ architecture.md         系統總覽與分層（一份）
+├─ structure.md            資料夾結構與檔案放置規則（一份）
+├─ dataflow.md             跨模組主要資料流（一份）
+├─ flows/<slug>.md         功能流程（以功能為單位、可跨模組）
+├─ modules/<slug>.md       模組文件
+├─ api/<slug>.md           API 規格（新增或修改對外端點時建立）
+├─ decisions/<slug>.md     決策記錄
+└─ glossary.md             詞彙表（一份）
+```
+
+**一份文件只裝一個 doc_type、一個主題。** 內容變長時依 `covers` 或功能邊界拆成多份各自內聚的文件，讓 Lookup 只回傳相關的那幾份。不設行數上限——腐化的來源是「記了會過期的細節」，不是長度。
+
+repo 已有 docs 慣例時沿用既有位置與命名，只補 frontmatter：
+
+```yaml
+---
+doc_type: architecture | structure | dataflow | flow | module | api | decision | glossary
+covers:
+  - game/gameList/Seth_10017/
+  - game/commonLogic/checkSeries/
+---
+```
+
+`covers` 兩種 YAML 清單寫法都可以，行內的 `covers: ["a", "b"]` 等價於上面每行一項的寫法。
+
+`covers` 路徑文法與 `file_ownership` 相同（repo-relative、`/` 分隔、不含 `..`／`[`／`]`／反斜線）：以 `/` 結尾為目錄前綴，否則為精確檔案。`architecture.md`／`structure.md`／`dataflow.md`／`glossary.md` 的 `covers` 不參與比對（Lookup 一律附帶），可留空；`flow`、`module`、`api`、`decision` 的 `covers` 必填。
+
+## 其他 `project-doc` action
+
+```text
+agent-workflow project-doc --action List                              # 全部文件
+agent-workflow project-doc --action Stale                             # covers 路徑比文件本身更新的文件
+agent-workflow project-doc --action Check --doc docs/structure.md     # frontmatter／covers／必要區塊
+```
+
+`Stale` 只回報一種情況：涵蓋路徑最後一次提交的時間晚於文件本身最後一次提交的時間。判斷完全來自版本歷史比較，不可能被手動改假；未提交的改動與未進版控的新文件都不會出現在結果中。結果只當線索，一律以現況程式為準。
 
 ## Architecture、Structure、Dataflow 三份總覽的分工
 

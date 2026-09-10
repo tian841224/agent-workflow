@@ -20,7 +20,7 @@ task-init（回傳 compiled plan + procedures）
        ↓
 implementation
        ↓
-依 validation profile 執行 focused / affected / regression / full 檢查
+依 compiled plan 決定測試範圍並執行 run-tests
        ↓
 evidence-run / evidence-record
        ↓
@@ -34,7 +34,7 @@ close-task（自動重跑 completion gate）
 3. 只依 compiled plan 載入 procedure。capability 名稱、step 條件與執行順序以 `schemas/workflow-policy.json` 和 `workflow-plan` 輸出為準；不要在入口文件複製清單。
 4. 修改 application source code 前依 [project-docs skill](../project-docs/SKILL.md) 走 Lookup → 讀命中文件 → Remember，它擁有查詢、閱讀與回填的完整規則。
 5. `focused`／`expanded` 由 runtime 從同一份分類推導，不另判 Standard／Elevated。compiled plan 回報 `expanded` 時讀 [elevated.md](elevated.md)；selected capability 的操作規則在 [capability-selection.md](capability-selection.md)、[evidence.md](evidence.md)、[review.md](review.md) 及各專屬 skill。
-6. 依 compiled plan 決定驗證範圍，執行 `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]`；runner 自己拒絕不合法的 profile／路徑組合。`validation_profile` 是選填 metadata，不需為了執行測試填寫。開發期間保留必要的快速回饋，昂貴的回歸與最終 delivery receipt 等交付內容穩定後批次執行。純分析使用 `evidence-record`。
+6. 依 compiled plan 決定驗證範圍，執行 `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]`；runner 自己拒絕不合法的 profile／路徑組合。測試路徑由 impact map 決定，不必再推理 focused 與 affected 的抽象差異；`regression` 表示 subsystem 或完整回歸意圖，`full` 固定執行整個 suite。`validation_profile` 是選填 metadata，不需為了執行測試填寫。開發期間保留必要的快速回饋，昂貴的回歸與最終 delivery receipt 等交付內容穩定後批次執行。純分析使用 `evidence-record`。
 7. 每個 `managed_change: true` 交付至少要有 `delivery_validation.DV1` runtime receipt；宣告 `runtime_execution` 的 step 只接受 `evidence-run`。記錄方式與 freshness 見 [evidence.md](evidence.md)。
 8. `reviewer` 被 required 或 requested 時，用 `review-record` 記錄唯一角色結果，主對話代跑時誠實記錄 `independence: degraded`；執行方式見 [review.md](review.md)。
 9. `task.md` 只保存 Goal、Scope、Completion criteria，以及 freeze-required task 的 Non-goals／Acceptance cases。evidence、validation、review、lifecycle、project docs 與 hashes 只在 `task.json`；需要人讀時用 `agent-workflow task-report`。

@@ -1,6 +1,6 @@
 ---
 name: project-docs
-description: 修改 application source code 前載入；先以 project-doc Lookup 查出涵蓋本次路徑的文件並讀過再動手，改完後依查詢結果建立缺少的文件或更新已失準的內容。定義目標 repo `docs/` 的佈局、各 doc_type 的必要區塊與 staleness 判斷。
+description: 修改 application source code 前載入；先以 project-doc Lookup 查出涵蓋本次路徑的文件並讀過再動手，改完後依查詢結果建立缺少的文件或更新已失準的內容。
 ---
 
 # Project Docs
@@ -10,12 +10,14 @@ description: 修改 application source code 前載入；先以 project-doc Looku
 ## 1. 動手前：Lookup
 
 ```text
-agent-workflow project-doc --action Lookup --paths '<本次要動的路徑>'
+agent-workflow project-doc --action Lookup --task-path <task> --repo-root <repo-root> --paths '<本次要動的路徑>'
 ```
 
-回傳真正命中的文件、可延後讀取的 `overview_candidates`（含 `content_sha256`），以及 `uncovered`。先讀命中的文件；只有 compiled plan 的 `exploration_profile`、影響面或共享狀態需要時才讀 overview。Agent 可用 digest 判斷同一 session 是否已讀過且內容仍相同。文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容。
+在 workflow task 內一律帶 `--task-path`：runtime 會比對 `project_docs.read` 與 `project_docs.digests`，已讀且內容未變的文件回報 `digest_status: reusable`，同一 task 即使中斷、重啟 agent 或從 review 折返 implementation 也不必重讀。`unread`、`digest_missing` 與 `stale` 都要實際讀過才算數。
 
-讀完文件後，使用 `agent-workflow project-doc --action Remember --task-path <task> --paths <doc,...> --repo-root <repo-root>` 將實際讀過的路徑與 `content_sha256` 寫入 task.json。下一次 Lookup 傳入相同 `--task-path` 時，`digest_status: reusable` 代表內容未變且可重用；`unread`、`digest_missing` 或 `stale` 都不能當成已讀證據。overview candidate 永遠先保持 `unread`，不因 Lookup 列出而自動記入 `project_docs.read`。
+回傳真正命中的文件、可延後讀取的 `overview_candidates`（含 `content_sha256`），以及 `uncovered`。先讀命中的文件；只有 compiled plan 的 `exploration_profile`、影響面或共享狀態需要時才讀 overview，overview candidate 一律先保持 `unread`。文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容。
+
+讀完文件後執行 `agent-workflow project-doc --action Remember --task-path <task> --repo-root <repo-root> --paths <doc,...>`，把實際讀過的路徑與 `content_sha256` 寫入 task.json，下一次 Lookup 才能重用。
 
 ## 2. 改完後：依查詢結果處理
 
@@ -40,49 +42,8 @@ agent-workflow project-doc --action Lookup --paths '<本次要動的路徑>'
 
 新增或修改對外端點時，`docs/api/<slug>.md` 沒有就建立、已有就核對 request／response／errors 是否仍正確。
 
-## 3. doc_type 路由
+要建立或改寫文件時才讀 [doc-types.md](references/doc-types.md)：`docs/` 佈局與 doc_type 路由、frontmatter 與 `covers` 寫法、各型別的必要區塊、從 task 既有欄位收割內容的對照表，以及 `List`／`Stale`／`Check` 三個查詢 action。
 
-```text
-docs/
-├─ architecture.md         系統總覽與分層（一份）
-├─ structure.md            資料夾結構與檔案放置規則（一份）
-├─ dataflow.md             跨模組主要資料流（一份）
-├─ flows/<slug>.md         功能流程（以功能為單位、可跨模組）
-├─ modules/<slug>.md       模組文件
-├─ api/<slug>.md           API 規格（新增或修改對外端點時建立）
-├─ decisions/<slug>.md     決策記錄
-└─ glossary.md             詞彙表（一份）
-```
+## 3. 在 workflow task 內
 
-**一份文件只裝一個 doc_type、一個主題。** 內容變長時依 `covers` 或功能邊界拆成多份各自內聚的文件，讓 Lookup 只回傳相關的那幾份。不設行數上限——腐化的來源是「記了會過期的細節」，不是長度。
-
-repo 已有 docs 慣例時沿用既有位置與命名，只補 frontmatter：
-
-```yaml
----
-doc_type: architecture | structure | dataflow | flow | module | api | decision | glossary
-covers:
-  - game/gameList/Seth_10017/
-  - game/commonLogic/checkSeries/
----
-```
-
-`covers` 兩種 YAML 清單寫法都可以，行內的 `covers: ["a", "b"]` 等價於上面每行一項的寫法。
-
-`covers` 路徑文法與 `file_ownership` 相同（repo-relative、`/` 分隔、不含 `..`／`[`／`]`／反斜線）：以 `/` 結尾為目錄前綴，否則為精確檔案。`architecture.md`／`structure.md`／`dataflow.md`／`glossary.md` 的 `covers` 不參與比對（Lookup 一律附帶），可留空；`flow`、`module`、`api`、`decision` 的 `covers` 必填。
-
-要建立或改寫某個 doc_type 的內容時，才讀 [doc-types.md](references/doc-types.md)（各型別的必要區塊、記什麼與不記什麼）。
-
-## 4. 其他 `project-doc` action
-
-```text
-agent-workflow project-doc --action List                              # 全部文件
-agent-workflow project-doc --action Stale                             # covers 路徑比文件本身更新的文件
-agent-workflow project-doc --action Check --doc docs/structure.md     # frontmatter／covers／必要區塊
-```
-
-`Stale` 只回報一種情況：涵蓋路徑最後一次提交的時間晚於文件本身最後一次提交的時間。判斷完全來自版本歷史比較，不可能被手動改假；未提交的改動與未進版控的新文件都不會出現在結果中。結果只當線索，一律以現況程式為準。
-
-## 5. 在 workflow task 內
-
-透過 `agent-workflow task-write` 只填入 task.json 的 `project_docs.updated`：本次建立或更新的文件路徑，沒有文件要動就填 `none - <具體理由>`。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據，不得自行傳入這兩個欄位。需要人工閱讀時執行 `agent-workflow task-report`。從 task 既有欄位收割內容的對照表見 [doc-types.md](references/doc-types.md)。
+透過 `agent-workflow task-write` 只填入 task.json 的 `project_docs.updated`：本次建立或更新的文件路徑，沒有文件要動就填 `none - <具體理由>`。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據。需要人工閱讀時執行 `agent-workflow task-report`。

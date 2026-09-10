@@ -123,12 +123,15 @@ test("review-record rejects a workspace that changed after the pre-review finger
   const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--adopt-current-diff"], { input: JSON.stringify({ code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
   assert.equal(init.status, 0, init.stdout || init.stderr);
   writeFileSync(join(repo, "f.txt"), "two");
-  const preReview = JSON.parse(run(["worktree-fingerprint", "--path", repo]).stdout).workspace_sha256;
+  const opened = JSON.parse(run(["pre-review", "--path", repo]).stdout);
+  assert.equal(opened.valid, true);
+  assert.equal(opened.workspace_sha256, JSON.parse(run(["worktree-fingerprint", "--path", repo]).stdout).workspace_sha256);
+  const preReview = opened.workspace_sha256;
   writeFileSync(join(repo, "f.txt"), "three");
   const stale = run(["review-record", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--role", "reviewer", "--result", "pass", "--summary", "reviewed tree", "--expected-workspace-sha256", preReview]);
   assert.equal(stale.status, 1);
   assert.match(stale.stdout, /workspace changed since the pre-review fingerprint/);
-  const fresh = JSON.parse(run(["worktree-fingerprint", "--path", repo]).stdout).workspace_sha256;
+  const fresh = JSON.parse(run(["pre-review", "--path", repo]).stdout).workspace_sha256;
   const accepted = run(["review-record", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--role", "reviewer", "--result", "pass", "--summary", "reviewed tree", "--expected-workspace-sha256", fresh]);
   assert.equal(accepted.status, 0, accepted.stdout || accepted.stderr);
   const state = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));

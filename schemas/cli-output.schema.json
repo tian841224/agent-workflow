@@ -319,6 +319,18 @@
         "additionalProperties": false
       }
     },
+    "pre-review": {
+      "description": "Opens a review round: the diff check plus the workspace fingerprint review-record binds the resulting PASS to.",
+      "type": "object",
+      "required": ["valid", "check", "errors", "workspace_sha256"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "check": { "type": "string" },
+        "errors": { "type": "string" },
+        "workspace_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
     "worktree-fingerprint": {
       "type": "object",
       "required": ["workspace", "head", "dirty_sha256", "workspace_sha256"],

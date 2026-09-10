@@ -24,4 +24,9 @@ export function workflowPlan(taskPath = "", policyPath = schemaPath("workflow-po
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
-export function preReview(path: string): number { const diff = git(resolve(path), ["diff", "--check"]); output({ valid: diff.status === 0, check: "git diff --check", errors: diff.stderr || diff.stdout }); return diff.status === 0 ? 0 : 1; }
+// Opens a review round: rejects an unreviewable diff and pins the tree the resulting PASS may cover.
+export function preReview(path: string): number {
+  const workspace = resolve(path); const diff = git(workspace, ["diff", "--check"]);
+  output({ valid: diff.status === 0, check: "git diff --check", errors: diff.stderr || diff.stdout, workspace_sha256: workspaceFingerprint(workspace) });
+  return diff.status === 0 ? 0 : 1;
+}
