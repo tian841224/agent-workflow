@@ -24,6 +24,8 @@ reviewer 這一趟派一般 subagent（`general-purpose`），只讀已穩定的
 
 coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。已由 shared map 證實的搜尋與測試結果直接引用，不重新建立相同脈絡。
 
+交給 reviewer 的訊息只帶四項：穩定 diff 的路徑與 base、shared evidence map 的位置、這一輪新增的 impact／validation delta，以及需要主動推翻的風險假設。完整背景與已確認的 PASS 不重複貼上；reviewer 只回報 finding、blocker、FAIL 或未驗證限制，通過時回傳單行 `PASS`。
+
 ## Review 範圍與工作樹綁定
 
 每輪 review 前主對話跑一次 `agent-workflow pre-review`，它同時回傳 `git diff --check` 結果與 `workspace_sha256`；把該 sha256 傳給 `review-record --expected-workspace-sha256 <sha256>`，工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。

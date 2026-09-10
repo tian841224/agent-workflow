@@ -206,6 +206,75 @@ test("the validation runner exposes deterministic focused, affected, regression,
   assert.match(unknown.stderr, /unknown validation profile/);
 });
 
+test("preflight reports a prepared task in one read-only result", () => {
+  const root = join(tmpdir(), `agent-workflow-preflight-ready-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["-C", repo, "init", "-q"]); spawnSync("git", ["-C", repo, "config", "user.email", "test@example.com"]); spawnSync("git", ["-C", repo, "config", "user.name", "test"]);
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ dependencies: { example: "1.0.0" } }));
+  mkdirSync(join(repo, "node_modules")); writeFileSync(join(repo, "f.txt"), "one\n");
+  spawnSync("git", ["-C", repo, "add", "."]); spawnSync("git", ["-C", repo, "commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-preflight-ready"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Preflight\n\n## Goal\n\nCheck setup once.\n\n## Scope\n\nRepository and task prerequisites.\n\n## Completion criteria\n\n- [ ] all checks pass\n");
+  const stateRoot = join(root, "state");
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot], { input: JSON.stringify({ code_change: false, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", risk_flags: ["operational"] }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const before = readFileSync(join(task, "task.json"), "utf8");
+  const result = run(["preflight", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot]);
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  const body = JSON.parse(result.stdout);
+  const validate = validatorFor("preflight");
+  assert.ok(validate(body), JSON.stringify(validate.errors));
+  assert.equal(body.valid, true, result.stdout);
+  assert.deepEqual(body.checks.map((check) => check.id), ["node", "repository", "task", "lease", "worktree", "dependencies", "shell"]);
+  assert.deepEqual(body.errors, []);
+  assert.equal(readFileSync(join(task, "task.json"), "utf8"), before, "preflight must not mutate task state");
+});
+
+test("preflight groups intent and dependency blockers without writing state", () => {
+  const root = join(tmpdir(), `agent-workflow-preflight-blocked-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["-C", repo, "init", "-q"]); spawnSync("git", ["-C", repo, "config", "user.email", "test@example.com"]); spawnSync("git", ["-C", repo, "config", "user.name", "test"]);
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ dependencies: { example: "1.0.0" } }));
+  spawnSync("git", ["-C", repo, "add", "."]); spawnSync("git", ["-C", repo, "commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-preflight-blocked"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Broken intent\n\n# Goal\n\nMissing the required h2 heading.\n");
+  const stateRoot = join(root, "state");
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot], { input: JSON.stringify({ code_change: false, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", risk_flags: ["operational"] }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const before = readFileSync(join(task, "task.json"), "utf8");
+  const result = run(["preflight", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot]);
+  assert.equal(result.status, 1, result.stdout || result.stderr);
+  const body = JSON.parse(result.stdout);
+  const validate = validatorFor("preflight");
+  assert.ok(validate(body), JSON.stringify(validate.errors));
+  assert.equal(body.valid, false);
+  assert.ok(body.checks.some((check) => check.id === "task" && check.status === "fail"), result.stdout);
+  assert.ok(body.checks.some((check) => check.id === "dependencies" && check.status === "fail"), result.stdout);
+  assert.ok(body.errors.some((error) => error.startsWith("task: ")), result.stdout);
+  assert.ok(body.errors.some((error) => error.startsWith("dependencies: ")), result.stdout);
+  assert.equal(readFileSync(join(task, "task.json"), "utf8"), before, "blocked preflight must not mutate task state");
+});
+
+test("preflight reports an active lease together with other setup blockers", () => {
+  const root = join(tmpdir(), `agent-workflow-preflight-lease-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["-C", repo, "init", "-q"]); spawnSync("git", ["-C", repo, "config", "user.email", "test@example.com"]); spawnSync("git", ["-C", repo, "config", "user.name", "test"]);
+  writeFileSync(join(repo, "f.txt"), "one\n"); spawnSync("git", ["-C", repo, "add", "."]); spawnSync("git", ["-C", repo, "commit", "-q", "-m", "init"]);
+  const owner = join(root, "20260101-000000-preflight-owner"); mkdirSync(owner, { recursive: true });
+  writeFileSync(join(owner, "task.md"), "# Owner\n\n## Goal\n\nHold the worktree.\n\n## Scope\n\nOne repository.\n\n## Completion criteria\n\n- [ ] lease exists\n");
+  const stateRoot = join(root, "state");
+  const init = run(["task-init", "--task-path", owner, "--repo-root", repo, "--state-root", stateRoot], { input: JSON.stringify({ code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high" }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const result = run(["preflight", "--repo-root", repo, "--state-root", stateRoot]);
+  assert.equal(result.status, 1, result.stdout || result.stderr);
+  const body = JSON.parse(result.stdout);
+  const validate = validatorFor("preflight");
+  assert.ok(validate(body), JSON.stringify(validate.errors));
+  const lease = body.checks.find((check) => check.id === "lease");
+  assert.equal(lease.status, "fail", result.stdout);
+  assert.match(lease.detail, /20260101-000000-preflight-owner/);
+});
+
 test("project-doc Remember output matches its declared shape", () => {
   const root = join(tmpdir(), `agent-workflow-project-doc-remember-${process.pid}-${Date.now()}`);
   const task = join(root, "20260101-000000-project-doc-remember");

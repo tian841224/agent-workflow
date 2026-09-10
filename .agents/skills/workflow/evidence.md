@@ -18,11 +18,20 @@ Use one `evidence-record` or `evidence-run` command with repeated or comma-separ
 The runtime writes one evidence entry per id and one state revision for the batch. Every id must be a
 selected evidence step; role results use `review-record`.
 
+## Timing and handoff
+
+Run `agent-workflow preflight --task-path <path> --repo-root <repo-root>` once after task creation. It
+groups fixed environment failures before exploration, implementation, or validation starts. During
+implementation, keep one shared map of entrypoints, callers, boundaries, validation commands, and
+unknowns; pass that map by reference and add only new conclusions to each evidence step.
+
 Runtime execution evidence must come from `evidence-run`. Its freshness is currently delivery-wide:
 reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
 relevant environment remain the same. A change anywhere in the delivered worktree invalidates the
-receipt; run the affected check again after the delivery stabilizes. Do not infer path-scoped reuse
-without a separately verified dependency map.
+receipt. Use focused checks for local feedback, then run the final regression and delivery receipt once
+after source, tests, documents, and review are stable. If anything in the delivery changes afterward,
+rerun every required final command; do not infer path-scoped reuse without a separately verified
+dependency map.
 
 ## Scope
 

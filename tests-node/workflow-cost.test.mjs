@@ -35,7 +35,7 @@ const BUDGETS = [
   { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS], bytes: 5900 },
   { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS, WORKER], bytes: 9400 },
   { name: "cross-module-refactor", task: { ...scenario("cross-module-refactor"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "execution_path_review", "regression_validation", "reviewer"], roles: 1, procedures: [EVIDENCE, EXPANDED, PROJECT_DOCS, REVIEW], bytes: 12900 },
-  { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: false }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL], bytes: 6100 }
+  { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: false }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL], bytes: 6300 }
 ];
 
 function packetFor(root, budget) {

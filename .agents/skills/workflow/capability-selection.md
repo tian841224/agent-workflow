@@ -26,6 +26,8 @@ capability 被選中後，它底下哪些 step 需要填，由 policy 內每個 
 
 ## 交付批次與角色時機
 
+task 建立後先用一次 `agent-workflow preflight --task-path <path> --repo-root <repo-root>` 排除固定環境問題。實作期間只保留必要的局部驗證回饋；所有檔案、測試與文件都穩定後，才執行最終回歸、Review 與 delivery receipt。receipt 產生後若交付內容再變動，依 freshness 規則重新執行所需的 runtime checks。
+
 角色以一個 task 的最終可交付 diff 為單位選取與執行。任務拆成多個實作階段時，各階段只完成其局部測試與必要驗證；待所有階段整合、完成條件與完整 execution path 穩定後，才對整體變更集執行 Review。若某階段會獨立發布、不可逆地寫入外部系統，或其產物已成為後續階段不可回溯的前提，則視為獨立交付批次，在該批次完成前執行必要角色。
 
 finding 修正後採 delta-first 複查（見 [review.md](review.md)）；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。

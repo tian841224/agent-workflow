@@ -16,6 +16,8 @@ managed_change?
        ↓
 task-init（回傳 compiled plan + procedures）
        ↓
+preflight（一次檢查固定環境前置條件）
+       ↓
 只讀 plan 指向的文件與 project docs
        ↓
 implementation
@@ -31,14 +33,15 @@ close-task（自動重跑 completion gate）
 
 1. 先判斷 `managed_change`。它是 workflow 的唯一 entry gate；`code_change` 只描述是否修改 application source code。設定、script、schema、測試可信度與交付行為依是否可能改變執行結果判斷，不以檔案副檔名 bypass。
 2. `managed_change: true` 時建立 task intent，執行 `agent-workflow task-init --task-path <path>`，一次傳入已知分類與 `workflow_request`。回應已包含 `required`、`selected`、`order`、`exploration_profile` 與 procedure pointers；後續分類變更或 `project_docs.updated`／`independence` bookkeeping 才使用 `task-write`。分類變更會回傳新的 plan，非分類更新只回傳 task 與 `state_revision`。
-3. 只依 compiled plan 載入 procedure。capability 名稱、step 條件與執行順序以 `schemas/workflow-policy.json` 和 `workflow-plan` 輸出為準；不要在入口文件複製清單。
-4. 修改 application source code 前依 [project-docs skill](../project-docs/SKILL.md) 走 Lookup → 讀命中文件 → Remember，它擁有查詢、閱讀與回填的完整規則。
-5. `focused`／`expanded` 由 runtime 從同一份分類推導，不另判 Standard／Elevated。compiled plan 回報 `expanded` 時讀 [elevated.md](elevated.md)；selected capability 的操作規則在 [capability-selection.md](capability-selection.md)、[evidence.md](evidence.md)、[review.md](review.md) 及各專屬 skill。
-6. 依 compiled plan 決定驗證範圍，執行 `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]`；runner 自己拒絕不合法的 profile／路徑組合。測試路徑由 impact map 決定，不必再推理 focused 與 affected 的抽象差異；`regression` 表示 subsystem 或完整回歸意圖，`full` 固定執行整個 suite。`validation_profile` 是選填 metadata，不需為了執行測試填寫。開發期間保留必要的快速回饋，昂貴的回歸與最終 delivery receipt 等交付內容穩定後批次執行。純分析使用 `evidence-record`。
-7. 每個 `managed_change: true` 交付至少要有 `delivery_validation.DV1` runtime receipt；宣告 `runtime_execution` 的 step 只接受 `evidence-run`。記錄方式與 freshness 見 [evidence.md](evidence.md)。
-8. `reviewer` 被 required 或 requested 時，用 `review-record` 記錄唯一角色結果，主對話代跑時誠實記錄 `independence: degraded`；執行方式見 [review.md](review.md)。
-9. `task.md` 只保存 Goal、Scope、Completion criteria，以及 freeze-required task 的 Non-goals／Acceptance cases。evidence、validation、review、lifecycle、project docs 與 hashes 只在 `task.json`；需要人讀時用 `agent-workflow task-report`。
-10. 完成條件、evidence 與 reviewer 都完成後直接執行 `agent-workflow close-task`。只有需要診斷 blocker 時才先執行 `task-gate`；不要直接編輯 lifecycle 或 task.json。
+3. task 建立後只執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo-root>`。它一次回報 Node、Git worktree、task.md intent、worktree lease、依賴與平台 shell 前置條件；有 blocker 先修正，再開始探索或跑昂貴驗證。這個指令唯讀，不取代 task-init、activation 或 evidence。
+4. 只依 compiled plan 載入 procedure。capability 名稱、step 條件與執行順序以 `schemas/workflow-policy.json` 和 `workflow-plan` 輸出為準；不要在入口文件複製清單。
+5. 修改 application source code 前依 [project-docs skill](../project-docs/SKILL.md) 走 Lookup → 讀命中文件 → Remember，它擁有查詢、閱讀與回填的完整規則。
+6. `focused`／`expanded` 由 runtime 從同一份分類推導，不另判 Standard／Elevated。compiled plan 回報 `expanded` 時讀 [elevated.md](elevated.md)；selected capability 的操作規則在 [capability-selection.md](capability-selection.md)、[evidence.md](evidence.md)、[review.md](review.md) 及各專屬 skill。
+7. 依 compiled plan 決定驗證範圍，執行 `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]`；runner 自己拒絕不合法的 profile／路徑組合。測試路徑由 impact map 決定，不必再推理 focused 與 affected 的抽象差異；`regression` 表示 subsystem 或完整回歸意圖，`full` 固定執行整個 suite。`validation_profile` 是選填 metadata，不需為了執行測試填寫。開發期間只跑必要的局部回饋；待程式碼、測試、文件與 review 都穩定後，才執行一次最終回歸並批次記錄 delivery receipt。最後一次 delivery 變更會使先前 runtime receipt 失效，必須重新執行。純分析使用 `evidence-record`。
+8. 每個 `managed_change: true` 交付至少要有 `delivery_validation.DV1` runtime receipt；宣告 `runtime_execution` 的 step 只接受 `evidence-run`。記錄方式與 freshness 見 [evidence.md](evidence.md)。
+9. `reviewer` 被 required 或 requested 時，用 `review-record` 記錄唯一角色結果，主對話代跑時誠實記錄 `independence: degraded`；執行方式見 [review.md](review.md)。
+10. `task.md` 只保存 Goal、Scope、Completion criteria，以及 freeze-required 任務的 Non-goals／Acceptance cases。evidence、validation、review、lifecycle、project docs 與 hashes 只在 `task.json`；需要人讀時用 `agent-workflow task-report`。
+11. 完成條件、evidence 與 reviewer 都完成後直接執行 `agent-workflow close-task`。只有需要診斷 blocker 時才先執行 `task-gate`；不要直接編輯 lifecycle 或 task.json。
 
 ## Hard invariants
 

@@ -4,7 +4,7 @@ import { clearSkillProof, recordSkillRead, runGuard } from "./hooks.js";
 import { approveIntent, closeTask, evidenceRecord, evidenceRun, reclassify, reviewRecord, taskGate, taskInit, taskNext, taskWrite, transitionTask } from "./lifecycle/index.js";
 import { knowledge, knowledgeVerify, memoryContext } from "./knowledge.js";
 import { orchestrate } from "./experimental/orchestration.js";
-import { fingerprint, preReview, projectResolver, workflowPlan } from "./misc.js";
+import { fingerprint, preflight, preReview, projectResolver, workflowPlan } from "./misc.js";
 import { executionPacketCommand } from "./execution/index.js";
 import { skillCommand } from "./skills.js";
 import { retro, reviewCause, splitPlan } from "./records.js";
@@ -50,6 +50,7 @@ export const commandOptions: Record<string, string[]> = {
   retro: ["action", "state-root", "status", "id", "task-path", "proposed-change"],
   "review-cause": ["action", "state-root", "cause", "status", "id", "task-path", "evidence", "round", "paths", "min-occurrences"],
   "project-resolver": ["path", "state-root"],
+  preflight: [...TASK_TARGET_OPTIONS, "repo-root", "state-root"],
   "project-doc": ["action", "paths", "doc", "doc-root", "repo-root", "task-path"],
   "pre-review": ["path"],
   orchestrate: ["action", "id", "state-root"],
@@ -135,6 +136,7 @@ async function main(): Promise<void> {
   else if (command === "policy-matrix") process.exitCode = policyMatrixCommand(option(parsed.values, "policy-path") || undefined, option(parsed.values, "mode", "digests"), option(parsed.values, "task-type"));
   else if (command === "contract-lint") process.exitCode = contractLint(option(parsed.values, "root", parsed.positionals[0] || process.cwd()), commandOptions);
   else if (command === "pre-review") process.exitCode = preReview(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
+  else if (command === "preflight") process.exitCode = preflight(option(parsed.values, "task-path", option(parsed.values, "task", "")), option(parsed.values, "repo-root", process.cwd()), option(parsed.values, "state-root") || undefined);
   else if (command === "retro") process.exitCode = retro(parsed.values);
   else if (command === "review-cause") process.exitCode = reviewCause(parsed.values);
   else if (command === "split-plan") process.exitCode = splitPlan(parsed.values);

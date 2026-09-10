@@ -20,15 +20,17 @@ The runtime owns task classification, lifecycle transitions, compiled workflow p
 
 ## Entrypoints
 
-The Node CLI dispatches `task-init`, `task-write`, `workflow-plan`, `evidence-run`, `evidence-record`, `review-record`, `task-gate`, `close-task`, `project-doc`, `task-report`, and `pre-review`.
+The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`, `evidence-run`, `evidence-record`, `review-record`, `task-gate`, `close-task`, `project-doc`, `task-report`, and `pre-review`.
 
 ## Flow
 
-`task-init/task-write > compiled plan > implementation > evidence-run > delivery fingerprint check > task-gate > close-task`
+`task-init/task-write > preflight > compiled plan > implementation > focused feedback > review > final evidence-run > delivery fingerprint check > task-gate > close-task`
 
 `task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；focused task 只取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 
 `pre-review > reviewer > review-record`：`pre-review` 一次回傳 `git diff --check` 結果與該工作樹的 `workspace_sha256`，`review-record` 可接受這個 transient `--expected-workspace-sha256`；若工作樹已變更就拒絕寫入，review 欄位仍由 runtime 依目前 diff 計算。
+
+`preflight` 是 read-only setup gate：一次檢查 Node、Git worktree、task.md intent、worktree lease、依賴與平台 shell。它只回報 blocker，不建立 task、不取得 lease，也不寫入 evidence。
 
 `project-doc Lookup/Check/Remember > document metadata and section validation > project_docs task state`
 
@@ -43,6 +45,7 @@ Runtime execution evidence is recorded only after the command exits. The pre-spa
 ## Invariants and gotchas
 
 - `delivery_validation.DV1` is the minimum runtime receipt for every managed delivery; it does not replace high-risk evidence.
+- `preflight` runs once after task creation; it does not replace activation, project-doc checks, review, or runtime evidence.
 - Runtime evidence without a delivery fingerprint is stale and cannot satisfy a gate.
 - A non-zero command is recorded as a failed observation, not a passing receipt.
 - `task-report` never writes task state and never changes gate results.

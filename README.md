@@ -55,6 +55,8 @@ npx --yes @tian/agent-workflow@latest
 
 流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration；低信心、影響面擴大、契約／資料／schema／不可逆或其他高風險情境才使用 expanded exploration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
 
+建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間只跑必要的局部回饋；待程式碼、測試、文件與 Review 穩定後，再執行一次最終回歸並批次記錄 runtime evidence。最後一次交付變更會使舊 receipt 失效，必須重新執行。
+
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
 本機驗證用 `node scripts/run-tests.mjs --profile <focused|affected|regression|full>`：`focused` 與 `affected` 要明列測試路徑，`regression` 可指定 subsystem 或省略路徑跑完整 regression set，`full` 固定跑全部 `tests-node/**/*.test.mjs` 且拒絕混入路徑。CI 仍使用 full profile；runtime evidence 應記錄實際使用的 profile 與路徑。

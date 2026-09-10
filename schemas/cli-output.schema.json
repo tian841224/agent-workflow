@@ -331,6 +331,31 @@
       },
       "additionalProperties": false
     },
+    "preflight": {
+      "description": "Read-only setup checks for the repository, task intent, worktree lease, runtime, dependencies, and platform command launcher.",
+      "type": "object",
+      "required": ["valid", "repo_root", "task", "checks", "errors"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "repo_root": { "type": "string" },
+        "task": { "type": "string" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "status", "detail"],
+            "properties": {
+              "id": { "enum": ["node", "repository", "task", "lease", "worktree", "dependencies", "shell"] },
+              "status": { "enum": ["pass", "warn", "fail"] },
+              "detail": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "worktree-fingerprint": {
       "type": "object",
       "required": ["workspace", "head", "dirty_sha256", "workspace_sha256"],
