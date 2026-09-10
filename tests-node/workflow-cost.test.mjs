@@ -17,25 +17,30 @@ const WORKER = ".agents/agents/worker.md";
 const PROJECT_DOCS = ".agents/skills/project-docs/SKILL.md";
 const OPERATIONAL = ".agents/skills/operational-verification/SKILL.md";
 
-// This is a procedure regression guard, not a total workflow cost benchmark: it measures only what
-// the compiled packet points an agent at. Standing context (workflow/SKILL.md, AGENTS.md), the bytes
-// a project-doc Lookup actually reads, CLI round trips and rework re-reads are outside it, so a
-// passing budget here is not a claim that the end-to-end task got cheaper.
+// Standing documents every task reads before the packet is even compiled. They are inside the budget
+// so that moving a rule between standing context and a procedure nets out instead of reading as
+// growth: an earlier version billed procedures alone, and relocating the run-tests invocation out of
+// workflow/SKILL.md into evidence.md tripped every budget while cutting the real per-task cost.
+const STANDING = ["AGENTS.md", ".agents/skills/workflow/SKILL.md"];
+
+// A cost regression guard, not a total workflow benchmark: it measures the documents an agent reads
+// for one task. The bytes a project-doc Lookup actually reads, CLI round trips and rework re-reads
+// stay outside it, so a passing budget is not a claim that the end-to-end task got cheaper.
 //
 // The invariant is that quality and safety outcomes never drop — not that the step and capability
 // counts only grow. Merging capabilities or retiring a duplicated one is allowed once equivalent
 // verification evidence covers what it used to cover; a single evidence-run already satisfies several
 // requirement ids. Each entry therefore pins the capabilities and roles this scenario must still
-// reach, and the ceiling on the procedure bytes it may cost to reach them.
+// reach, and the ceiling on the bytes it may cost to reach them.
 //
 // `code_change` means application source code, so a config or deployment task keeps it false and
 // never pulls in the project-docs procedure.
 const BUDGETS = [
-  { name: "doc-only", task: { ...scenario("doc-only"), code_change: false }, capabilities: [], roles: 0, procedures: [], bytes: 0 },
-  { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS], bytes: 5900 },
-  { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS, WORKER], bytes: 9400 },
-  { name: "cross-module-refactor", task: { ...scenario("cross-module-refactor"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "execution_path_review", "regression_validation", "reviewer"], roles: 1, procedures: [EVIDENCE, EXPANDED, PROJECT_DOCS, REVIEW], bytes: 12900 },
-  { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: false }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL], bytes: 6300 }
+  { name: "doc-only", task: { ...scenario("doc-only"), code_change: false }, capabilities: [], roles: 0, procedures: [], bytes: 3500 },
+  { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS], bytes: 9900 },
+  { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS, WORKER], bytes: 13100 },
+  { name: "cross-module-refactor", task: { ...scenario("cross-module-refactor"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "execution_path_review", "regression_validation", "reviewer"], roles: 1, procedures: [EVIDENCE, EXPANDED, PROJECT_DOCS, REVIEW], bytes: 16700 },
+  { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: false }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL], bytes: 10100 }
 ];
 
 function packetFor(root, budget) {
@@ -64,8 +69,8 @@ for (const budget of BUDGETS) {
     for (const capability of budget.capabilities) assert.ok(packet.workflow.selected.includes(capability), `${budget.name} no longer selects ${capability}: ${JSON.stringify(packet.workflow.selected)}`);
     assert.equal(packet.required_evidence.filter((id) => id.startsWith("role.")).length, budget.roles);
     assert.deepEqual([...packet.procedures].sort(), [...budget.procedures].sort());
-    const bytes = packet.procedures.reduce((total, path) => total + statSync(join(process.cwd(), path)).size, 0);
-    assert.ok(bytes <= budget.bytes, `${budget.name} procedure bytes ${bytes} exceed the ${budget.bytes} budget`);
+    const bytes = [...STANDING, ...packet.procedures].reduce((total, path) => total + statSync(join(process.cwd(), path)).size, 0);
+    assert.ok(bytes <= budget.bytes, `${budget.name} standing + procedure bytes ${bytes} exceed the ${budget.bytes} budget`);
   });
 }
 

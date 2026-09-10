@@ -51,3 +51,7 @@ A given rule is authoritative in exactly one file; everywhere else points to it,
 ## Sediment
 
 Only-adding-never-removing is the default fate: adding feels safe, removing feels risky. Without an active pruning habit, docs accumulate like sediment layers. Every time you edit, check in passing: does this section still affect current behavior? If not, delete it — don't keep it "just in case."
+
+## 新增專案 skill
+
+新增 skill 時，先詢問使用者要列為必裝或選擇性，再更新 managed manifest。提煉的草稿先放在 `skill-drafts/`；只有使用者在對話中明確同意才執行 Promote，操作依 [distill](../distill/SKILL.md)。

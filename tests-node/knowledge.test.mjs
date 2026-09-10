@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,4 +54,25 @@ test("a freshly-created knowledge entry defaults to status needs_verification an
   assert.equal(context.status, 0, context.stderr);
   assert.match(context.stdout, /VERIFIED_DISTINCTIVE_TEXT/);
   assert.doesNotMatch(context.stdout, /CANDIDATE_DISTINCTIVE_TEXT/);
+});
+
+test("memory selection skips stale sources and fills the six-entry budget in relevance order", () => {
+  const root = join(tmpdir(), `agent-workflow-ranked-memory-${process.pid}-${Date.now()}`);
+  const entries = join(root, "knowledge", "global", "entries");
+  mkdirSync(entries, { recursive: true });
+  const source = join(root, "source.txt");
+  writeFileSync(source, "current source");
+  const digest = createHash("sha256").update("current source").digest("hex");
+  for (let index = 0; index < 9; index++) {
+    const stale = index === 0 || index === 2;
+    writeFileSync(join(entries, `${index}.md`), [
+      "---", `topic: fact-${index}`, "status: verified", `updated_at: 2026-09-${String(19 - index).padStart(2, "0")}T00:00:00Z`,
+      `source_path: ${source}`, `source_sha256: ${stale ? "0".repeat(64) : digest}`, "---", `fact body ${index}`
+    ].join("\n"));
+  }
+  const result = spawnSync(process.execPath, [cli, "memory-context", "--state-root", root], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+  assert.deepEqual([...context.matchAll(/- fact-(\d):/g)].map((match) => Number(match[1])), [1, 3, 4, 5, 6, 7]);
+  assert.doesNotMatch(context, /fact-0|fact-2|fact-8/);
 });

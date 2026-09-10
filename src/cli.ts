@@ -1,19 +1,4 @@
 import { PRODUCT_VERSION, flag, option, optionList, parseArgs, stateRoot, stdinJson } from "./core.js";
-import { install, migrateState } from "./installer.js";
-import { clearSkillProof, recordSkillRead, runGuard } from "./hooks.js";
-import { approveIntent, closeTask, evidenceRecord, evidenceRun, reclassify, reviewRecord, taskGate, taskInit, taskNext, taskWrite, transitionTask } from "./lifecycle/index.js";
-import { knowledge, knowledgeVerify, memoryContext } from "./knowledge.js";
-import { orchestrate } from "./experimental/orchestration.js";
-import { fingerprint, preflight, preReview, projectResolver, workflowPlan } from "./misc.js";
-import { executionPacketCommand } from "./execution/index.js";
-import { skillCommand } from "./skills.js";
-import { retro, reviewCause, splitPlan } from "./records.js";
-import { learn, skillDraft } from "./learning.js";
-import { memoryReview } from "./memory-review.js";
-import { projectDoc } from "./project-doc.js";
-import { contractLint } from "./contract-lint.js";
-import { policyMatrixCommand } from "./policy-matrix.js";
-import { taskReport } from "./task-report.js";
 
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
@@ -24,7 +9,6 @@ export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
-  "skill-guard": ["platform", "event", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd"],
   "workflow-plan": ["task-path", "policy-path"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
@@ -104,18 +88,16 @@ async function main(): Promise<void> {
     codex: option(parsed.values, "codex-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.codex`),
     antigravity: option(parsed.values, "antigravity-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.gemini`)
   });
-  if (command === "install") process.exitCode = await install(installOptions("Install"));
-  else if (command === "repair") process.exitCode = await install(installOptions("Repair"));
-  else if (command === "verify") process.exitCode = await install(installOptions("Verify"));
-  else if (command === "uninstall") process.exitCode = await install(installOptions("Uninstall"));
-  else if (command === "migrate-state") { process.stdout.write(`${JSON.stringify(migrateState(option(parsed.values, "state-root", stateRoot()), flag(parsed.values, "dry-run")))}\n`); }
-  else if (command === "git-guard" || command === "skill-guard") {
+  if (command === "install") process.exitCode = await (await import("./installer.js")).install(installOptions("Install"));
+  else if (command === "repair") process.exitCode = await (await import("./installer.js")).install(installOptions("Repair"));
+  else if (command === "verify") process.exitCode = await (await import("./installer.js")).install(installOptions("Verify"));
+  else if (command === "uninstall") process.exitCode = await (await import("./installer.js")).install(installOptions("Uninstall"));
+  else if (command === "migrate-state") { process.stdout.write(`${JSON.stringify((await import("./installer.js")).migrateState(option(parsed.values, "state-root", stateRoot()), flag(parsed.values, "dry-run")))}\n`); }
+  else if (command === "git-guard") {
     let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
     const platform = option(parsed.values, "platform", "Codex");
-    const event = option(parsed.values, "event", command === "git-guard" ? "PreToolUse" : "PreToolUse");
-    if (command === "skill-guard" && event === "PostToolUse") recordSkillRead(platform, payload, option(parsed.values, "state-root", stateRoot()));
-    if (command === "skill-guard" && event === "SessionEnd") clearSkillProof(platform, payload, option(parsed.values, "state-root", stateRoot()));
-    runGuard(command === "git-guard" ? "git" : "skill", platform, event, payload, option(parsed.values, "state-root", stateRoot()));
+    const event = option(parsed.values, "event", "PreToolUse");
+    (await import("./hooks.js")).runGuard(platform, event, payload, option(parsed.values, "state-root", stateRoot()));
   }
   else if (command === "memory-context") {
     // Only Antigravity's PreInvocation hook carries a payload worth reading here; the other
@@ -123,48 +105,49 @@ async function main(): Promise<void> {
     const platform = option(parsed.values, "platform", "Codex");
     let invocationNum: number | undefined;
     if (platform.toLowerCase() === "antigravity") { try { const value = stdinJson().invocationNum; invocationNum = typeof value === "number" ? value : undefined; } catch { invocationNum = undefined; } }
-    memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()), invocationNum);
+    if (platform.toLowerCase() === "antigravity" && invocationNum !== 0) { process.stdout.write(`${JSON.stringify({ injectSteps: [] })}\n`); return; }
+    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()), invocationNum);
   }
-  else if (command === "knowledge") process.exitCode = knowledge(option(parsed.values, "action", "Search"), parsed.values);
-  else if (command === "knowledge-verify") process.exitCode = knowledgeVerify(parsed.values);
-  else if (command === "orchestrate") process.exitCode = orchestrate(parsed.values);
-  else if (command === "workflow-plan") process.exitCode = workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
-  else if (command === "execution-packet") process.exitCode = executionPacketCommand(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
-  else if (command === "skill") process.exitCode = skillCommand(option(parsed.values, "action", "List"), option(parsed.values, "name"), option(parsed.values, "from"), option(parsed.values, "source"), option(parsed.values, "source-type"), option(parsed.values, "skill-path"), option(parsed.values, "root"));
-  else if (command === "project-resolver") process.exitCode = projectResolver(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "state-root", stateRoot()));
-  else if (command === "worktree-fingerprint") process.exitCode = fingerprint(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "base"), optionList(parsed.values, "paths"));
-  else if (command === "policy-matrix") process.exitCode = policyMatrixCommand(option(parsed.values, "policy-path") || undefined, option(parsed.values, "mode", "digests"), option(parsed.values, "task-type"));
-  else if (command === "contract-lint") process.exitCode = contractLint(option(parsed.values, "root", parsed.positionals[0] || process.cwd()), commandOptions);
-  else if (command === "pre-review") process.exitCode = preReview(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
-  else if (command === "preflight") process.exitCode = preflight(option(parsed.values, "task-path", option(parsed.values, "task", "")), option(parsed.values, "repo-root", process.cwd()), option(parsed.values, "state-root") || undefined);
-  else if (command === "retro") process.exitCode = retro(parsed.values);
-  else if (command === "review-cause") process.exitCode = reviewCause(parsed.values);
-  else if (command === "split-plan") process.exitCode = splitPlan(parsed.values);
-  else if (command === "learn") process.exitCode = learn(parsed.values);
-  else if (command === "skill-draft") process.exitCode = skillDraft(parsed.values);
-  else if (command === "project-doc") process.exitCode = projectDoc(parsed.values);
-  else if (command === "task-init") process.exitCode = taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
-  else if (command === "task-write") process.exitCode = taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
-  else if (command === "next") process.exitCode = taskNext(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
-  else if (command === "task-gate") process.exitCode = taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
-  else if (command === "task-report") process.exitCode = taskReport(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
-  else if (command === "close-task") process.exitCode = closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
-  else if (command === "approve-intent") process.exitCode = approveIntent(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "confirmed-by"), flag(parsed.values, "as-user"));
+  else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
+  else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);
+  else if (command === "orchestrate") process.exitCode = (await import("./experimental/orchestration.js")).orchestrate(parsed.values);
+  else if (command === "workflow-plan") process.exitCode = (await import("./misc.js")).workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
+  else if (command === "execution-packet") process.exitCode = (await import("./execution/index.js")).executionPacketCommand(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "skill") process.exitCode = (await import("./skills.js")).skillCommand(option(parsed.values, "action", "List"), option(parsed.values, "name"), option(parsed.values, "from"), option(parsed.values, "source"), option(parsed.values, "source-type"), option(parsed.values, "skill-path"), option(parsed.values, "root"));
+  else if (command === "project-resolver") process.exitCode = (await import("./misc.js")).projectResolver(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "state-root", stateRoot()));
+  else if (command === "worktree-fingerprint") process.exitCode = (await import("./misc.js")).fingerprint(option(parsed.values, "path", parsed.positionals[0] || process.cwd()), option(parsed.values, "base"), optionList(parsed.values, "paths"));
+  else if (command === "policy-matrix") process.exitCode = (await import("./policy-matrix.js")).policyMatrixCommand(option(parsed.values, "policy-path") || undefined, option(parsed.values, "mode", "digests"), option(parsed.values, "task-type"));
+  else if (command === "contract-lint") process.exitCode = (await import("./contract-lint.js")).contractLint(option(parsed.values, "root", parsed.positionals[0] || process.cwd()), commandOptions);
+  else if (command === "pre-review") process.exitCode = (await import("./misc.js")).preReview(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
+  else if (command === "preflight") process.exitCode = (await import("./misc.js")).preflight(option(parsed.values, "task-path", option(parsed.values, "task", "")), option(parsed.values, "repo-root", process.cwd()), option(parsed.values, "state-root") || undefined);
+  else if (command === "retro") process.exitCode = (await import("./records.js")).retro(parsed.values);
+  else if (command === "review-cause") process.exitCode = (await import("./records.js")).reviewCause(parsed.values);
+  else if (command === "split-plan") process.exitCode = (await import("./records.js")).splitPlan(parsed.values);
+  else if (command === "learn") process.exitCode = (await import("./learning.js")).learn(parsed.values);
+  else if (command === "skill-draft") process.exitCode = (await import("./learning.js")).skillDraft(parsed.values);
+  else if (command === "project-doc") process.exitCode = (await import("./project-doc.js")).projectDoc(parsed.values);
+  else if (command === "task-init") process.exitCode = (await import("./lifecycle/index.js")).taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
+  else if (command === "task-write") process.exitCode = (await import("./lifecycle/index.js")).taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
+  else if (command === "next") process.exitCode = (await import("./lifecycle/index.js")).taskNext(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "task-gate") process.exitCode = (await import("./lifecycle/index.js")).taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "task-report") process.exitCode = (await import("./task-report.js")).taskReport(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "close-task") process.exitCode = (await import("./lifecycle/index.js")).closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "approve-intent") process.exitCode = (await import("./lifecycle/index.js")).approveIntent(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "confirmed-by"), flag(parsed.values, "as-user"));
   else if (command === "evidence-record") {
     const execCommand = option(parsed.values, "command");
     const execution = execCommand ? { command: execCommand, cwd: option(parsed.values, "cwd", process.cwd()), exitCode: Number(option(parsed.values, "exit-code")), startedAt: option(parsed.values, "started-at"), durationMs: Number(option(parsed.values, "duration-ms", "0")), outputDigest: option(parsed.values, "output-digest") } : undefined;
-    process.exitCode = evidenceRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), execution);
+    process.exitCode = (await import("./lifecycle/index.js")).evidenceRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), execution);
   }
-  else if (command === "evidence-run") process.exitCode = evidenceRun(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), trailing, option(parsed.values, "cwd", process.cwd()));
-  else if (command === "reclassify") process.exitCode = reclassify(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "confirmed-by-user"), option(parsed.values, "reason"), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()));
+  else if (command === "evidence-run") process.exitCode = (await import("./lifecycle/index.js")).evidenceRun(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), trailing, option(parsed.values, "cwd", process.cwd()));
+  else if (command === "reclassify") process.exitCode = (await import("./lifecycle/index.js")).reclassify(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "confirmed-by-user"), option(parsed.values, "reason"), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()));
   else if (command === "review-record") {
     const cause = option(parsed.values, "cause"); const causeEvidence = option(parsed.values, "cause-evidence"); const causeRound = option(parsed.values, "cause-round"); const causePaths = optionList(parsed.values, "cause-paths");
     const causeInput = cause || causeEvidence || causeRound || causePaths.length ? { round: Number(causeRound), cause, evidence: causeEvidence, paths: causePaths } : undefined;
-    process.exitCode = reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()), causeInput, option(parsed.values, "state-root") || undefined, option(parsed.values, "expected-workspace-sha256"));
+    process.exitCode = (await import("./lifecycle/index.js")).reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()), causeInput, option(parsed.values, "state-root") || undefined, option(parsed.values, "expected-workspace-sha256"));
   }
-  else if (command === "memory-review") process.exitCode = memoryReview(parsed.values);
+  else if (command === "memory-review") process.exitCode = (await import("./memory-review.js")).memoryReview(parsed.values);
   else if (["pause", "block", "resume", "supersede", "waive"].includes(command)) {
-    const state = transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "resume" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
+    const state = (await import("./lifecycle/index.js")).transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "resume" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
     process.stdout.write(`${JSON.stringify(state)}\n`);
   }
   else {

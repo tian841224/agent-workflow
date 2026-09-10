@@ -17,7 +17,7 @@ covers:
 
 每一份 machine contract 只有一個 owner。`schemas/task.schema.json` 是目前唯一的 task-state contract，evidence、transition、waiver 與 `workflow_facts` 的結構都在其中定義，runtime 不另外持有隱性 schema；退役的 v2 contract 保存在 `schemas/legacy/task-v2.schema.json`，僅供 migration 參考。`schemas/cli-output.schema.json` 擁有各指令 stdout 的形狀，`src/cli.ts` 的 option registry 擁有各指令接受的參數。`contract-lint` 以這四者（task schema、workflow policy、CLI 指令與 option registry、cli-output schema）為真相來源，檢查 templates、`.agents/`、`adapters/` 與 docs 引用的 command、option、欄位名、capability 與 step id 是否都仍存在。`policy-matrix` 則把 policy 的選取結果對 classification 組合展開成 digest，讓「少跑一個該跑的 gate」這種不會 crash 的 regression 變成可比對的差異。`src/lifecycle/` 擁有 lifecycle 與 task-state runtime；其中 `transitions.ts` 擁有 lifecycle transition，`task-gate.ts` 擁有 contract evaluation，`evidence.ts` 擁有 evidence freshness，其他 module 分別處理 task store、schema、intent、ownership 與 worktree lease；`src/misc.ts` 的 `preflight` 只做一次環境前置檢查，不寫入 task state。`.agents/` 擁有給 agent 讀取的 procedure；`src/hooks.ts` 定義 `CanonicalHookEvent` 與 `HookDecision`；`adapters/` 只保留平台 payload／輸出格式的轉接與 hook template。Adapter 不重新解釋 workflow 語意，也不複製 schema 規則。
 
-Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `engines.node: ">=20"`）。`src/` 是 TypeScript source，`dist/` 有兩個可部署 ESM bundle：`agent-workflow.mjs` 是完整 CLI，`agent-workflow-hook.mjs` 只含 guard 判斷所需的 `hooks.ts` 與 `core.ts`。Guard hook 執行後者，`memory-context` 等其餘指令執行前者——guard 跑在每一次 tool call 上，讓它載入整個 CLI 會使每次呼叫都付出 installer、lifecycle、knowledge 與 policy 的解析成本。已安裝的 hooks 只執行記錄在 managed state 的 Node 絕對路徑與這兩個 bundle，不依賴 repo、`node_modules` 或 npx cache。
+Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `engines.node: ">=20"`）。`src/` 是 TypeScript source，`dist/` 有兩個可部署 ESM bundle：`agent-workflow.mjs` 是完整 CLI，`agent-workflow-hook.mjs` 只含 guard 判斷所需的 `hooks.ts` 與 `core.ts`。完整 CLI 在確認 command 與 options 後才動態載入該 subsystem；esbuild 仍輸出單一 CLI bundle，延後的是 module initialization，不需要部署額外 chunks。Guard hook 執行後者，`memory-context` 等其餘指令執行前者——guard 跑在每一次 tool call 上，讓它載入整個 CLI 會使每次呼叫都付出 installer、lifecycle、knowledge 與 policy 的解析成本。已安裝的 hooks 只執行記錄在 managed state 的 Node 絕對路徑與這兩個 bundle，不依賴 repo、`node_modules` 或 npx cache。
 
 安裝另外把 `agent-workflow.mjs` 原封不動複製到 npm global prefix 成為無副檔名的 `agent-workflow`（Windows 另加 `.cmd` 包裝），讓 CLI 在任何專案都可執行。這份副本必須與 runtime bundle 位元組相同：guard 以 PATH 副檔名順序解析裸 `agent-workflow` 並對解析到的檔案計算 SHA-256，比對 managed state 記錄的 runtime 雜湊，npm 自行產生的 shim 會使該比對失敗。
 
@@ -39,7 +39,7 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 ### task.json 的寫入路徑
 
-`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立與初始分類用 `task-init`，後續分類用 `task-write`（allowlist，非允許欄位一律拒絕）；文件完成紀錄只用 `task-write` 更新 `project_docs.updated`，且會保留既有 read／digest 證據；讀完 project doc 後用 `project-doc --action Remember --task-path` 寫入 `project_docs.read` 與 `project_docs.digests`，這兩個欄位不能由 task-write 自行填入，Lookup 只有 digest 和 read 路徑都相符才回報 `reusable`；`task-write` 另外拒絕兩種降級（`managed_change` true→false、移除既有 `risk_flags`），唯一入口是 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason` 並把該決定記進 `workflow_decision`；`impact_confidence` 不屬於受保護的降級，調低它只會讓 gate 要求更多而非更少，屬於 agent 自己的分析狀態，可直接用 `task-write` 更新，不需要使用者確認，也不必走 `reclassify`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step，`trust_level: attested`——agent 自述）／`evidence-run`（step，`trust_level: runtime`——runtime 實際執行該指令並記下 exit code、耗時、輸出 digest 與 delivery fingerprint），兩者都接受重複或逗號分隔的 `--requirement-id`，一次執行可在同一鎖內建立多筆同批 evidence；`review-record`（role）可接受 transient `--expected-workspace-sha256` 來綁定 reviewer 開始時的工作樹，但 persisted reviewed scope／digest 仍由 runtime 現算；policy 上宣告 `runtime_execution` 的 step 只接受 runtime evidence，`evidence_kind: execution` 且 exit code 非 0 一律不算通過；lifecycle 轉換用 `TaskLifecycle` 指令。persisted hash／timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對 `task.json` 的直接檔案寫入由 `src/hooks.ts` fail-closed 攔截。
+`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立與初始分類用 `task-init`，後續分類用 `task-write`（allowlist，非允許欄位一律拒絕）；文件完成紀錄只用 `task-write` 更新 `project_docs.updated`，且會保留既有 read／digest 證據；讀完 project doc 後用 `project-doc --action Remember --task-path` 寫入 `project_docs.read` 與 `project_docs.digests`，這兩個欄位不能由 task-write 自行填入，Lookup 只有 digest 和 read 路徑都相符才回報 `reusable`；`task-write` 另外拒絕兩種降級（`managed_change` true→false、移除既有 `risk_flags`），唯一入口是 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason` 並把該決定記進 `workflow_decision`；`impact_confidence` 不屬於受保護的降級，調低它只會讓 gate 要求更多而非更少，屬於 agent 自己的分析狀態，可直接用 `task-write` 更新，不需要使用者確認，也不必走 `reclassify`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step，`trust_level: attested`——agent 自述）／`evidence-run`（step，`trust_level: runtime`——runtime 實際執行該指令並記下 exit code、耗時、輸出 digest 與 delivery fingerprint），兩者都接受重複或逗號分隔的 `--requirement-id`，一次執行可在同一鎖內建立多筆同批 evidence；`review-record`（role）可接受 transient `--expected-workspace-sha256` 來綁定 reviewer 開始時的工作樹，但 persisted reviewed scope／digest 仍由 runtime 現算；policy 上宣告 `runtime_execution` 的 step 只接受 runtime evidence，`evidence_kind: execution` 且 exit code 非 0 一律不算通過；lifecycle 轉換用 `TaskLifecycle` 指令。persisted hash／timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對直接命名 `task.json` 的檔案寫入由 `src/hooks.ts` fail-closed 攔截。
 
 ### Lifecycle 與終端狀態
 
@@ -64,17 +64,15 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 
 ## Hook trust boundary
 
-Platform adapter 必須先正規化為 `CanonicalHookEvent`，runtime 僅回傳 `HookDecision`；未知或無法定位 target 的 mutation 絕不交由平台猜測，而是拒絕。
+Platform adapter 只正規化工具名稱、command 與直接路徑，轉成 `CanonicalHookEvent`；`git-guard` 是唯一 PreToolUse 入口，先做 task safety，再做 Git safety。不含 `task.json` 或 Git 的呼叫直接放行，不做全指令 mutation 分類、檔案讀取或雜湊。
 
-「無法定位」以實際解析結果為準，不以 payload 是否帶 path 欄位為準。Shell payload 沒有 path 欄位，但 redirect 與 mutating command 都在指令字串裡指名了目標，這些目標會被解析出來併入 `paths`，再走一般的受保護路徑判斷；只有目標含未展開的變數、glob 或 backtick 時才真的無法定位而拒絕。不開啟檔案的 redirect（`2>&1` 這類 fd 複製與 `/dev/null`／`NUL`）不算 mutation。
+Task safety 只保護直接命名 `task.json` 的工具或 shell segment。明確 read tool 與唯讀 shell command 可讀取；寫入需由 managed state 雜湊核對過的 runtime CLI，且 subcommand 必須是 sanctioned task writer。其他直接操作一律拒絕。只檢查命中 task.json 的片段，無關的 `cd`、build 等片段不影響 task read；`2>&1`／`1>&2`／`>&2` 是 descriptor rebinding，不是 command separator。`evidence-run` 可執行任意 caller command，因此不能取得 task writer 的全面豁免。
 
-Shell command 的判斷分兩層：先做 shell 解析取得真正會執行的 segment（剝除由資料型指令接收的 heredoc body 與引號內容、只在引號外切分隔符、把 `$( )` 與 backtick 內容視為獨立 segment、展開 `-c` 型直譯器與 prefix／remote wrapper 的 payload），再對 segment 判斷 allowlist。判斷是否為「資料」的依據是接收指令而非文字外觀：`cat`／`echo`／`grep` 的引號內容是資料，`bash`／`python` 的引號內容是程式碼。這一層是 `isShellMutation`（用於一般 mutation 偵測，保護 `task.json`／`.agents`）的規則。
+Git safety 只在 command 提到 Git 時解析。破壞性操作（hard reset、clean、branch delete、path checkout、restore、force push）及 hidden execution（wrapper、直譯器、remote/container、substitution、改變 Git 執行方式的 option）拒絕；其餘直接 Git 呼叫交由平台 native permission，包括 `cd repo && git checkout -b branch`。平台是否提示 approval 由平台 permission 設定決定，guard 放行本身不代表已獲使用者核准。diff machinery 的 output／external execution 與跨 project git-dir／work-tree 邊界仍保留。
 
-`git-guard` 對 git 指令另用更嚴格、不遞迴解析的規則：任何 wrapper／直譯器／remote／container carrier 或 command substitution 只要與提到 git 的 segment 同時出現，一律直接拒絕，不嘗試解析包裝內實際是哪個 git 指令——即使包裝內其實是唯讀安全的呼叫（例如 `ssh host git status`）也一樣。只有沒有任何間接層的裸 `git <subcommand>` 才會對照 allowlist（`status`／`diff`／`log`／`show`／`rev-parse`／`ls-files`／`rev-list`／受限的 `branch`／`remote`／`config`）。這是刻意的取捨：git 指令交給 runtime 自己判斷「包裝內其實安不安全」的成本，換成「看不懂就一律拒絕」的固定規則。
+`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不再保存或驗證 session read proof，也沒有 PostToolUse／SessionEnd guard。Claude／Codex 只在 SessionStart 載入 memory；Antigravity 保留 PreInvocation，後續 invocation 在 CLI dispatcher 載入 knowledge 模組前即回傳空結果。
 
-Managed hook 對未知 mutation、缺少 session id、無法正規化的路徑、損毀或逾期 state、讀取失敗與 hook exception 一律 fail closed。`.agents/**` 寫入必須有同一 session、同一 `.agents` root 的 `writing-for-agents/SKILL.md` 成功讀取事件；proof 同時綁定該檔案當前 SHA-256，skill 變動後舊 proof 立即失效。Claude／Codex 由 `SessionEnd` 主動清除 proof；Antigravity 沒有 SessionEnd contract，proof 以 conversation id 隔離並由既有 TTL 失效。TTL 對三平台都是遺留 state 的額外清理。
-
-這個機制只驗證可觀察到的讀取事件，不宣稱驗證模型理解內容；也不試圖防止擁有本機檔案系統權限者停用 hook 或直接改檔。無法提供成功讀取事件或 session id 的 adapter，維持 `.agents/**` 寫入 deny，不降級為提醒。
+這是對直接資源與高風險 pattern 的窄範圍檢查，不是完整 shell sandbox；變數間接算出的路徑、任意 script、alias 或同機程序的行為仍由平台權限管理。它不試圖防止擁有本機檔案權限者停用 hook。task runtime 的 schema、鎖、evidence freshness 與 reviewer gate 維持原有 authority。
 
 ## 文件路由
 
@@ -96,3 +94,7 @@ non_goals:      本次明確不順便處理的項目
 ## 安裝與遷移
 
 `install` 先建立不可覆寫的時間戳備份，再遷移既有 state。遷移可重跑；完成 Verify 前，既有的 managed command 與 runtime 保持原狀。既有 task frontmatter 轉為 `task.json`；`task.md` 就地去除 frontmatter、保留人的意圖內容而不刪除，原始完整檔案另收入備份，無法機械驗證的 evidence 標記為 `legacy-unverified`。managed state 記錄 package version、runtime hash、Node 路徑、platform targets 與 selected skills。Repair 從目前 repo checkout 取 source；只有已安裝 runtime 自我 repair 時才使用記錄 source。
+
+## Memory 的有界選取
+
+`memory-context` 先從 verified metadata 計算 relevance 並排序，再依序檢查 source freshness；過期來源跳過，取得 6 筆或達 800 字元上限即停止。未入選來源不需預先雜湊，入選來源仍逐筆核對當前內容。沒有新增常駐程序或 persistent index；Project Docs whole-tree digest 與 legacy cleanup 保留為量測後再評估的項目。

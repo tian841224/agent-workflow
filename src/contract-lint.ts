@@ -166,7 +166,8 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
   const skillText = existsSync(skillPath) ? readFileSync(skillPath, "utf8") : "";
   // The policy is the capability-name authority. A router that explicitly points to it does not
   // need to copy every name; retain the fallback check for older routers that still enumerate them.
-  const policyIsNamedAuthority = skillText.includes("schemas/workflow-policy.json") && skillText.includes("workflow-plan");
+  // The pointer counts whether it names the `workflow-plan` verb or the compiled plan it emits.
+  const policyIsNamedAuthority = skillText.includes("schemas/workflow-policy.json") && /workflow-plan|compiled plan/.test(skillText);
   if (!policyIsNamedAuthority) for (const name of capabilityNames) if (!skillText.includes(name)) findings.push({ file: ".agents/skills/workflow/SKILL.md", line: 0, rule: "undocumented-capability", detail: `capability '${name}' exists in workflow-policy.json but the workflow skill never names it` });
 
   const declaredFacts = new Set(((((taskSchema.$defs as JsonObject).workflowFacts as JsonObject).propertyNames as JsonObject).enum as string[]) || []);

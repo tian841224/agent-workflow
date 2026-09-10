@@ -33,3 +33,9 @@ task 建立後先用一次 `agent-workflow preflight --task-path <path> --repo-r
 finding 修正後採 delta-first 複查（見 [review.md](review.md)）；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。
 
 未知 capability 名稱或無效 `workflow_facts` 一律回報 contract error，名稱 authority 是 `schemas/workflow-policy.json`。
+
+## 分類更新與相容性
+
+後續分類以 `task-write` 更新；移除既有 `risk_flags` 或把 `managed_change` true 降為 false，只能走 `reclassify`，附使用者確認與原因。`impact_confidence` 調低會增加 gate 要求，可直接用 `task-write`。分類更新回傳新 plan，非分類 bookkeeping 只回傳 task 與 `state_revision`。
+
+`workflow_mode` 僅為 legacy compatibility；新 task 省略，舊 task 仍接受，不用它另行分流。`workflow_request` 只能在 runtime required 下加選。
