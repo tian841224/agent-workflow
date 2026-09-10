@@ -46,7 +46,8 @@ export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: str
     if (uncovered.length) return [`role evidence does not cover every changed path (${uncovered.slice(0, 3).join(", ")}${uncovered.length > 3 ? `, +${uncovered.length - 3} more` : ""}), re-review required: ${key}`];
     const reviewedPaths = [...new Set(paths.map((value) => value.trim()).filter(Boolean))].sort();
     const liveReviewedPaths = [...new Set(livePaths.map((value) => value.trim()).filter(Boolean))].sort();
-    const currentFingerprint = liveSnapshot && String(liveSnapshot.base || "") === base && JSON.stringify(reviewedPaths) === JSON.stringify(liveReviewedPaths)
+    // Workspace-mode snapshots have no diffFingerprint comparable to a review's, so only base mode reuses one.
+    const currentFingerprint = liveSnapshot && liveSnapshot.mode === "base" && String(liveSnapshot.base || "") === base && JSON.stringify(reviewedPaths) === JSON.stringify(liveReviewedPaths)
       ? liveSnapshot.fingerprint
       : diffFingerprint(repoRoot, base, paths);
     if (currentFingerprint !== String(item.reviewed_diff_sha256 || "")) return [`role evidence is stale (reviewed diff changed since review), re-review required: ${key}`];
@@ -230,14 +231,14 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
       const plan = compilePlanForTaskPath(current, path);
       const selectedRoles = new Set(plan.selected.filter((capability) => capability.kind === "role").map((capability) => `role.${String(capability.name)}`));
       if (!selectedRoles.has(roleKey)) throw new Error(`review-record: '${roleKey}' is not a selected role for this task; expected one of: ${[...selectedRoles].join(", ") || "(none)"}`);
-      // No HEAD fallback: a code task always gets base_commit from activation (task-init or
-      // task-write), so a missing one means activation was skipped or the state predates it, not
-      // something safe to paper over with the working tree's current HEAD.
-      const base = String(current.base_commit || "");
-      if (!base) throw new Error("review-record: task has no base_commit; the code task was not correctly activated");
+      // A code task always gets base_commit from activation; a missing one there means activation was skipped, not something a HEAD fallback may paper over.
+      if (current.code_change === true && !String(current.base_commit || "")) throw new Error("review-record: task has no base_commit; the code task was not correctly activated");
+      // A managed non-code task never activates, so HEAD is its only baseline — the same fallback deliverySnapshot already uses for that case.
+      const base = String(current.base_commit || "") || gitHead(repoRoot) || "";
+      if (!base) throw new Error("review-record: repository has no HEAD commit to use as the reviewed baseline");
       if (expectedWorkspaceSha256 && workspaceFingerprint(repoRoot) !== expectedWorkspaceSha256) throw new Error("review-record: workspace changed since the pre-review fingerprint; re-run the review");
       const paths = changedPaths(repoRoot, base);
-      if (!paths.length) throw new Error("review-record: no changed paths found between reviewed_base and the working tree; nothing to review");
+      if (!paths.length) throw new Error(`review-record: no changed paths found between reviewed_base (${base}) and the working tree; nothing to review${String(current.base_commit || "") ? "" : " (this task has no base_commit, so its baseline is the current HEAD: a delivery that was already committed is no longer reviewable)"}`);
       const reviewedDiffSha256 = diffFingerprint(repoRoot, base, paths);
       const delivery = reviewedDiffSha256;
       const intent_hash = currentIntentHash(path);

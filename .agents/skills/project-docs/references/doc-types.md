@@ -41,7 +41,7 @@ agent-workflow project-doc --action Stale                             # covers �
 agent-workflow project-doc --action Check --doc docs/structure.md     # frontmatter／covers／必要區塊
 ```
 
-`Stale` 只回報一種情況：涵蓋路徑最後一次提交的時間晚於文件本身最後一次提交的時間。判斷完全來自版本歷史比較，不可能被手動改假；未提交的改動與未進版控的新文件都不會出現在結果中。結果只當線索，一律以現況程式為準。
+`Stale` 只回報一種情況：涵蓋路徑最後一次提交的時間晚於文件本身最後一次提交的時間。判斷完全來自版本歷史比較，不可能被手動改假；未提交的改動不會出現在結果中，未進版控的文件則因為文件側取不到提交時間而永遠被列為 stale。結果只當線索，一律以現況程式為準。
 
 ## Architecture、Structure、Dataflow 三份總覽的分工
 

@@ -139,6 +139,49 @@ test("review-record rejects a workspace that changed after the pre-review finger
   assert.equal(review.reviewed_diff_sha256, review.delivery_hash);
 });
 
+// A managed non-code task never activates, so it has no base_commit. review-record used to demand one
+// unconditionally, which left `managed_change: true` + `code_change: false` + a required reviewer with
+// no way to record the role evidence its own plan required, and so no way through the gate.
+test("a required reviewer on a non-code managed task can be recorded and clears the gate", () => {
+  const root = join(tmpdir(), `agent-workflow-review-noncode-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["-C", repo, "init", "-q"]); spawnSync("git", ["-C", repo, "config", "user.email", "test@example.com"]); spawnSync("git", ["-C", repo, "config", "user.name", "test"]);
+  writeFileSync(join(repo, "config.json"), "{}\n"); spawnSync("git", ["-C", repo, "add", "."]); spawnSync("git", ["-C", repo, "commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-review-noncode"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Config review\n\n## Goal\n\nReview a config-only change.\n\n## Scope\n\nOne config file.\n\n## Completion criteria\n\n- [ ] review is recorded\n");
+  const stateRoot = join(root, "state");
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot], { input: JSON.stringify({ code_change: false, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", risk_flags: ["operational"], workflow_request: ["reviewer"] }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  writeFileSync(join(repo, "config.json"), "{\"retries\": 3}\n");
+  const head = spawnSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const reviewed = run(["review-record", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--role", "reviewer", "--result", "pass", "--summary", "config change reviewed"]);
+  assert.equal(reviewed.status, 0, reviewed.stdout || reviewed.stderr);
+  const recorded = JSON.parse(readFileSync(join(task, "task.json"), "utf8")).evidence.at(-1);
+  assert.equal(recorded.reviewed_base, head);
+  assert.deepEqual(recorded.reviewed_paths, ["config.json"]);
+  const gated = JSON.parse(run(["task-gate", "--task-path", task, "--repo-root", repo]).stdout);
+  assert.ok(!gated.errors.some((error) => error.includes("role.reviewer")), gated.errors.join("; "));
+});
+
+test("review-record still refuses a code task whose activation never recorded a base_commit", () => {
+  const root = join(tmpdir(), `agent-workflow-review-nobase-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["-C", repo, "init", "-q"]); spawnSync("git", ["-C", repo, "config", "user.email", "test@example.com"]); spawnSync("git", ["-C", repo, "config", "user.name", "test"]);
+  writeFileSync(join(repo, "f.txt"), "one"); spawnSync("git", ["-C", repo, "add", "."]); spawnSync("git", ["-C", repo, "commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-review-nobase"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Missing baseline\n\n## Goal\n\nKeep code tasks pinned to activation.\n\n## Scope\n\nOne file.\n\n## Completion criteria\n\n- [ ] activation is still required\n");
+  const stateRoot = join(root, "state");
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot], { input: JSON.stringify({ code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
+  assert.equal(init.status, 0, init.stdout || init.stderr);
+  const state = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
+  delete state.base_commit; // the pre-activation state this guard exists for
+  writeFileSync(join(task, "task.json"), JSON.stringify(state));
+  writeFileSync(join(repo, "f.txt"), "two");
+  const refused = run(["review-record", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--role", "reviewer", "--result", "pass", "--summary", "should not be accepted"]);
+  assert.equal(refused.status, 1, refused.stdout);
+  assert.match(refused.stdout, /task has no base_commit/);
+});
+
 test("the focused test runner rejects missing or outside paths instead of silently running the full suite", () => {
   const missing = spawnSync(process.execPath, ["scripts/run-tests.mjs", "tests-node/no-such-test.test.mjs"], { cwd: process.cwd(), encoding: "utf8" });
   assert.notEqual(missing.status, 0);
