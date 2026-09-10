@@ -42,6 +42,10 @@ handoff, worktree setup, integration, and final verification.
 
 ## Validation command
 
-Use `node scripts/run-tests.mjs --profile <focused|affected|regression|full> [-- <path> ...]` with paths from the impact map. `focused` and `affected` require explicit paths; `regression` may target a subsystem or the full regression set; `full` always runs the whole suite. `validation_profile` is optional metadata, not a prerequisite for running tests.
+`focused|affected|regression|full` is a scope (which impact-map paths the run must cover), not a
+command. `focused`/`affected` need explicit paths; `regression` may target a subsystem or the full set;
+`full` runs the whole suite. Run the target project's own native test command at that scope (`go test
+./path/...`, `npm test -- path`, ...) — `scripts/run-tests.mjs` only runs this framework's own
+`tests-node/` suite, not a general contract. `validation_profile` is optional metadata.
 
 Every managed delivery needs a `delivery_validation.DV1` runtime receipt, whatever else the packet selected.
