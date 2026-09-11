@@ -31,7 +31,7 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 ### 角色與 ExecutionPacket
 
-`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作，且只執行 coordinator 提供的 ExecutionPacket；task 分類、capability 選取與 task lifecycle 都由 coordinator 持有。`agent-workflow execution-packet` 是 implementation Worker 的唯一 execution contract，內容包含 task intent、classification、compiled capability／step、execution constraints、procedure pointers、required evidence 與 plan identity；task.md／task.json 仍是 coordinator 與 runtime 的 authority。Packet 直接帶 selected step titles；一般 evidence capability 指向精簡的 `workflow/evidence.md`，只有需要完整操作規則時才指向專屬 skill，避免 Worker 為了還原已完成的決策重新讀取整份 policy。task-init、task-write 與 ExecutionPacket 共用同一個 procedure resolver，依 compiled exploration profile、角色與 code_change 加入必要的 expanded／role／project-doc 文件。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。
+`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作，且只執行 coordinator 提供的 ExecutionPacket；task 分類、capability 選取與 task lifecycle 都由 coordinator 持有。`agent-workflow execution-packet` 是 implementation Worker 的唯一 execution contract，內容包含 task intent、classification、compiled capability／step、execution constraints、procedure pointers、required evidence 與 plan identity；task.md／task.json 仍是 coordinator 與 runtime 的 authority。Packet 直接帶 selected step titles；一般 evidence capability 指向精簡的 `workflow/evidence.md`，只有需要完整操作規則時才指向專屬 skill，避免 Worker 為了還原已完成的決策重新讀取整份 policy。task-init、task-write 與 ExecutionPacket 共用同一個 procedure resolver；expanded／role 文件依 compiled exploration profile 與角色加入，project-doc 則只在 module/shared behavior、contract、data/schema、expanded exploration 或相關高影響邊界成立時加入。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。
 
 ### task.md 與 task.json 的分工
 
@@ -97,4 +97,4 @@ non_goals:      本次明確不順便處理的項目
 
 ## Memory 的有界選取
 
-`memory-context` 先從 verified metadata 計算 relevance 並排序，再依序檢查 source freshness；過期來源跳過，取得 6 筆或達 800 字元上限即停止。未入選來源不需預先雜湊，入選來源仍逐筆核對當前內容。沒有新增常駐程序或 persistent index；Project Docs whole-tree digest 與 legacy cleanup 保留為量測後再評估的項目。
+自動 `memory-context --auto` 沒有能代表目前任務的有效 query 時，在列舉或讀取 knowledge entries 前直接回空；同 project 或最近更新不構成 relevance。只有有明確 query 的情況才做 verified memory 的 relevance 篩選與 source freshness 檢查，再套用 6 筆／800 字元上限。任務需要歷史脈絡但 hook 沒有可靠 query 時，由 agent 以 `knowledge --action Search --query '<keywords>'` 明確搜尋。沒有新增 persistent index；Project Docs whole-tree digest 與 legacy cleanup 保留為量測後再評估的項目。
