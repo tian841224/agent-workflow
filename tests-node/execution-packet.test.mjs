@@ -70,6 +70,16 @@ test("execution-packet reports a missing task state instead of throwing", () => 
   assert.equal(missing.status, 1);
 });
 
+test("execution-packet skips project docs for focused file-local behavior changes", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-local-docs-${process.pid}-${Date.now()}`);
+  const { repo, task } = setupPreflightTask(root);
+  const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.equal(result.status, 0, result.stdout);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.workflow.exploration_profile, "focused");
+  assert.ok(!packet.procedures.includes(".agents/skills/project-docs/SKILL.md"), JSON.stringify(packet.procedures));
+});
+
 test("execution-packet keeps the explicit managed_change bypass procedure-free", () => {
   const root = join(tmpdir(), `agent-workflow-execution-packet-unmanaged-${process.pid}-${Date.now()}`);
   const { repo, task } = setupPreflightTask(root);
