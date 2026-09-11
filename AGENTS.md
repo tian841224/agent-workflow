@@ -20,5 +20,5 @@
 
 - 修改 `.agents/` 底下 agent 或 skill 文件 → `writing-for-agents`；新增 skill 的 manifest 分類也依該 skill 處理。
 - 修改 agents、skills、hooks 或 workflow contract → 先讀 [docs/architecture.md](docs/architecture.md)。
-- 同一 session 首次需要 zh-TW 輸出 → `localization-tw`，之後沿用回覆檢查規則。<!-- skill:localization-tw -->
+- EN／JA ↔ zh-TW 翻譯、中文 UI copy 或需要術語校對的正式在地化內容 → `localization-tw`；一般 zh-TW 回覆只用上方短 locale 規則。<!-- skill:localization-tw -->
 - 查看或分析前端頁面 → 優先讀 DOM，無法解析時才用截圖。
