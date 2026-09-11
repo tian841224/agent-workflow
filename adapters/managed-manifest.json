@@ -9,7 +9,7 @@
     "architecture-review": {"required": false, "description": "架構、跨層耦合與遷移風險審查"},
     "diagnosing-bugs": {"required": false, "description": "疑難除錯、重現與根因驗證"},
     "planning": {"required": true, "description": "需求釐清、方案比較與實作規劃"},
-    "push-back": {"required": true, "description": "檢查方案是否過度複雜或偏離最小改動"},
+    "push-back": {"required": false, "description": "相容入口；核心技術判斷規則已常駐於 AGENTS.md"},
     "learn": {"required": true, "description": "保存使用者確認的可重複使用結論"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
