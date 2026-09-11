@@ -6,10 +6,11 @@
 
 1. 以 2–5 個關鍵字執行 `agent-workflow knowledge --action Search --query '<keywords>' --limit 5`。Query 用小寫英文單字、空白分隔（topic 是英文 kebab-case，中文與整串連字號的命中率極低）。
 2. Search 只回傳 entry 第一行前 180 字，命中後要讀 `path` 全文。
-3. Managed hook 會自動執行 `memory-context`：Claude／Codex 在 `SessionStart`，Antigravity 掛在 `PreInvocation` 並只在該 conversation 的第一次 model invocation 掃描。讀取共用 curated store 與可讀的原生 Markdown／text 記憶並注入 reference context；原生記憶只讀不寫，標記 `needs_verification`，不會被複製進 curated store。session summaries、instruction-only files、credential-like content 與 Antigravity `.pb` 檔案預設排除。
-4. `needs_verification` 或可能過時的記憶只當線索，使用前回查目前程式、文件或設定。
-5. Reviewer 可自行執行 Search 建立脈絡。
-6. 專案結構與模組流程不走 knowledge，改走 project docs（見 [project-docs skill](../project-docs/SKILL.md)）。
+3. Managed hook 會執行 `memory-context --auto`：Claude／Codex 在 `SessionStart`，Antigravity 在 `PreInvocation`。自動模式必須先有可用來判斷任務關聯性的 query；沒有有效 query 時直接回空，而且不得 fallback 到同 project 或最近更新的記憶。即使有 query，也只有所有有效關鍵字都命中的 verified memory 才能注入；沒有相關結果就是 0 筆。
+4. `--auto` 的 0 筆結果不是錯誤，也不要用降低 threshold、減少 Top-K 或改用 recency 補結果。任務真的需要歷史脈絡時，由 agent 依第 1 點用當前任務關鍵字明確 Search。
+5. `needs_verification` 或可能過時的記憶只當線索，使用前回查目前程式、文件或設定。
+6. Reviewer 可自行執行 Search 建立脈絡。
+7. 專案結構與模組流程不走 knowledge，改走 project docs（見 [project-docs skill](../project-docs/SKILL.md)）。
 
 ## 寫入
 
