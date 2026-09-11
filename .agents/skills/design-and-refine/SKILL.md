@@ -1,6 +1,6 @@
 ---
 name: design-and-refine
-description: Explore UI design directions through a structured interview, five meaningfully different variations, interactive feedback, refinement, and an implementation plan. Use when the user wants to design or redesign a component or page, compare UI approaches, or make a frontend design decision.
+description: Explore multiple UI directions only when comparison and feedback would improve the design decision. Use for redesign exploration, competing UI approaches, or uncertain visual direction; skip the lab when the user already chose a concrete direction.
 metadata:
   source: https://github.com/0xdesign/design-plugin
   upstream: design-and-refine
@@ -10,11 +10,13 @@ metadata:
 
 # Design and Refine
 
-Use the complete workflow in [`skills/design-lab/SKILL.md`](skills/design-lab/SKILL.md). Read that file before beginning a design session; it defines the interview, project style inference, variation generation, feedback overlay, refinement, final preview, cleanup, and implementation-plan requirements.
+Use [`skills/design-lab/SKILL.md`](skills/design-lab/SKILL.md) when the task actually needs design exploration. The lab is adaptive: it reads the closest repository evidence, asks only decision-changing questions, and produces only as many materially different variants as needed.
+
+If the user already supplied a concrete design direction and wants implementation rather than comparison, do not start a design lab; follow that direction within the existing project constraints.
 
 ## Platform entrypoints
 
 - Claude Code: `/design-and-refine:start [target]` when the native plugin command is available.
-- Other AI agents: invoke this skill directly and follow the same Design Lab workflow.
+- Other AI agents: invoke this skill directly and use the same adaptive Design Lab rules.
 
-Use the bundled templates under `templates/` and feedback components under `templates/feedback/`. Treat the upstream `commands/` and `hooks/` files as Claude plugin integration metadata; the platform-neutral workflow is the root skill plus `skills/design-lab/SKILL.md`.
+Treat bundled `commands/`, `hooks/`, templates, and feedback components as implementation support. Load them only when the active branch requires them.
