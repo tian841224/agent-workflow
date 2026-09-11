@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Claude",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Claude --auto",
             "timeout": 15
           }
         ]
