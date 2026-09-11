@@ -33,12 +33,12 @@ const STANDING = ["AGENTS.md", ".agents/skills/workflow/SKILL.md"];
 // requirement ids. Each entry therefore pins the capabilities and roles this scenario must still
 // reach, and the ceiling on the bytes it may cost to reach them.
 //
-// `code_change` means application source code, so a config or deployment task keeps it false and
-// never pulls in the project-docs procedure.
+// `code_change` alone no longer pulls project docs. Focused high-confidence file-local changes skip
+// that procedure; module/shared/contract/data/high-risk changes still load it.
 const BUDGETS = [
   { name: "doc-only", task: { ...scenario("doc-only"), code_change: false }, capabilities: [], roles: 0, procedures: [], bytes: 3500 },
-  { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS], bytes: 10000 },
-  { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, PROJECT_DOCS, WORKER], bytes: 13200 },
+  { name: "normal-bugfix", task: { ...scenario("normal-bugfix"), code_change: true }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE], bytes: 7000 },
+  { name: "focused-worker", task: { ...scenario("normal-bugfix"), code_change: true, subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/"] }, capabilities: ["delivery_validation"], roles: 0, procedures: [EVIDENCE, WORKER], bytes: 10500 },
   { name: "cross-module-refactor", task: { ...scenario("cross-module-refactor"), code_change: true }, capabilities: ["baseline_validation", "delivery_validation", "execution_path_review", "regression_validation", "reviewer"], roles: 1, procedures: [EVIDENCE, EXPANDED, PROJECT_DOCS, REVIEW], bytes: 16800 },
   { name: "deployment-config", task: { ...scenario("deployment-config"), code_change: false }, capabilities: ["baseline_validation", "delivery_validation", "operational_verification"], roles: 0, procedures: [EVIDENCE, EXPANDED, OPERATIONAL], bytes: 10200 }
 ];
