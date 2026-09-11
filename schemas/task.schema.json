@@ -16,7 +16,7 @@
     "managed_change": { "type": "boolean", "description": "Whether this task enters the managed workflow. True when the change can affect executable behavior, data, contracts, security, deployment/runtime results, delivery behavior, or verification integrity. False bypasses the managed workflow regardless of code_change. Safe test-only additions, assertion strengthening, and test refactors that do not weaken verification may remain false." },
     "workflow_mode": { "enum": ["main", "legacy"] },
     "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
-    "model_profile": { "enum": ["cheap_read", "deep_read"] },
+    "model_profile": { "enum": ["cheap_read", "deep_read"], "deprecated": true, "description": "Compatibility-only field for older task records. Current runtime ignores it and removes it on the next task-write." },
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
