@@ -1,6 +1,6 @@
 ---
 name: clean-comments
-description: 指導如何撰寫精簡、高資訊密度且位置精確的程式碼註解。避免在函式上方堆疊過多內部實作細節、杜絕贅字與語法翻譯，並確保關鍵邏輯／降級策略精準就近放置在對應程式碼上方。
+description: 詳細程式碼註解規範；只有新增／重寫多行註解、public/doc comments、高風險判斷依據，或 review 發現 comment pollution 時載入。一般 logic change 只遵守 AGENTS.md 的短註解規則。
 ---
 
 # 精簡與結構化程式碼註解規範
