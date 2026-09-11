@@ -1,6 +1,6 @@
 ---
 name: push-back
-description: 使用者指定的實作或設計做法看起來明顯錯誤、矛盾、危險或不必要複雜時使用。
+description: 相容入口。核心技術判斷規則已常駐 AGENTS.md；只有需要重新確認何時應反對使用者指定方案時才讀本檔。
 ---
 
 # Push Back
