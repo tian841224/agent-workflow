@@ -87,9 +87,9 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 ### 跨平台記憶讀取
 
-專案支援 Claude Code、Codex 與 Antigravity 之間的記憶脈絡讀取。由 managed hook 自動從共用 knowledge 與各平台可讀取的原生文字記憶中篩選相關資訊，提供給 AI 參考：Claude／Codex 在 session 啟動的 `SessionStart`，Antigravity 在 `PreInvocation`，且只在該 conversation 的第一次 model invocation 注入。
+專案保留 Claude Code、Codex 與 Antigravity 的 `memory-context` hook，但自動 hook 一律使用嚴格 relevance gate。沒有能代表目前任務的有效 query 時直接回空，且在列舉／讀取 knowledge entries 前就停止；不得用同 project、最近更新或降低 threshold 來補結果。有 query 時，只有所有有效關鍵字都命中的 verified memory 才能注入，沒有相關結果就是 0 筆。
 
-這項功能只負責讀取與整理記憶，原生來源只讀且不會任意改寫其他平台的原生記憶，讓不同 AI 工具在同一個專案中能共享必要脈絡。
+任務真的需要歷史脈絡時，由 agent 以目前任務的 2–5 個關鍵字執行 `agent-workflow knowledge --action Search --query '<keywords>'`；原生來源與 curated knowledge 都只作參考，使用前仍需依目前程式、文件或設定驗證。
 
 ### Skills
 
@@ -100,11 +100,11 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 | [`workflow`](.agents/skills/workflow/SKILL.md) | 必裝 | 由 `managed_change` 決定是否建立 task，再依實際 impact／risk 決定 `workflow_request` 與 required capability；安全 test-only、文件與 read-only 任務可 bypass，高風險設定／script 與 test-integrity 修改仍進 workflow。 |
 | [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 必裝 | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／interface／depth／seam／adapter 等設計標準；選取 `codebase_design` capability 時主動載入。 |
 | [`planning`](.agents/skills/planning/SKILL.md) | 必裝 | 進行架構設計、功能規劃、重構策略、技術方案比較或遇到模糊需求（unclear_requirements）時，先釐清目標、限制與完成條件。 |
-| [`push-back`](.agents/skills/push-back/SKILL.md) | 必裝 | 使用者選定實作或設計方向後，評估是否符合現有架構、是否為最小改動，以及是否引入不必要的複雜度；主動提出具體意見與替代方案。 |
+| [`push-back`](.agents/skills/push-back/SKILL.md) | 必裝 | 核心規則已常駐於 `AGENTS.md`；skill 保留相容入口，僅在需要明確檢查方案是否錯誤、危險或不必要複雜時使用。 |
 | [`learn`](.agents/skills/learn/SKILL.md) | 必裝 | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 必裝 | 使用者要求壓力測試或計畫已有高風險未決假設時，逐題進行深度提問直到決策樹清晰。 |
 | [`tdd`](.agents/skills/tdd/SKILL.md) | 必裝 | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；選取 `tdd` capability 時由 workflow 主動載入並記錄 TDD evidence。 |
-| [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 必裝 | 修改 application source code logic 前載入；精準撰寫高資訊密度註解，聚焦於目的、合約與非顯而易見的原因，避免贅述語法與實作細節。 |
+| [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 必裝 | 核心「只解釋非顯而易見的意圖／限制／原因、不逐句翻譯程式碼」規則已常駐於 `AGENTS.md`；只有多行註解、public/doc comments、高風險判斷依據或 comment pollution 才載入完整 skill。 |
 | [`architecture-review`](.agents/skills/architecture-review/SKILL.md) | 選擇性 | 審查既有程式架構、跨層耦合、模組責任、契約漂移與遷移風險；以 static fact、hypothesis、runtime proof 區分證據並提出漸進改善方案。 |
 | [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 選擇性 | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正；選取 `bug_diagnosis` capability 時主動載入並記錄診斷證據。 |
 | [`project-docs`](.agents/skills/project-docs/SKILL.md) | 選擇性 | 修改 application source code 前載入；先查出涵蓋本次路徑的 `docs/` 文件並讀過再動手，改完後依查詢結果建立缺少的文件或更新已失準的內容。 |
@@ -123,6 +123,8 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 - **不自行變更 Git 狀態**：不自行 commit、push、rebase、merge 或執行破壞性 Git 操作。
 - **尊重使用者修改**：不覆寫、刪除或重設使用者未要求處理的修改與資料。
+- **技術判斷不盲從**：使用者指定的做法若明顯錯誤、矛盾、危險或造成不必要複雜度，先指出影響與替代方案；合理取捨則尊重選擇。
+- **註解只保留高資訊內容**：只說明非顯而易見的意圖、限制、合約或原因，不逐句翻譯程式碼或重述命名。
 - **最小變更與根因優先**：先讀現況與規則，只做需求直接需要的最小變更；驗證失敗先修根因，不降低完成條件。
 - **分層證據原則**：安裝、部署或外部整合驗證，證據不得跨越靜態設定、本機 mock、本機 runtime 與遠端環境等層級。
 - **安全邊界**：`unknown` 代表尚未證明，不代表沒有影響；Worker 為唯一寫入角色，其餘角色一律唯讀。
