@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, stateRoot, withFileLock, writeJson } from "../core.js";
-import { deriveModelProfile } from "../classification/model-profile.js";
 import { intentHash } from "../intent.js";
 import { memoryReviewPrompt } from "../memory-review.js";
 import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
@@ -79,7 +78,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
     if (existsSync(path)) { output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
     try {
       const disallowed = Object.keys(patch).filter((key) => !TASK_INIT_WRITABLE_FIELDS.has(key));
-      if (disallowed.length) throw new Error(`task-init: field(s) are not writable via task-init: ${disallowed.join(", ")} (identity/evidence/intent_approval/model_profile/lifecycle are runtime-managed)`);
+      if (disallowed.length) throw new Error(`task-init: field(s) are not writable via task-init: ${disallowed.join(", ")} (identity/evidence/intent_approval/lifecycle are runtime-managed)`);
       assertProjectDocsUpdateOnly(patch, "task-init");
       // Task identity always comes from the real repository being worked in (repoRootValue), never
       // from the task directory itself — that directory normally lives in the state root, not the
@@ -104,7 +103,6 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
           ...(baseCommit ? { base_commit: baseCommit } : {}),
           ...patch
         };
-        if (state.task_type === "read_only") state.model_profile = deriveModelProfile(state);
         const errors = schemaErrors(state);
         if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
         writeJson(path, state);
@@ -179,10 +177,10 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
             current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}) };
           } else current[key] = fieldValue;
         }
-        // model_profile is derived from task_type/risk_flags/impact_*, which task-write can change
-        // after creation — recompute here so it never goes stale relative to the fields it derives from.
-        if (current.task_type === "read_only") current.model_profile = deriveModelProfile(current);
-        else delete current.model_profile;
+        // model_profile used to be runtime-derived but had no portable execution consumer across
+        // Claude Code, Codex and Antigravity. Keep old task files readable, but remove the inert field
+        // whenever a task is next rewritten instead of maintaining a control that cannot be enforced.
+        delete current.model_profile;
         // Activation rebinds identity/base_commit here rather than trusting whatever task-init
         // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
         // created against the wrong one.
