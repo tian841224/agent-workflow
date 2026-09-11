@@ -25,6 +25,18 @@ export const PROFILE_PROCEDURES = {
 
 type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };
 
+const PROJECT_DOC_EFFECTS = new Set(["shared_behavior", "schema", "data", "contract", "destructive"]);
+const PROJECT_DOC_RISKS = new Set(["contract", "schema", "data_write", "cross_feature", "migration", "authorization", "security", "operational"]);
+function needsProjectDocs(plan: Pick<import("../workflow-policy.js").CompiledWorkflowPlan, "exploration_profile">, task: JsonObject): boolean {
+  if (task.code_change !== true) return false;
+  if (plan.exploration_profile === "expanded") return true;
+  const scope = String(task.impact_scope || "");
+  if (scope === "module" || scope === "multi_module" || scope === "cross_project") return true;
+  if (PROJECT_DOC_EFFECTS.has(String(task.impact_effect || ""))) return true;
+  const risks = Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [];
+  return risks.some((flag) => PROJECT_DOC_RISKS.has(flag));
+}
+
 // Resolve every agent-facing procedure from the same compiled plan. Profile and role documents
 // are added only when their context is present, so focused tasks do not pay for expanded guidance.
 export function resolveProcedures(plan: Pick<import("../workflow-policy.js").CompiledWorkflowPlan, "order" | "exploration_profile">, task: JsonObject = {}): string[] {
@@ -38,7 +50,10 @@ export function resolveProcedures(plan: Pick<import("../workflow-policy.js").Com
   if (plan.exploration_profile === "expanded") procedures.push(PROFILE_PROCEDURES.expanded);
   if (role === "coordinator") procedures.push(PROFILE_PROCEDURES.coordinator);
   if (role === "worker") procedures.push(PROFILE_PROCEDURES.worker);
-  if (task.code_change === true) procedures.push(PROFILE_PROCEDURES.projectDocs);
+  // Project docs are useful when the change can affect a module contract, shared behavior/state, or
+  // a risk boundary. A focused high-confidence file-local behavior change should not pay a docs
+  // lookup/read/remember round trip merely because code_change is true.
+  if (needsProjectDocs(plan, task)) procedures.push(PROFILE_PROCEDURES.projectDocs);
   return [...new Set(procedures)].sort();
 }
 
