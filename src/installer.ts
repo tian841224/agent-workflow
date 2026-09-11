@@ -17,8 +17,6 @@ const platforms: Record<Platform, { entrypoint: string; hook: string[]; skills: 
 };
 
 function sourceRoot(): string {
-  // A checkout bundle resolves beside itself; installed bundles and the PATH shim
-  // resolve the state root and repair from its recorded source.
   const bundleDirectory = dirname(fileURLToPath(import.meta.url));
   const packageRoot = resolve(bundleDirectory, "..");
   if (existsSync(join(packageRoot, "adapters", "managed-manifest.json"))) return packageRoot;
@@ -58,26 +56,17 @@ function copyTree(source: string, destination: string, records: FileRecord[], ki
 }
 function npmBinDirectory(options: InstallOptions): string | undefined {
   if (process.env.AGENT_WORKFLOW_CLI_DIR) return process.env.AGENT_WORKFLOW_CLI_DIR;
-  // A redirected state root is a sandboxed or test install; writing the machine-wide shim from one
-  // would overwrite the real CLI and leave two installs fighting over the same file.
   if (stateRoot(options.root) !== stateRoot()) return undefined;
-  // Passed as one string rather than args: npm is a .cmd on Windows and only runs through a shell,
-  // which rejects a separate args array.
   const result = spawnSync("npm prefix -g", { encoding: "utf8", shell: true });
   const prefix = result.status === 0 ? String(result.stdout || "").trim() : "";
   if (!prefix) return undefined;
-  // npm puts binaries straight in the prefix on Windows and under bin/ everywhere else.
   return process.platform === "win32" ? prefix : join(prefix, "bin");
 }
-// Puts `agent-workflow` on PATH, so a task outside a repo checkout can still run it. Returns the
-// directory used, or undefined when npm reports no global prefix.
 function installCliShims(runtimeBundle: string, options: InstallOptions, records: FileRecord[]): string | undefined {
   const binDirectory = npmBinDirectory(options);
   if (!binDirectory || !existsSync(binDirectory)) return undefined;
   const staged: FileRecord[] = [];
   try {
-    // Byte-identical to the runtime, and extensionless so PATH resolution finds it before the .cmd:
-    // the guard hashes whatever it resolves, and only this copy still matches the recorded identity.
     copyFile(runtimeBundle, join(binDirectory, "agent-workflow"), staged, "cli-shim", options.dryRun);
     if (process.platform === "win32") {
       const shim = `@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n"${process.execPath}" "%~dp0agent-workflow" %*\r\nexit /b %ERRORLEVEL%\r\n`;
@@ -86,12 +75,8 @@ function installCliShims(runtimeBundle: string, options: InstallOptions, records
     }
     return binDirectory;
   } catch {
-    // Putting the CLI on PATH is a convenience; a prefix the user cannot write must not abort the
-    // install that already succeeded.
     return undefined;
   } finally {
-    // Recorded even on a partial failure, so a file that did land stays visible to verify/uninstall
-    // rather than shadowing later installs as an untracked orphan on PATH.
     records.push(...staged);
   }
 }
@@ -128,8 +113,6 @@ async function selectSkills(value: Record<string, JsonObject>, options: InstallO
   return [...new Set([...names, ...requiredSkills(value)])].sort();
 }
 function removeOwnHooks(value: Json, marker: string): Json {
-  // JSON.stringify escapes each path backslash as two characters, so a raw Windows marker
-  // never matches; compare both sides with backslashes collapsed to forward slashes instead.
   const needle = marker.replaceAll("\\", "/").toLowerCase();
   if (Array.isArray(value)) return value.map((item) => removeOwnHooks(item, marker)).filter((item) => JSON.stringify(item).replaceAll("\\\\", "/").toLowerCase().indexOf(needle) < 0);
   if (!value || typeof value !== "object") return value;
@@ -151,12 +134,9 @@ function mergeHook(fragment: JsonObject, destination: string, runtime: string, n
   let current: JsonObject = {};
   if (existsSync(destination)) current = readJson(destination);
   current = removeOwnHooks(current, runtime) as JsonObject;
-  // Per-event array append (not a shallow key overwrite) so a platform's own hooks on the same
-  // event (e.g. a user Stop hook) survive alongside the managed ones instead of being replaced.
   const merged = topLevel ? { ...current, ...replaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (replaced.hooks || {}) as JsonObject) };
   if (!dryRun) writeJson(destination, merged);
 }
-// Drops lines marked `<!-- skill:<name> -->` when that skill isn't present under the canonical skills root, so the entrypoint never instructs loading an absent skill.
 function filterUnselectedSkillLines(body: string, presentSkills: string[]): string {
   return body.split(/\r?\n/).filter((line) => { const marker = line.match(/<!--\s*skill:([a-z0-9-]+)\s*-->/i); return !marker || presentSkills.includes(marker[1]); }).join("\n");
 }
@@ -168,13 +148,11 @@ function managedEntrypoint(source: string, canonical: string, destinations: stri
   const content = `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${filterUnselectedSkillLines(readFileSync(source, "utf8").trim(), presentSkills)}\n${end}\n`;
   if (!dryRun) for (const path of [canonical, ...destinations]) writeAtomic(path, content);
 }
-// Frontmatter fields that belong to task.json's workflow classification/lifecycle, not to the
-// human-readable task.md body; copied over as-is (arrays stay arrays, workflow_facts becomes an object).
-const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "model_profile", "independence"];
+const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "independence"];
 function workflowFieldsFromFrontmatter(fields: Frontmatter): JsonObject {
   const result: JsonObject = {};
   for (const key of workflowFrontmatterKeys) if (fields[key] !== undefined) result[key] = fields[key] as Json;
-  if (typeof fields.workflow_facts === "string" && fields.workflow_facts.trim()) { try { result.workflow_facts = JSON.parse(fields.workflow_facts); } catch { /* leave undeclared when not valid JSON */ } }
+  if (typeof fields.workflow_facts === "string" && fields.workflow_facts.trim()) { try { result.workflow_facts = JSON.parse(fields.workflow_facts); } catch { } }
   return result;
 }
 function taskMigration(root: string, backup: string): number {
@@ -223,16 +201,11 @@ function taskSchemaV2toV3Migration(root: string): number {
       ? { intent_sha256: sha256(readFileSync(taskMd)), confirmed_at: frozenAt, confirmed_by_user: "migrated" }
       : null;
     delete lifecycle.frozen_at;
-    // v3 requires a transition history; a v2 state that never recorded one would otherwise migrate
-    // into a task that fails every write path, including the supersede that would retire it.
     if (!Array.isArray(lifecycle.transitions) || !lifecycle.transitions.length) lifecycle.transitions = [{ at: now(), action: "migrate", from: "legacy", to: String(lifecycle.status || "in_progress"), actor: "migrate-state" }];
     state.lifecycle = lifecycle;
     state.state_revision = 1; state.plan_revision = 1;
     delete state.compiled;
     for (const retired of ["change_kind", "complexity_hint", "roles_waived", "stop_reason", "frozen_at", "required_evidence", "intent"]) delete state[retired];
-    // v2 evidence carries no reviewed-diff scope and v2 waivers carry no requirement_id, so neither
-    // can be re-checked against the v3 contract; both collapse into one entry the gate always rejects
-    // until a real verification replaces it, rather than being carried over as unverifiable state.
     const carried = (Array.isArray(state.evidence) ? state.evidence : []).length + (Array.isArray(state.waivers) ? state.waivers : []).length;
     state.evidence = carried ? [{ kind: "legacy-unverified", verified: false, note: `Imported from schema v2; ${carried} evidence/waiver record(s) predate the v3 contract and need re-verification.` }] : [];
     state.waivers = [];
@@ -251,22 +224,12 @@ function taskSchemaV3toV4Migration(root: string): number {
   for (const taskJson of filesAt(join(root, "projects")).filter((path) => basename(path) === "task.json")) {
     const state = readJson(taskJson);
     if (state.schema_version !== 3) continue;
-    // v3's requirements_hash mixed task.md's whole-file sha256 into what v4 splits into plan_hash
-    // (policy + classification only) and intent_hash (Goal/Scope/Completion criteria only, computed
-    // differently). A carried-over value would not match either newly-computed hash, so it would be
-    // rejected as stale on first use regardless — evidence and waivers collapse into the same
-    // legacy-unverified/cleared treatment schema v2->v3 already established, rather than carrying
-    // over hashes that can never validate.
     const carried = (Array.isArray(state.evidence) ? state.evidence : []).length;
     state.evidence = carried ? [{ kind: "legacy-unverified", status: "needs_reverification", note: `Imported from schema v3; ${carried} evidence record(s) predate the v4 hash model and need re-verification via evidence-record/review-record.` }] : [];
     state.waivers = [];
-    // intent_hash covers different content than v3's intent_sha256 (whole-file sha256); it cannot be
-    // safely recomputed here without re-reading and reinterpreting task.md the same way approve-intent
-    // does, so approval is cleared and must be redone rather than silently reinterpreted.
     if (state.intent_approval !== null && state.intent_approval !== undefined) state.intent_approval = null;
-    // v3 predates managed_change; a pre-existing task is fail-safe defaulted to managed (matches the
-    // legacy-fallback rule that a task without workflow_mode: main always requires reviewer).
     if (state.managed_change === undefined) state.managed_change = true;
+    delete state.model_profile;
     state.schema_version = 4;
     writeJson(taskJson, state);
     migrated += 1;
