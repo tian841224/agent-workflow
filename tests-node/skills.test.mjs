@@ -8,20 +8,23 @@ import { test } from "node:test";
 const cli = join(process.cwd(), "dist", "agent-workflow.mjs");
 const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: process.cwd(), encoding: "utf8" });
 
-test("skill list merges managed-manifest.json's core/optional catalog with skills-lock.json source info", () => {
+test("skill list merges managed-manifest.json's core/optional catalog with optional lock source info", () => {
   const rows = JSON.parse(run(["skill", "--action", "List"]).stdout).skills;
   const workflow = rows.find((row) => row.name === "workflow");
   assert.equal(workflow.required, true);
   assert.equal(workflow.present, true);
   const hallmark = rows.find((row) => row.name === "hallmark");
   assert.equal(hallmark.required, false);
-  assert.equal(hallmark.source, "nutlope/hallmark");
+  assert.equal(hallmark.source, undefined, "locally customized Hallmark must not claim upstream lock parity");
 });
 
-test("skill verify reports no-op for an unlocked skill and a definite mismatch/match for a locked one", () => {
-  const unlocked = JSON.parse(run(["skill", "--action", "Verify", "--name", "workflow"]).stdout);
-  assert.equal(unlocked.valid, true);
-  assert.match(unlocked.note, /no skills-lock\.json entry/);
+test("skill verify reports no-op for unlocked framework and locally customized skills", () => {
+  const workflow = JSON.parse(run(["skill", "--action", "Verify", "--name", "workflow"]).stdout);
+  assert.equal(workflow.valid, true);
+  assert.match(workflow.note, /no skills-lock\.json entry/);
+  const hallmark = JSON.parse(run(["skill", "--action", "Verify", "--name", "hallmark"]).stdout);
+  assert.equal(hallmark.valid, true);
+  assert.match(hallmark.note, /no skills-lock\.json entry/);
 });
 
 test("skill install/verify/remove round-trips a locally vendored skill through skills-lock.json", () => {
