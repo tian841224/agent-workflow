@@ -1,11 +1,13 @@
 ---
 name: project-docs
-description: 修改 application source code 前載入；先以 project-doc Lookup 查出涵蓋本次路徑的文件並讀過再動手，改完後依查詢結果建立缺少的文件或更新已失準的內容。
+description: Read only when the execution packet marks project documentation as relevant to the change because module/shared behavior, contracts, data/schema, expanded exploration, or another high-impact boundary may depend on durable project context.
 ---
 
 # Project Docs
 
-目標 repo 的 `docs/`，回答「這塊 code 是什麼、流程怎麼走、為什麼這樣決定」。跨 task、跨 repo 的框架級教訓走 knowledge／retro，不走這裡。
+目標 repo 的 `docs/` 回答「這塊 code 是什麼、流程怎麼走、為什麼這樣決定」。跨 task、跨 repo 的框架級教訓走 knowledge／retro，不走這裡。
+
+這個 skill 不是所有 `code_change` 的前置步驟。高信心、file-local、`local_behavior` 且沒有相關高風險邊界的修改直接依程式與測試處理；只有 execution packet 明確指向本 skill 時才做下面的 Lookup。
 
 ## 1. 動手前：Lookup
 
