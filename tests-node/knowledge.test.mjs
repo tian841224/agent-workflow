@@ -56,6 +56,25 @@ test("a freshly-created knowledge entry defaults to status needs_verification an
   assert.doesNotMatch(context.stdout, /CANDIDATE_DISTINCTIVE_TEXT/);
 });
 
+test("automatic memory-context never falls back to project or recency when relevance is unknown", () => {
+  const root = join(tmpdir(), `agent-workflow-auto-memory-${process.pid}-${Date.now()}`);
+  const entries = join(root, "knowledge", "global", "entries");
+  mkdirSync(entries, { recursive: true });
+  writeFileSync(join(entries, "redis.md"), [
+    "---", "topic: redis-cache", "status: verified", "updated_at: 2026-09-11T00:00:00Z", "---", "REDIS_AUTOMATIC_MEMORY_TEXT"
+  ].join("\n"));
+  const run = (extra = []) => spawnSync(process.execPath, [cli, "memory-context", "--platform", "Claude", "--state-root", root, "--auto", ...extra], { encoding: "utf8" });
+  const noQuery = run();
+  assert.equal(noQuery.status, 0, noQuery.stderr);
+  assert.equal(noQuery.stdout.trim(), "", "automatic mode without a relevance query must inject nothing");
+  const unrelated = run(["--query", "jwt rotation"]);
+  assert.equal(unrelated.status, 0, unrelated.stderr);
+  assert.equal(unrelated.stdout.trim(), "", "unrelated automatic memory must not fall back to recent entries");
+  const relevant = run(["--query", "redis cache"]);
+  assert.equal(relevant.status, 0, relevant.stderr);
+  assert.match(relevant.stdout, /REDIS_AUTOMATIC_MEMORY_TEXT/);
+});
+
 test("memory selection skips stale sources and fills the six-entry budget in relevance order", () => {
   const root = join(tmpdir(), `agent-workflow-ranked-memory-${process.pid}-${Date.now()}`);
   const entries = join(root, "knowledge", "global", "entries");
