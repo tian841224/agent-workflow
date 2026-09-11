@@ -9,7 +9,7 @@ export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
-  "memory-context": ["platform", "state-root", "query", "cwd"],
+  "memory-context": ["platform", "state-root", "query", "cwd", "auto"],
   "workflow-plan": ["task-path", "policy-path"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
   skill: ["action", "name", "from", "source", "source-type", "skill-path", "root"],
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     let invocationNum: number | undefined;
     if (platform.toLowerCase() === "antigravity") { try { const value = stdinJson().invocationNum; invocationNum = typeof value === "number" ? value : undefined; } catch { invocationNum = undefined; } }
     if (platform.toLowerCase() === "antigravity" && invocationNum !== 0) { process.stdout.write(`${JSON.stringify({ injectSteps: [] })}\n`); return; }
-    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()), invocationNum);
+    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()), invocationNum, flag(parsed.values, "auto"));
   }
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);
