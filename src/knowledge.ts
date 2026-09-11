@@ -104,15 +104,15 @@ const MEMORY_CONTEXT_MIN_SCORE = 1;
 
 type Candidate = { path: string; fields: JsonObject; updatedAt: string; line: string; haystack: string };
 
-// Relevance, not recency: a query or the paths being changed outrank "written most recently", and an
-// entry that clears none of the bars is left out rather than spending context just because it exists.
+// An explicit query is a relevance gate, not a weak ranking hint: every meaningful term must match.
+// Manual no-query inspection retains the old project/recency listing behavior; automatic hooks never
+// reach that fallback because they return before scanning when they lack task-relevant query terms.
 function relevanceScore(candidate: Candidate, projectId: string, terms: string[]): number {
-  let score = 1; // only verified entries reach here, so this is the baseline that clears MIN_SCORE
+  let score = 1;
   if (projectId && String(candidate.fields.project_id || "") === projectId) score += 2;
   if (terms.length) {
-    const hits = terms.filter((term) => candidate.haystack.includes(term)).length;
-    if (!hits) return -1; // an explicit query that matches nothing means this entry is off-topic
-    score += 3 * (hits / terms.length);
+    if (!terms.every((term) => candidate.haystack.includes(term))) return -1;
+    score += 3;
   }
   return score;
 }
@@ -131,13 +131,16 @@ function sourceStillValid(fields: JsonObject): boolean {
 // once per model invocation rather than once per session. invocationNum is what keeps the original
 // one-shot cost from being multiplied by every invocation in the conversation: only the first one
 // scans, and a payload that does not report an invocation number is treated as "not the first".
-export function memoryContext(platform: string, root?: string, query = "", cwd = process.cwd(), invocationNum?: number): void {
+export function memoryContext(platform: string, root?: string, query = "", cwd = process.cwd(), invocationNum?: number, automatic = false): void {
   const antigravity = platform.toLowerCase() === "antigravity";
   if (antigravity && invocationNum !== 0) { output({ injectSteps: [] }); return; }
+  const terms = query.toLowerCase().split(/[\s,]+/).map((term) => term.trim()).filter((term) => term.length > 2);
+  // SessionStart/PreInvocation often has no reliable user-task text. In automatic mode, absence of
+  // a meaningful query means relevance is unknown, so inject nothing and do not even scan memory.
+  if (automatic && !terms.length) { if (antigravity) output({ injectSteps: [] }); return; }
   const resolvedRoot = stateRoot(root);
   let projectId = ""; try { projectId = projectIdentity(cwd).projectId; } catch { projectId = ""; }
   const sources = projectId ? [join(resolvedRoot, "projects", projectId, "knowledge", "entries"), join(resolvedRoot, "knowledge", "global", "entries")] : [join(resolvedRoot, "knowledge", "global", "entries")];
-  const terms = query.toLowerCase().split(/[\s,]+/).map((term) => term.trim()).filter((term) => term.length > 2);
   const candidates: Candidate[] = sources.flatMap((source) => entries(source)).map((path) => {
     const raw = readFileSync(path, "utf8"); const fields = parseFrontmatter(raw) as unknown as JsonObject;
     const body = frontmatterBody(raw).trim().replace(/\s+/g, " ");
