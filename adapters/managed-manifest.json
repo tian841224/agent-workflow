@@ -13,7 +13,7 @@
     "learn": {"required": true, "description": "保存使用者確認的可重複使用結論"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
-    "clean-comments": {"required": true, "description": "精簡且精確的程式碼註解"},
+    "clean-comments": {"required": true, "description": "多行、doc comment、高風險判斷或 comment pollution 的詳細註解規範"},
     "project-docs": {"required": false, "description": "docs/ 文件佈局、查詢與更新規範", "triggers": ["source-code-change"]},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證", "triggers": ["deploy", "install", "provision", "migrate"]},
