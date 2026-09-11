@@ -23,7 +23,7 @@ export const commandOptions: Record<string, string[]> = {
   pause: ["task", "actor"], block: ["task", "actor"], resume: ["task", "actor"], supersede: ["task", "actor"],
   waive: ["task", "actor", "confirmed-by-user", "requirement-id"],
   "approve-intent": [...TASK_TARGET_OPTIONS, "confirmed-by", "as-user"],
-  "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "command", "cwd", "exit-code", "started-at", "duration-ms", "output-digest"],
+  "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "command", "cwd", "exit-code", "output-digest"],
   "evidence-run": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "cwd"],
   "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "expected-workspace-sha256", "cause", "cause-evidence", "cause-round", "cause-paths"],
   learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "supersedes", "forget", "id", "reason", "approved-by-user"],
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
   else if (command === "approve-intent") process.exitCode = (await import("./lifecycle/index.js")).approveIntent(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "confirmed-by"), flag(parsed.values, "as-user"));
   else if (command === "evidence-record") {
     const execCommand = option(parsed.values, "command");
-    const execution = execCommand ? { command: execCommand, cwd: option(parsed.values, "cwd", process.cwd()), exitCode: Number(option(parsed.values, "exit-code")), startedAt: option(parsed.values, "started-at"), durationMs: Number(option(parsed.values, "duration-ms", "0")), outputDigest: option(parsed.values, "output-digest") } : undefined;
+    const execution = execCommand ? { command: execCommand, cwd: option(parsed.values, "cwd", process.cwd()), exitCode: Number(option(parsed.values, "exit-code")), outputDigest: option(parsed.values, "output-digest") } : undefined;
     process.exitCode = (await import("./lifecycle/index.js")).evidenceRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), execution);
   }
   else if (command === "evidence-run") process.exitCode = (await import("./lifecycle/index.js")).evidenceRun(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), trailing, option(parsed.values, "cwd", process.cwd()));

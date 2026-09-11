@@ -236,6 +236,27 @@ function taskSchemaV3toV4Migration(root: string): number {
   }
   return migrated;
 }
+function taskSchemaV4toV5Migration(root: string, backup: string, dryRun = false): number {
+  let migrated = 0;
+  for (const taskJson of filesAt(join(root, "projects")).filter((path) => basename(path) === "task.json")) {
+    const state = readJson(taskJson);
+    if (state.schema_version !== 4) continue;
+    if (!dryRun) {
+      const backupTarget = join(backup, "tasks", relative(join(root, "projects"), taskJson));
+      mkdirSync(dirname(backupTarget), { recursive: true });
+      writeAtomic(backupTarget, readFileSync(taskJson));
+      for (const item of Array.isArray(state.evidence) ? state.evidence : []) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        delete (item as JsonObject).started_at;
+        delete (item as JsonObject).duration_ms;
+      }
+      state.schema_version = 5;
+      writeJson(taskJson, state);
+    }
+    migrated += 1;
+  }
+  return migrated;
+}
 export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const state = resolve(root); const managedPath = join(state, "managed-runtime.json"); const existing = existsSync(managedPath) ? readJson(managedPath) : {};
   const migrations = (existing.migrations && typeof existing.migrations === "object" ? existing.migrations : {}) as JsonObject;
@@ -243,14 +264,16 @@ export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const alreadySchemaV2Migrated = migrations.v1_to_v2_task_schema;
   const alreadySchemaV3Migrated = migrations.v2_to_v3_task_schema;
   const alreadySchemaV4Migrated = migrations.v3_to_v4_task_schema;
-  if (alreadyPythonMigrated && alreadySchemaV2Migrated && alreadySchemaV3Migrated && alreadySchemaV4Migrated) return { migrated: false, reason: "already-migrated" };
+  const alreadySchemaV5Migrated = migrations.v4_to_v5_task_schema;
+  if (alreadyPythonMigrated && alreadySchemaV2Migrated && alreadySchemaV3Migrated && alreadySchemaV4Migrated && alreadySchemaV5Migrated) return { migrated: false, reason: "already-migrated" };
   const stamp = now().replace(/[:.]/g, "-"); const backup = join(state, "migrations", `python-v6-${stamp}`);
   if (!dryRun) { mkdirSync(backup, { recursive: true }); if (existsSync(managedPath)) writeAtomic(join(backup, "managed-runtime.json"), readFileSync(managedPath)); }
   const migratedTasks = dryRun || alreadyPythonMigrated ? 0 : taskMigration(state, backup);
   const migratedSchemaV2 = dryRun || alreadySchemaV2Migrated ? 0 : taskSchemaV1toV2Migration(state);
   const migratedSchemaV3 = dryRun || alreadySchemaV3Migrated ? 0 : taskSchemaV2toV3Migration(state);
   const migratedSchemaV4 = dryRun || alreadySchemaV4Migrated ? 0 : taskSchemaV3toV4Migration(state);
-  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, migrated_schema_v3: migratedSchemaV3, migrated_schema_v4: migratedSchemaV4, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
+  const migratedSchemaV5 = alreadySchemaV5Migrated ? 0 : taskSchemaV4toV5Migration(state, backup, dryRun);
+  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, migrated_schema_v3: migratedSchemaV3, migrated_schema_v4: migratedSchemaV4, migrated_schema_v5: migratedSchemaV5, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
 }
 export async function install(options: InstallOptions): Promise<number> {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const source = sourceRoot(); const managedPath = join(state, "managed-runtime.json"); const previous = existsSync(managedPath) ? readJson(managedPath) : {};
@@ -279,7 +302,7 @@ export async function install(options: InstallOptions): Promise<number> {
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity");
   }
-  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true } : {}) } });
+  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true } : {}) } });
   output({ ok: true, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, migration }); return 0;
 }
 export function verify(options: InstallOptions): number {

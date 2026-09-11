@@ -53,11 +53,11 @@ npx --yes @tian/agent-workflow@latest
 3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
 4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀或 orchestration 情境才使用 `task_type: read_only`；探索深度仍由 compiled plan 的 `exploration_profile` 決定，不假設各 AI 平台都能遵守自訂模型分級。
 
-流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration；低信心、影響面擴大、契約／資料／schema／不可逆或其他高風險情境才使用 expanded exploration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
+流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration，直接走 `implementation -> focused feedback`；低信心、影響面擴大、契約／資料／schema／不可逆、跨模組或含多個獨立行為的情境才使用 expanded exploration，依序拆成具備 goal、scope、acceptance、local verification command、dependencies 的 slices，每個 slice 先取得局部回饋，依賴 slice 才能開始。所有 slices 穩定後才做 affected／regression、Reviewer 與 DV1；不對每個 slice 增加人工核准或第二位 Reviewer。Slices 是 coordinator 的工作流程，不新增 `task.json`／ExecutionPacket authority 或新的 slice state，也不啟用 automatic orchestration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
 
 Project docs 也採條件式載入：單純 `code_change: true` 不會自動加入 project-doc procedure；只有 module+、shared behavior、contract、data/schema、expanded exploration 或其他相關高影響邊界才做 Lookup／讀取／Remember。高信心的 file-local `local_behavior` 修改直接依程式與測試處理。
 
-建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間只跑必要的局部回饋；待程式碼、測試、文件與 Review 穩定後，再執行一次最終回歸並批次記錄 runtime evidence。最後一次交付變更會使舊 receipt 失效，必須重新執行；內容、命令、環境與驗證範圍都沒有改變時則重用仍有效的 evidence，不為了流程節點重跑相同檢查。
+建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間依 focused 或 expanded 路徑提供局部回饋；待程式碼、測試、文件與 Review 穩定後，再執行一次最終回歸並批次記錄 runtime evidence。最後一次交付變更會使舊 receipt 失效，必須重新執行；內容、命令、環境與驗證範圍都沒有改變時則重用仍有效的 evidence，不為了流程節點重跑相同檢查。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -181,7 +181,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 不同 AI 工具的原生設定由 installer 依平台建立，並透過 adapter 連結到 `.agents` 的 canonical source。未指定的平台不會建立或修改對應的 agent 資料夾。
 
-agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](docs/architecture.md)；procedure bytes 之外的真實端到端成本（wall-clock、token、tool round trip、返工）量測方式見 [docs/replay-benchmark.md](docs/replay-benchmark.md)。
+agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](docs/architecture.md)。
 
 ### 主要元件分工
 
@@ -199,7 +199,7 @@ agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](do
 | `templates/` | task intent 與其他工作流程範本 |
 | `runtime/` | Node runtime contract 與執行限制 |
 | `docs/` | 本 repo 自己的 project docs：architecture 原則、module 文件、發布驗證與歷史記錄 |
-| `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity、migration 與 procedure budget 完整驗證 |
+| `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity、migration 與 workflow contract 完整驗證 |
 
 ## 四、安裝方法
 

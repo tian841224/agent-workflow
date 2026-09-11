@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/task.schema.json",
-  "title": "agent-workflow task state (v4)",
+  "title": "agent-workflow task state (v5)",
   "description": "The single machine contract for task.json. Every runtime write path validates against this file before the state lands on disk; the sibling task.md holds human intent only.",
   "type": "object",
   "required": ["schema_version", "id", "project_id", "worktree_id", "code_change", "managed_change", "risk_flags", "created_at", "updated_at", "lifecycle", "evidence", "waivers", "state_revision", "plan_revision"],
   "properties": {
-    "schema_version": { "const": 4 },
+    "schema_version": { "const": 5 },
     "id": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9-]+$" },
     "project_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
     "worktree_id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
@@ -160,12 +160,12 @@
           "if": { "properties": { "evidence_kind": { "const": "analysis" } }, "required": ["evidence_kind"] },
           "then": { "not": { "anyOf": [
             { "required": ["command"] }, { "required": ["cwd"] }, { "required": ["exit_code"] },
-            { "required": ["duration_ms"] }, { "required": ["started_at"] }, { "required": ["output_digest"] }
+            { "required": ["output_digest"] }
           ] } }
         },
         {
           "if": { "properties": { "evidence_kind": { "const": "execution" } }, "required": ["evidence_kind"] },
-          "then": { "required": ["command", "cwd", "exit_code", "duration_ms", "started_at", "output_digest", "delivery_mode", "delivery_paths", "delivery_fingerprint"] }
+          "then": { "required": ["command", "cwd", "exit_code", "output_digest", "delivery_mode", "delivery_paths", "delivery_fingerprint"] }
         }
       ],
       "properties": {
@@ -183,8 +183,6 @@
         "command": { "type": "string", "minLength": 1 },
         "cwd": { "type": "string", "minLength": 1 },
         "exit_code": { "type": "integer" },
-        "started_at": { "type": "string", "format": "date-time" },
-        "duration_ms": { "type": "integer", "minimum": 0 },
         "output_digest": { "$ref": "#/$defs/sha256" },
         "delivery_mode": { "enum": ["base", "workspace"] },
         "delivery_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },

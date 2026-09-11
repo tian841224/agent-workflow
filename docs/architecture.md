@@ -31,7 +31,7 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 ### 角色與 ExecutionPacket
 
-`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作，且只執行 coordinator 提供的 ExecutionPacket；task 分類、capability 選取與 task lifecycle 都由 coordinator 持有。`agent-workflow execution-packet` 是 implementation Worker 的唯一 execution contract，內容包含 task intent、classification、compiled capability／step、execution constraints、procedure pointers、required evidence 與 plan identity；task.md／task.json 仍是 coordinator 與 runtime 的 authority。Packet 直接帶 selected step titles；一般 evidence capability 指向精簡的 `workflow/evidence.md`，只有需要完整操作規則時才指向專屬 skill，避免 Worker 為了還原已完成的決策重新讀取整份 policy。task-init、task-write 與 ExecutionPacket 共用同一個 procedure resolver；expanded／role 文件依 compiled exploration profile 與角色加入，project-doc 則只在 module/shared behavior、contract、data/schema、expanded exploration 或相關高影響邊界成立時加入。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。
+`Reader` 只蒐集與呈現可查證的事實，不改變專案狀態。`Worker` 只在明確授權的隔離範圍實作，且只執行 coordinator 提供的 ExecutionPacket；task 分類、capability 選取與 task lifecycle 都由 coordinator 持有。`agent-workflow execution-packet` 是 implementation Worker 的唯一 execution contract，內容包含 task intent、classification、compiled capability／step、execution constraints、procedure pointers、required evidence 與 plan identity；task.md／task.json 仍是 coordinator 與 runtime 的 authority。Packet 直接帶 selected step titles；一般 evidence capability 指向精簡的 `workflow/evidence.md`，只有需要完整操作規則時才指向專屬 skill，避免 Worker 為了還原已完成的決策重新讀取整份 policy。task-init、task-write 與 ExecutionPacket 共用同一個 procedure resolver；expanded／role 文件依 compiled exploration profile 與角色加入，project-doc 則只在 module/shared behavior、contract、data/schema、expanded exploration 或相關高影響邊界成立時加入。expanded 任務的 ordered slices 是 coordinator 的工作流程與局部回饋順序，不是新的 `task.json` 欄位、ExecutionPacket authority 或自動 orchestration contract，也不新增 slice-state 欄位。`procedure` 是 agent 要遵循的步驟；`evidence` 是任務對已完成步驟留下的可驗證紀錄，兩者不可互換。
 
 ### task.md 與 task.json 的分工
 
@@ -39,7 +39,7 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 ### task.json 的寫入路徑
 
-`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立與初始分類用 `task-init`，後續分類用 `task-write`（allowlist，非允許欄位一律拒絕）；文件完成紀錄只用 `task-write` 更新 `project_docs.updated`，且會保留既有 read／digest 證據；讀完 project doc 後用 `project-doc --action Remember --task-path` 寫入 `project_docs.read` 與 `project_docs.digests`，這兩個欄位不能由 task-write 自行填入，Lookup 只有 digest 和 read 路徑都相符才回報 `reusable`；`task-write` 另外拒絕兩種降級（`managed_change` true→false、移除既有 `risk_flags`），唯一入口是 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason` 並把該決定記進 `workflow_decision`；`impact_confidence` 不屬於受保護的降級，調低它只會讓 gate 要求更多而非更少，屬於 agent 自己的分析狀態，可直接用 `task-write` 更新，不需要使用者確認，也不必走 `reclassify`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step，`trust_level: attested`——agent 自述）／`evidence-run`（step，`trust_level: runtime`——runtime 實際執行該指令並記下 exit code、耗時、輸出 digest 與 delivery fingerprint），兩者都接受重複或逗號分隔的 `--requirement-id`，一次執行可在同一鎖內建立多筆同批 evidence；`review-record`（role）可接受 transient `--expected-workspace-sha256` 來綁定 reviewer 開始時的工作樹，但 persisted reviewed scope／digest 仍由 runtime 現算；policy 上宣告 `runtime_execution` 的 step 只接受 runtime evidence，`evidence_kind: execution` 且 exit code 非 0 一律不算通過；lifecycle 轉換用 `TaskLifecycle` 指令。persisted hash／timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對直接命名 `task.json` 的檔案寫入由 `src/hooks.ts` fail-closed 攔截。
+`task.json` 只能經由 runtime CLI 寫入，且依欄位分工到不同 command，各自經同一檔案鎖並在落地前對照 `task.schema.json` 驗證：建立與初始分類用 `task-init`，後續分類用 `task-write`（allowlist，非允許欄位一律拒絕）；文件完成紀錄只用 `task-write` 更新 `project_docs.updated`，且會保留既有 read／digest 證據；讀完 project doc 後用 `project-doc --action Remember --task-path` 寫入 `project_docs.read` 與 `project_docs.digests`，這兩個欄位不能由 task-write 自行填入，Lookup 只有 digest 和 read 路徑都相符才回報 `reusable`；`task-write` 另外拒絕兩種降級（`managed_change` true→false、移除既有 `risk_flags`），唯一入口是 `reclassify`，它要求 `--confirmed-by-user` 與 `--reason` 並把該決定記進 `workflow_decision`；`impact_confidence` 不屬於受保護的降級，調低它只會讓 gate 要求更多而非更少，屬於 agent 自己的分析狀態，可直接用 `task-write` 更新，不需要使用者確認，也不必走 `reclassify`；`intent_approval` 用 `approve-intent`；evidence 用 `evidence-record`（step，`trust_level: attested`——agent 自述）／`evidence-run`（step，`trust_level: runtime`——runtime 實際執行該指令並記下 command、cwd、exit code、輸出 digest 與 delivery fingerprint），兩者都接受重複或逗號分隔的 `--requirement-id`，一次執行可在同一鎖內建立多筆同批 evidence；`review-record`（role）可接受 transient `--expected-workspace-sha256` 來綁定 reviewer 開始時的工作樹，但 persisted reviewed scope／digest 仍由 runtime 現算；policy 上宣告 `runtime_execution` 的 step 只接受 runtime evidence，`evidence_kind: execution` 且 exit code 非 0 一律不算通過；lifecycle 轉換用 `TaskLifecycle` 指令。persisted hash／record timestamp／diff 範圍一律由 runtime 現算，不接受呼叫端傳入。agent 對直接命名 `task.json` 的檔案寫入由 `src/hooks.ts` fail-closed 攔截。
 
 ### Lifecycle 與終端狀態
 
@@ -84,7 +84,7 @@ Git safety 只在 command 提到 Git 時解析。破壞性操作（hard reset、
 
 ```text
 trigger:        regression | gate-cost | platform-contract | contract-test
-evidence:       實際的 task、regression、benchmark、platform contract 或 failing test
+evidence:       實際的 task、regression、platform contract 或 failing test
 minimal_change: 為什麼這是能解決該證據問題的最小修改
 non_goals:      本次明確不順便處理的項目
 ```
@@ -97,4 +97,4 @@ non_goals:      本次明確不順便處理的項目
 
 ## Memory 的有界選取
 
-自動 `memory-context --auto` 沒有能代表目前任務的有效 query 時，在列舉或讀取 knowledge entries 前直接回空；同 project 或最近更新不構成 relevance。只有有明確 query 的情況才做 verified memory 的 relevance 篩選與 source freshness 檢查，再套用 6 筆／800 字元上限。任務需要歷史脈絡但 hook 沒有可靠 query 時，由 agent 以 `knowledge --action Search --query '<keywords>'` 明確搜尋。沒有新增 persistent index；Project Docs whole-tree digest 與 legacy cleanup 保留為量測後再評估的項目。
+自動 `memory-context --auto` 沒有能代表目前任務的有效 query 時，在列舉或讀取 knowledge entries 前直接回空；同 project 或最近更新不構成 relevance。只有有明確 query 的情況才做 verified memory 的 relevance 篩選與 source freshness 檢查，再套用 6 筆／800 字元上限。任務需要歷史脈絡但 hook 沒有可靠 query 時，由 agent 以 `knowledge --action Search --query '<keywords>'` 明確搜尋。沒有新增 persistent index；Project Docs whole-tree digest 與 legacy cleanup 不屬於本次 workflow contract。

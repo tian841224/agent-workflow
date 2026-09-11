@@ -16,6 +16,7 @@ description: 由 managed_change 決定是否進入 managed workflow；進入後�
 ## 分支入口
 
 - expanded exploration：[elevated.md](elevated.md)
+- ordered implementation slices and local feedback：[evidence.md](evidence.md)、[elevated.md](elevated.md)
 - 分類、reclassify 與 legacy compatibility：[capability-selection.md](capability-selection.md)、[risk-flags.md](risk-flags.md)
 - coordinator／Worker 與 ExecutionPacket：[orchestration.md](orchestration.md)
 - 記憶與學習：[memory.md](memory.md)；使用者要求記憶、糾正、拍板決策或確認錯誤修正時依 [learn](../learn/SKILL.md) 處理

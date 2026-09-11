@@ -9,7 +9,7 @@ import { test } from "node:test";
 // id matching the task-id pattern, no unknown top-level keys) before task-gate will validate it.
 function validTask(overrides = {}) {
   return {
-    schema_version: 4,
+    schema_version: 5,
     id: "20260101-000000-gate-test",
     project_id: "0123456789abcdef",
     worktree_id: "0123456789abcdef",
@@ -90,7 +90,7 @@ test("task-init creates a schema-valid task.json and refuses to overwrite an exi
   const created = run(["task-init", "--task-path", path, "--repo-root", repo], JSON.stringify({ code_change: true, task_type: "fix" }));
   assert.equal(created.status, 0, created.stderr);
   const state = JSON.parse(readFileSync(path, "utf8"));
-  assert.equal(state.schema_version, 4);
+  assert.equal(state.schema_version, 5);
   assert.equal(state.code_change, true);
   assert.equal(state.lifecycle.status, "in_progress");
   assert.equal(state.base_commit, vcs(["rev-parse", "HEAD"]).stdout.trim());

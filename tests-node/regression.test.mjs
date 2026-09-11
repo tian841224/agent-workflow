@@ -10,7 +10,7 @@ const run = (args, options = {}) => spawnSync(process.execPath, [cli, ...args], 
 const guard = (kind, payload) => run([kind, "--platform", "Claude"], { input: JSON.stringify(payload) });
 const vcs = (repo, args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
 
-test("a v2 task carrying retired fields and no transition history migrates into a writable v4 task", () => {
+test("a v2 task carrying retired fields and no transition history migrates into a writable v5 task", () => {
   const root = join(tmpdir(), `agent-workflow-migrate-roundtrip-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "p", "tasks", "20260101-000000-legacy");
   mkdirSync(task, { recursive: true });
@@ -29,7 +29,7 @@ test("a v2 task carrying retired fields and no transition history migrates into 
   }));
   assert.equal(run(["migrate-state", "--state-root", root]).status, 0);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 4);
+  assert.equal(migrated.schema_version, 5);
   assert.equal(migrated.change_kind, undefined);
   assert.equal(migrated.complexity_hint, undefined);
   assert.equal(migrated.roles_waived, undefined);
@@ -107,7 +107,7 @@ test("evidence recency is compared as instants, not as strings", () => {
   writeFileSync(join(task, "task.md"), "# Timezone\n\n## Goal\n\nVerify instant comparison.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const base = {
-    schema_version: 4, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
+    schema_version: 5, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
     code_change: true, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
     state_revision: 1, plan_revision: 1,
     lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },

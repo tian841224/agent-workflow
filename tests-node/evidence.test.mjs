@@ -10,7 +10,7 @@ const vcs = (repo, args) => spawnSync("git", ["-C", repo, ...args], { encoding: 
 
 function validTask(overrides = {}) {
   return {
-    schema_version: 4,
+    schema_version: 5,
     id: "20260101-000000-evidence-test",
     project_id: "0123456789abcdef",
     worktree_id: "0123456789abcdef",

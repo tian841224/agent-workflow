@@ -27,7 +27,7 @@ test("managed_change=true with an incomplete classification fails the gate; mana
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Completeness\n\n## Goal\n\nVerify managed_change gates on incomplete classification.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  const base = { schema_version: 4, id: "20260101-000000-completeness", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef", code_change: false, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", state_revision: 1, plan_revision: 1, lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] }, evidence: [], waivers: [], impact_scope: "cross_project" };
+  const base = { schema_version: 5, id: "20260101-000000-completeness", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef", code_change: false, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", state_revision: 1, plan_revision: 1, lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] }, evidence: [], waivers: [], impact_scope: "cross_project" };
   writeFileSync(path, JSON.stringify({ ...base, managed_change: true }));
   const managedGated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.equal(managedGated.valid, false);

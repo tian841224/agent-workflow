@@ -24,7 +24,16 @@ The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`,
 
 ## Flow
 
-`task-init/task-write > preflight > compiled plan > implementation > focused feedback > review > final evidence-run > delivery fingerprint check > task-gate > close-task`
+`task-init/task-write > preflight > compiled plan`
+
+`focused: implementation > focused feedback`
+
+`expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > stable delivery > affected/regression > Reviewer > DV1 > task-gate > close-task`
+
+Focused file-local work stays direct. Expanded, cross-module, high-risk, or multi-behavior work uses
+ordered slices; a dependent slice cannot begin until the prior slice's local feedback passes. Slices
+are coordinator working notes, not `task.json`, `ExecutionPacket`, or evidence authority, and they do
+not enable automatic orchestration. Do not add a human approval or a second Reviewer to each slice.
 
 `task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；focused task 只取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 
@@ -36,7 +45,11 @@ The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`,
 
 `task.json + task.md > task-report > disposable Markdown view`
 
-Runtime execution evidence is recorded only after the command exits. The pre-spawn snapshot and the in-lock post-command snapshot must agree on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint every path from `base_commit`; managed non-code tasks fingerprint the current repository worktree.
+Runtime execution evidence is recorded only after the command exits. It keeps the command, cwd,
+exit code, output digest, and delivery freshness; `evidence.at` is the record timestamp, not an
+execution-time measurement. The pre-spawn snapshot and the in-lock post-command snapshot must agree
+on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint every path from
+`base_commit`; managed non-code tasks fingerprint the current repository worktree.
 
 ## Shared state
 

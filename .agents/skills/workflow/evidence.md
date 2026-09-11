@@ -18,7 +18,7 @@ Use one `evidence-record` or `evidence-run` command with repeated or comma-separ
 The runtime writes one evidence entry per id and one state revision for the batch. Every id must be a
 selected evidence step; role results use `review-record`.
 
-## Timing and handoff
+## Setup and handoff
 
 Run `agent-workflow preflight --task-path <path> --repo-root <repo-root>` once after task creation. It
 groups fixed environment failures before exploration, implementation, or validation starts. During
@@ -28,10 +28,25 @@ unknowns; pass that map by reference and add only new conclusions to each eviden
 Runtime execution evidence must come from `evidence-run`. Its freshness is currently delivery-wide:
 reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
 relevant environment remain the same. A change anywhere in the delivered worktree invalidates the
-receipt. Use focused checks for local feedback, then run the final regression and delivery receipt once
-after source, tests, documents, and review are stable. If anything in the delivery changes afterward,
-rerun every required final command; do not infer path-scoped reuse without a separately verified
-dependency map.
+receipt. Use the implementation flow below for local feedback, then run the final regression and
+delivery receipt once after source, tests, documents, and review are stable. If anything in the
+delivery changes afterward, rerun every required final command; do not infer path-scoped reuse without
+a separately verified dependency map.
+
+## Implementation slices and local feedback
+
+The coordinator chooses the smallest flow that matches the task:
+
+- `focused` file-local work follows `implementation -> focused feedback` directly.
+- `expanded` work that crosses modules, carries higher risk, or contains multiple independent
+  behaviors uses ordered implementation slices. Each slice states its goal, scope, acceptance
+  criteria, local verification command, and dependencies. A dependent slice waits until the previous
+  slice's local feedback passes.
+
+Slices are coordinator working notes. They do not add slice state to `task.json`, change the
+`ExecutionPacket` or evidence authority, add a feedback CLI, or enable automatic orchestration. Do
+not add a human approval or a second Reviewer to every slice. After the slices are stable, run the
+affected/regression checks, Reviewer, and `delivery_validation.DV1` final receipt in that order.
 
 ## Scope
 

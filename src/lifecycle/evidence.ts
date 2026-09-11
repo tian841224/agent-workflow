@@ -114,8 +114,8 @@ export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): bo
 }
 
 // A step is "analysis" (summary only) unless the caller reports it actually ran a command — command
-// and exit_code together are what distinguish a claim from execution proof; the rest is optional detail.
-export type ExecutionProof = { command: string; cwd: string; exitCode: number; startedAt: string; durationMs: number; outputDigest: string };
+// and exit_code distinguish the claim from execution proof, which also records output and freshness.
+export type ExecutionProof = { command: string; cwd: string; exitCode: number; outputDigest: string };
 
 function requirementIds(value: string | string[]): string[] {
   const values = Array.isArray(value) ? value : [value];
@@ -135,7 +135,7 @@ export function evidenceRecord(value: string, requirementId: string | string[], 
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   const ids = requirementIds(requirementId);
   if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
-  if (execution && (!execution.cwd || !execution.startedAt || !execution.outputDigest || !Number.isInteger(execution.exitCode) || !Number.isInteger(execution.durationMs))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, --started-at, --duration-ms, and --output-digest together"] }); return 1; }
+  if (execution && (!execution.cwd || !execution.outputDigest || !Number.isInteger(execution.exitCode))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, and --output-digest together"] }); return 1; }
   return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested", execution, undefined, execution?.cwd || process.cwd());
 }
 
@@ -163,7 +163,7 @@ function appendStepEvidence(command: string, path: string, ids: string[], summar
       const at = now();
       for (const id of ids) evidence.push({
         kind: "step", id, status: "recorded", at, plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: trustLevel,
-        ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, started_at: execution.startedAt, duration_ms: execution.durationMs, output_digest: execution.outputDigest, delivery_mode: delivery!.mode, ...(delivery!.base ? { delivery_base: delivery!.base } : {}), delivery_paths: delivery!.paths, delivery_fingerprint: delivery!.fingerprint } : { evidence_kind: "analysis" })
+        ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, output_digest: execution.outputDigest, delivery_mode: delivery!.mode, ...(delivery!.base ? { delivery_base: delivery!.base } : {}), delivery_paths: delivery!.paths, delivery_fingerprint: delivery!.fingerprint } : { evidence_kind: "analysis" })
       });
       current.evidence = evidence;
       current.updated_at = now();
@@ -175,8 +175,7 @@ function appendStepEvidence(command: string, path: string, ids: string[], summar
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
 
-// Runs the command itself and records what it observed, so command/exit_code/duration/output digest
-// are measurements rather than caller assertions.
+// Runs the command itself and records the execution proof and delivery freshness it observed.
 export function evidenceRun(value: string, requirementId: string | string[], summary: string, actor: string, argv: string[], cwdValue = process.cwd()): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
@@ -199,12 +198,10 @@ export function evidenceRun(value: string, requirementId: string | string[], sum
   catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   // Nothing holds the task lock across the spawn: a long command must not block every other writer.
   // appendStepEvidence re-checks both hashes afterwards, so a task edited meanwhile is rejected.
-  const startedAt = new Date();
   const result = spawnSync(argv[0], argv.slice(1), { cwd: cwdValue, encoding: "buffer" });
   if (result.error) { output({ valid: false, errors: [`evidence-run: command could not be started: ${String(result.error.message)}`] }); return 1; }
   const execution: ExecutionProof = {
-    command: argv.join(" "), cwd: cwdValue, exitCode: result.status ?? 1, startedAt: startedAt.toISOString(),
-    durationMs: Date.now() - startedAt.getTime(),
+    command: argv.join(" "), cwd: cwdValue, exitCode: result.status ?? 1,
     outputDigest: createHash("sha256").update(result.stdout || Buffer.alloc(0)).update(result.stderr || Buffer.alloc(0)).digest("hex")
   };
   return appendStepEvidence("evidence-run", path, ids, summary, actor, "runtime", execution, expected, cwdValue);

@@ -33,6 +33,11 @@ items, file ownership does not overlap, no worker depends on another worker's un
 shared integration points remain owned by the coordinator, and each worker executes in its own
 isolated worktree.
 
+Implementation slices are a separate coordinator-level sequence for expanded work: each slice gets
+local feedback before a dependent slice begins. They do not create worker state or new slice-state
+fields, a feedback command, or automatic orchestration. Use workers only when the existing manual
+parallelism rules independently justify them.
+
 The coordinator owns: whether to split, creating or selecting isolated worktrees, creating worker
 tasks, assigning file ownership, building each worker's ExecutionPacket, dispatching each worker
 through the host platform, collecting worker results, integrating the changes, final validation,

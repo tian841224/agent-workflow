@@ -42,11 +42,14 @@ test("a waiver missing intent_hash fails schema validation", () => {
 // any of them to look like one.
 test("stepEvidence's evidence_kind discriminated union rejects a half-filled execution record", () => {
   const validate = validatorFor("stepEvidence");
-  const execution = stepEvidence({ evidence_kind: "execution", command: "npm test", cwd: ".", exit_code: 0, started_at: "2026-01-01T00:00:00.000Z", duration_ms: 10, output_digest: HASH, delivery_mode: "base", delivery_base: "b".repeat(40), delivery_paths: ["src"], delivery_fingerprint: HASH });
+  const execution = stepEvidence({ evidence_kind: "execution", command: "npm test", cwd: ".", exit_code: 0, output_digest: HASH, delivery_mode: "base", delivery_base: "b".repeat(40), delivery_paths: ["src"], delivery_fingerprint: HASH });
   assert.equal(validate(execution), true, JSON.stringify(validate.errors));
-  for (const field of ["command", "cwd", "exit_code", "started_at", "duration_ms", "output_digest", "delivery_mode", "delivery_paths", "delivery_fingerprint"]) {
+  for (const field of ["command", "cwd", "exit_code", "output_digest", "delivery_mode", "delivery_paths", "delivery_fingerprint"]) {
     const { [field]: _dropped, ...missing } = execution;
     assert.equal(validate(missing), false, `execution evidence without ${field} was accepted`);
+  }
+  for (const field of ["started_at", "duration_ms"]) {
+    assert.equal(validate({ ...execution, [field]: field === "started_at" ? "2026-01-01T00:00:00.000Z" : 10 }), false, `execution evidence carrying ${field} was accepted`);
   }
 });
 
@@ -65,7 +68,7 @@ test("stepEvidence rejects analysis evidence carrying a stray execution field", 
 test("the classification downgrade guard lives in the runtime, not in the schema", () => {
   const validate = validatorFor("");
   const state = {
-    schema_version: 4, id: "20260101-000000-parity", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
+    schema_version: 5, id: "20260101-000000-parity", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
     code_change: true, managed_change: false, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
     state_revision: 1, plan_revision: 1,
     lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },

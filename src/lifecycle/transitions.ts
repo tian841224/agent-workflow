@@ -96,7 +96,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
         const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff, path) : undefined;
         const stamp = now();
         const state: JsonObject = {
-          schema_version: 4, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
+          schema_version: 5, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
           code_change: false, managed_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
           lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
           evidence: [], waivers: [],
