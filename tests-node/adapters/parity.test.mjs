@@ -48,6 +48,7 @@ test("adapter templates contain exactly one PreToolUse guard and no proof lifecy
     assert.equal((body.match(/git-guard --platform/g) || []).length, 1, path);
     assert.doesNotMatch(body, /skill-guard|PostToolUse|SessionEnd/, path);
     assert.equal((body.match(/memory-context --platform/g) || []).length, 1, path);
+    assert.equal((body.match(/memory-context --platform .* --auto/g) || []).length, 1, `${path} must enable strict automatic-memory mode`);
   }
 });
 
@@ -60,22 +61,24 @@ test("the Antigravity adapter declares only lifecycle events the platform still 
   // PreInvocation takes a handler directly; the matcher/hooks wrapper is a PreToolUse/PostToolUse shape.
   for (const handler of hooks["agent-workflow-memory-context"].PreInvocation) {
     assert.equal(handler.type, "command", "PreInvocation handlers are declared directly, not wrapped in matcher/hooks");
-    assert.match(handler.command, /memory-context --platform Antigravity/);
+    assert.match(handler.command, /memory-context --platform Antigravity --auto/);
   }
 });
 
-test("Antigravity memory context injects on the first invocation only", () => {
+test("automatic memory context requires relevance and Antigravity still injects only on the first invocation", () => {
   const state = join(tmpdir(), `agent-workflow-preinvocation-${process.pid}-${Date.now()}`);
   const entries = join(state, "knowledge", "global", "entries");
   mkdirSync(entries, { recursive: true });
   writeFileSync(join(entries, "demo.md"), "---\nid: demo\ntopic: demo-memory\nscope: global\nstatus: verified\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nremembered detail\n");
-  const memory = (payload) => JSON.parse(run(["memory-context", "--platform", "Antigravity", "--state-root", state], payload).stdout);
-  const first = memory({ invocationNum: 0 });
-  assert.equal(first.injectSteps.length, 1, `first invocation must inject: ${JSON.stringify(first)}`);
+  const memory = (payload, query = "") => JSON.parse(run(["memory-context", "--platform", "Antigravity", "--state-root", state, "--auto", ...(query ? ["--query", query] : [])], payload).stdout);
+  assert.deepEqual(memory({ invocationNum: 0 }), { injectSteps: [] }, "automatic mode must not scan/inject without a task-relevant query");
+  assert.deepEqual(memory({ invocationNum: 0 }, "unrelated topic"), { injectSteps: [] }, "an unrelated query must inject nothing");
+  const first = memory({ invocationNum: 0 }, "demo memory");
+  assert.equal(first.injectSteps.length, 1, `relevant first invocation must inject: ${JSON.stringify(first)}`);
   assert.match(first.injectSteps[0].ephemeralMessage, /demo-memory/);
   // Every later invocation in the same conversation still has to answer, but must not re-scan and
   // re-inject: PreInvocation fires per model invocation, not once per session.
-  assert.deepEqual(memory({ invocationNum: 3 }), { injectSteps: [] });
-  assert.deepEqual(memory({}), { injectSteps: [] });
+  assert.deepEqual(memory({ invocationNum: 3 }, "demo memory"), { injectSteps: [] });
+  assert.deepEqual(memory({}, "demo memory"), { injectSteps: [] });
 });
 
