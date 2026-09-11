@@ -55,7 +55,9 @@ npx --yes @tian/agent-workflow@latest
 
 流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration；低信心、影響面擴大、契約／資料／schema／不可逆或其他高風險情境才使用 expanded exploration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
 
-建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間只跑必要的局部回饋；待程式碼、測試、文件與 Review 穩定後，再執行一次最終回歸並批次記錄 runtime evidence。最後一次交付變更會使舊 receipt 失效，必須重新執行。
+Project docs 也採條件式載入：單純 `code_change: true` 不會自動加入 project-doc procedure；只有 module+、shared behavior、contract、data/schema、expanded exploration 或其他相關高影響邊界才做 Lookup／讀取／Remember。高信心的 file-local `local_behavior` 修改直接依程式與測試處理。
+
+建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間只跑必要的局部回饋；待程式碼、測試、文件與 Review 穩定後，再執行一次最終回歸並批次記錄 runtime evidence。最後一次交付變更會使舊 receipt 失效，必須重新執行；內容、命令、環境與驗證範圍都沒有改變時則重用仍有效的 evidence，不為了流程節點重跑相同檢查。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -99,25 +101,25 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 | --- | --- | --- |
 | [`workflow`](.agents/skills/workflow/SKILL.md) | 必裝 | 由 `managed_change` 決定是否建立 task，再依實際 impact／risk 決定 `workflow_request` 與 required capability；安全 test-only、文件與 read-only 任務可 bypass，高風險設定／script 與 test-integrity 修改仍進 workflow。 |
 | [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 必裝 | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／interface／depth／seam／adapter 等設計標準；選取 `codebase_design` capability 時主動載入。 |
-| [`planning`](.agents/skills/planning/SKILL.md) | 必裝 | 進行架構設計、功能規劃、重構策略、技術方案比較或遇到模糊需求（unclear_requirements）時，先釐清目標、限制與完成條件。 |
+| [`planning`](.agents/skills/planning/SKILL.md) | 必裝 | 只有方向、技術取捨或真正模糊需求會影響後續實作時使用；可逆低風險決定優先依 repo convention 自行處理。 |
 | [`push-back`](.agents/skills/push-back/SKILL.md) | 必裝 | 核心規則已常駐於 `AGENTS.md`；skill 保留相容入口，僅在需要明確檢查方案是否錯誤、危險或不必要複雜時使用。 |
 | [`learn`](.agents/skills/learn/SKILL.md) | 必裝 | 使用者要求記憶、提出糾正、拍板決策，或確認錯誤修正方式時，保存可重複使用的結論。 |
 | [`grill-me`](.agents/skills/grill-me/SKILL.md) | 必裝 | 使用者要求壓力測試或計畫已有高風險未決假設時，逐題進行深度提問直到決策樹清晰。 |
 | [`tdd`](.agents/skills/tdd/SKILL.md) | 必裝 | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；選取 `tdd` capability 時由 workflow 主動載入並記錄 TDD evidence。 |
 | [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 必裝 | 核心「只解釋非顯而易見的意圖／限制／原因、不逐句翻譯程式碼」規則已常駐於 `AGENTS.md`；只有多行註解、public/doc comments、高風險判斷依據或 comment pollution 才載入完整 skill。 |
 | [`architecture-review`](.agents/skills/architecture-review/SKILL.md) | 選擇性 | 審查既有程式架構、跨層耦合、模組責任、契約漂移與遷移風險；以 static fact、hypothesis、runtime proof 區分證據並提出漸進改善方案。 |
-| [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 選擇性 | 除錯疑難雜症或效能異常時，依六階段紀律先重現、再假設、再修正；選取 `bug_diagnosis` capability 時主動載入並記錄診斷證據。 |
-| [`project-docs`](.agents/skills/project-docs/SKILL.md) | 選擇性 | 修改 application source code 前載入；先查出涵蓋本次路徑的 `docs/` 文件並讀過再動手，改完後依查詢結果建立缺少的文件或更新已失準的內容。 |
+| [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 選擇性 | 原因不明、間歇性或效能型問題才載入；依可靠 signal、可證偽診斷與 confirmed fix 收斂，不強迫固定 phase 或 hypothesis 數量。 |
+| [`project-docs`](.agents/skills/project-docs/SKILL.md) | 選擇性 | execution packet 判定 module/shared behavior、contract、data/schema、expanded exploration 或其他高影響脈絡需要時才載入；file-local 高信心修改不自動讀文件。 |
 | [`distill`](.agents/skills/distill/SKILL.md) | 選擇性 | 記憶中同一類結論反覆出現或 review 歸因達門檻時，提煉成待審的 skill 草稿或分派補救措施；Promote 需要使用者明確核准。 |
 | [`operational-verification`](.agents/skills/operational-verification/SKILL.md) | 選擇性 | 進行安裝、同步、部署、migration、provisioning 或外部整合驗證時，區分靜態設定、本機 mock、本機 runtime 與遠端環境證據層級。 |
-| [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 選擇性 | 產生或翻譯正體中文（臺灣）內容時載入；輸出前檢查臺灣用語、語氣與全形標點，避免中國用語與簡體直譯。 |
-| [`archify`](.agents/skills/archify/SKILL.md) | 選擇性 | 將架構、workflow、sequence、data-flow 與 lifecycle 需求轉成可驗證、可互動的 standalone HTML 圖表；來源：[tt-a1i/archify](https://github.com/tt-a1i/archify)。 |
-| [`design-and-refine`](.agents/skills/design-and-refine/SKILL.md) | 選擇性 | 透過設計訪談、五種 UI 變體、互動回饋與實作計畫，協助探索與收斂元件或頁面的設計方向；來源：[0xdesign/design-plugin](https://github.com/0xdesign/design-plugin)。 |
-| [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 共用 | 撰寫 README、規格、提案或決策文件時，依序進行脈絡整理、結構化編寫與讀者檢查。 |
+| [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 選擇性 | EN／JA ↔ zh-TW 翻譯、中文 UI copy 或術語敏感的正式在地化才載入；一般中文回覆只遵守 `AGENTS.md` 的短 locale 規則。skill 內再分 `locale.md`、`translation.md` 與按需 `references/`。 |
+| [`archify`](.agents/skills/archify/SKILL.md) | 選擇性 | 將架構、workflow、sequence、data-flow 與 lifecycle 需求轉成可驗證、可互動的 standalone HTML 圖表；final `deliver` 是 authoritative acceptance，未變更的 validation evidence 直接重用。來源：[tt-a1i/archify](https://github.com/tt-a1i/archify)。 |
+| [`design-and-refine`](.agents/skills/design-and-refine/SKILL.md) | 選擇性 | 只有需要比較多個實質不同的 UI 方向時才進 Design Lab；問題數與 variant 數依實際設計空間決定，不固定問卷或固定五種方案。來源：[0xdesign/design-plugin](https://github.com/0xdesign/design-plugin)。 |
+| [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 共用 | 大型規格、提案或決策文件才按需要使用 context／refinement／reader testing；資訊足夠時直接起草，不先要求使用者選流程。 |
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 共用 | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
 | [`humanizer`](.agents/skills/humanizer/SKILL.md) | 選擇性 | 消除 AI 腔調與公式化套話，讓文字讀起來自然真實，保留事實與作者聲音。 |
 | [`adhd-comms`](.agents/skills/adhd-comms/SKILL.md) | 選擇性 | 採取 Action-first 與高掃讀性溝通，結論先行、分點陳述、低認知負擔。 |
-| [`hallmark`](.agents/skills/hallmark/SKILL.md) | 選擇性 | 去除 AI 樣板感的頁面設計、稽核與重新設計，涵蓋新頁面、重設計與從網址或截圖萃取設計；來源：[nutlope/hallmark](https://github.com/nutlope/hallmark)。 |
+| [`hallmark`](.agents/skills/hallmark/SKILL.md) | 選擇性 | 明確需要 anti-AI-slop 設計、audit、redesign 或 study 時使用；依 scope 與實際 acceptance criteria 決定探索與驗證，不跑固定 8 states／theme／variant recipe。來源：[nutlope/hallmark](https://github.com/nutlope/hallmark)。 |
 
 ### 設計原則與硬護欄
 
