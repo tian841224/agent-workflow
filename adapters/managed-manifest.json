@@ -7,21 +7,21 @@
     "writing-for-agents": {"required": true, "description": "撰寫或修改 .agents/ 底下文件的 pointer 與分層揭露規則"},
     "codebase-design": {"required": true, "description": "模組介面、deep module 與 seam 設計"},
     "architecture-review": {"required": false, "description": "架構、跨層耦合與遷移風險審查"},
-    "diagnosing-bugs": {"required": false, "description": "疑難除錯、重現與根因驗證"},
-    "planning": {"required": true, "description": "需求釐清、方案比較與實作規劃"},
+    "diagnosing-bugs": {"required": false, "description": "原因不明、間歇性或效能型問題的證據導向診斷"},
+    "planning": {"required": true, "description": "高影響方向、技術取捨與真正模糊需求的規劃"},
     "push-back": {"required": true, "description": "相容入口；核心技術判斷規則已常駐於 AGENTS.md，不作為每次任務的獨立 procedure"},
     "learn": {"required": true, "description": "保存使用者確認的可重複使用結論"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
     "clean-comments": {"required": true, "description": "多行、doc comment、高風險判斷或 comment pollution 的詳細註解規範"},
-    "project-docs": {"required": false, "description": "docs/ 文件佈局、查詢與更新規範", "triggers": ["source-code-change"]},
+    "project-docs": {"required": false, "description": "module/shared behavior、contract、data/schema 或 expanded exploration 才載入的專案文件查詢與更新規範", "triggers": ["module-change", "shared-behavior", "contract", "data", "schema", "expanded-exploration"]},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證", "triggers": ["deploy", "install", "provision", "migrate"]},
-    "localization-tw": {"required": false, "description": "正體中文（臺灣）用語、語氣與標點", "triggers": ["translation", "localized-copy"]},
+    "localization-tw": {"required": false, "description": "EN/JA↔zh-TW 翻譯、中文 UI copy 與術語敏感的臺灣在地化", "triggers": ["translation", "localized-copy", "terminology-review"]},
     "archify": {"required": false, "description": "建立可驗證、可互動的架構與流程圖"},
-    "design-and-refine": {"required": false, "description": "探索、比較與收斂 UI 設計方向"},
+    "design-and-refine": {"required": false, "description": "只有需要比較多個 UI 方向與互動回饋時才使用的設計探索"},
     "adhd-comms": {"required": false, "description": "採取 Action-first 與高掃讀性溝通"},
     "humanizer": {"required": false, "description": "消除 AI 腔調與公式化套話"},
-    "hallmark": {"required": false, "description": "去除 AI 樣板感的頁面設計、稽核與重新設計"}
+    "hallmark": {"required": false, "description": "明確要求 Hallmark／anti-AI-slop 時的 UI 建置、稽核、重設計與 study"}
   }
 }
