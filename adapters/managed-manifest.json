@@ -16,6 +16,7 @@
     "clean-comments": {"required": true, "description": "多行、doc comment、高風險判斷或 comment pollution 的詳細註解規範"},
     "project-docs": {"required": false, "description": "module/shared behavior、contract、data/schema 或 expanded exploration 才載入的專案文件查詢與更新規範", "triggers": ["module-change", "shared-behavior", "contract", "data", "schema", "expanded-exploration"]},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
+    "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證", "triggers": ["deploy", "install", "provision", "migrate"]},
     "localization-tw": {"required": false, "description": "EN/JA↔zh-TW 翻譯、中文 UI copy 與術語敏感的臺灣在地化", "triggers": ["translation", "localized-copy", "terminology-review"]},
     "archify": {"required": false, "description": "建立可驗證、可互動的架構與流程圖"},
