@@ -112,14 +112,51 @@ async function selectSkills(value: Record<string, JsonObject>, options: InstallO
   if (unknown.length) throw new Error(`unknown skill(s): ${unknown.join(", ")}`);
   return [...new Set([...names, ...requiredSkills(value)])].sort();
 }
+// A prompt-type hook carries no runtime path to identify it by, so it self-identifies with this
+// literal marker instead; both are checked so command hooks and prompt hooks are both recognized as ours.
+const OWN_HOOK_MARKER = "[agent-workflow managed:";
+function isOwnHook(item: Json, needle: string): boolean {
+  const text = JSON.stringify(item).replaceAll("\\\\", "/").toLowerCase();
+  return text.indexOf(needle) >= 0 || text.indexOf(OWN_HOOK_MARKER.toLowerCase()) >= 0;
+}
 function removeOwnHooks(value: Json, marker: string): Json {
   const needle = marker.replaceAll("\\", "/").toLowerCase();
-  if (Array.isArray(value)) return value.map((item) => removeOwnHooks(item, marker)).filter((item) => JSON.stringify(item).replaceAll("\\\\", "/").toLowerCase().indexOf(needle) < 0);
+  if (Array.isArray(value)) {
+    return value.map((item) => removeOwnHooks(item, marker)).filter((item) => !isOwnHook(item, needle))
+      // a hook group left with no hooks (ours just removed, or already stale) does nothing; drop it
+      // instead of letting empty {"hooks":[]} groups accumulate across repeated installs.
+      .filter((item) => !(item && typeof item === "object" && !Array.isArray(item) && Array.isArray((item as JsonObject).hooks) && (item as JsonObject).hooks.length === 0));
+  }
   if (!value || typeof value !== "object") return value;
   const record = value as JsonObject;
   const result: JsonObject = {};
   for (const [key, item] of Object.entries(record)) if (!key.startsWith("agent-workflow-")) result[key] = removeOwnHooks(item, marker);
   return result;
+}
+type LocaleTerm = { avoid: string; use: string; exceptions: string[] };
+// Only the <!-- lint:start/end --> block feeds the Stop-hook lint; the rest of vocabulary.md is human reference.
+function localeLintTerms(source: string): LocaleTerm[] {
+  const path = join(source, ".agents", "skills", "localization-tw", "references", "vocabulary.md");
+  if (!existsSync(path)) throw new Error(`locale lint source missing: ${path}`);
+  const match = readFileSync(path, "utf8").match(/<!-- lint:start -->([\s\S]*?)<!-- lint:end -->/);
+  if (!match) throw new Error("localization-tw vocabulary.md has no <!-- lint:start/end --> block");
+  const terms: LocaleTerm[] = [];
+  for (const row of match[1].split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("|")).slice(2)) {
+    const cells = row.split("|").slice(1, -1).map((cell) => cell.trim());
+    if (cells.length < 2) continue;
+    const avoids = cells[0].split("/").map((cell) => cell.trim()).filter(Boolean);
+    const uses = cells[1].split("/").map((cell) => cell.trim());
+    const exceptions = (cells[2] || "").split(/、|,/).map((cell) => cell.trim()).filter(Boolean);
+    avoids.forEach((avoid, index) => terms.push({ avoid, use: uses[index] || uses[0], exceptions }));
+  }
+  // Longer terms must be checked first so a shorter substring (數據 inside 數據庫) doesn't fire twice.
+  return terms.sort((a, b) => b.avoid.length - a.avoid.length);
+}
+function writeLocalizationPolicy(source: string, runtime: string, records: FileRecord[], dryRun: boolean): void {
+  const content = `${JSON.stringify({ reminder: policyBlock(source, "localization-tw"), terms: localeLintTerms(source) }, null, 2)}\n`;
+  const destination = join(runtime, "localization-tw-policy.json");
+  if (!dryRun) writeAtomic(destination, content);
+  records.push({ path: destination, sha256: sha256(content), kind: "runtime" });
 }
 function mergeHookEvents(current: JsonObject, replaced: JsonObject): JsonObject {
   const merged: JsonObject = { ...current };
@@ -129,8 +166,21 @@ function mergeHookEvents(current: JsonObject, replaced: JsonObject): JsonObject 
   }
   return merged;
 }
-function mergeHook(fragment: JsonObject, destination: string, runtime: string, node: string, dryRun: boolean, topLevel: boolean): void {
-  const replaced = JSON.parse(JSON.stringify(fragment).replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\")).replaceAll("{{NODE_EXE}}", node.replaceAll("\\", "\\\\"))) as JsonObject;
+// The adapter's hook prompt embeds a skill's enforcement rules by reference ({{POLICY:<skill>}})
+// so the rules stay single-sourced in the skill file instead of duplicated into the hook JSON.
+function policyBlock(source: string, skill: string): string {
+  const path = join(source, ".agents", "skills", skill, "SKILL.md");
+  if (!existsSync(path)) throw new Error(`policy source missing for {{POLICY:${skill}}}: ${path}`);
+  const match = readFileSync(path, "utf8").match(/<!-- enforcement:start -->([\s\S]*?)<!-- enforcement:end -->/);
+  if (!match) throw new Error(`${skill}/SKILL.md has no <!-- enforcement:start/end --> block for {{POLICY:${skill}}}`);
+  return match[1].trim();
+}
+function mergeHook(fragment: JsonObject, destination: string, runtime: string, node: string, dryRun: boolean, topLevel: boolean, source: string): void {
+  let templated = JSON.stringify(fragment).replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\")).replaceAll("{{NODE_EXE}}", node.replaceAll("\\", "\\\\"));
+  // JSON.stringify on the extracted block yields a quoted, escaped string; stripping its outer
+  // quotes gives exactly the escaped form the surrounding JSON string literal needs.
+  templated = templated.replace(/\{\{POLICY:([a-z0-9-]+)\}\}/g, (_match, skill: string) => JSON.stringify(policyBlock(source, skill)).slice(1, -1));
+  const replaced = JSON.parse(templated) as JsonObject;
   let current: JsonObject = {};
   if (existsSync(destination)) current = readJson(destination);
   current = removeOwnHooks(current, runtime) as JsonObject;
@@ -288,6 +338,7 @@ export async function install(options: InstallOptions): Promise<number> {
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
   for (const folder of ["adapters", "schemas", "templates"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
   pruneRuntime(runtime, records, options.dryRun);
+  if (selectedSkills.includes("localization-tw")) writeLocalizationPolicy(source, runtime, records, options.dryRun);
   const cliDirectory = installCliShims(join(source, "dist", "agent-workflow.mjs"), options, records);
   const canonical = join(home(), ".agents");
   for (const skill of selectedSkills) { const sourceSkill = join(source, ".agents", "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(canonical, "skills", skill), records, "canonical-skill", options.dryRun); }
@@ -300,7 +351,7 @@ export async function install(options: InstallOptions): Promise<number> {
     const root = targetRoots[platform]; const skillRoot = join(root, ...platforms[platform].skills);
     for (const skill of selectedSkills) { const sourceSkill = join(canonical, "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(skillRoot, skill), records, "platform-skill", options.dryRun); }
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
-    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity");
+    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity", source);
   }
   if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true } : {}) } });
   output({ ok: true, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, migration }); return 0;

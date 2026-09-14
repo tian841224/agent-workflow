@@ -257,7 +257,8 @@ const GIT_EXECUTION_ALTERING = /^(?:-c|--config-env\b|--exec-path\b|--namespace\
 const GIT_LOCATION_OPTIONS = /^(?:--git-dir|--work-tree)(?:=(\S+)|\s+(\S+))\s*/;
 function parseGitInvocation(segment: string, boundary = process.cwd()): { subcommand: string; args: string[] } | null {
   // Anchored at the segment head so prose that merely quotes a git command is not parsed as one.
-  const match = segment.match(/^(?:\S*[\\/])?git(?:\.exe)?\b\s*(.*)$/i); if (!match) return null;
+  // `s` flag: a multi-line -m message or here-string must still match past its embedded newlines.
+  const match = segment.match(/^(?:\S*[\\/])?git(?:\.exe)?\b\s*(.*)$/is); if (!match) return null;
   let rest = match[1].trim();
   for (;;) {
     if (GIT_EXECUTION_ALTERING.test(rest)) return null;
@@ -313,8 +314,13 @@ export function gitDecision(event: CanonicalHookEvent): HookDecision {
     // data; a double-quoted or interpreter-held one survives stripping and is still caught here.
     if (COMMAND_CARRYING.has(head) || SUBSTITUTION.test(segment)) return { allow: false, reason: "git-guard: git reached through a wrapper, interpreter, remote/container carrier, or command substitution is denied outright; ask the user to run it explicitly." };
     if (!GIT_TOKEN.test(segment)) continue; // "git" only appeared inside a data command's quoted argument, e.g. grep "git status"
-    const parsed = parseGitInvocation(stripInvocationPrefix(segment), event.cwd ? resolve(event.cwd) : process.cwd());
-    if (!parsed) return { allow: false, reason: `git-guard: 'git ${segment}' alters git's execution (-c/--exec-path/--namespace) or its --git-dir/--work-tree points outside the project; ask the user to run it explicitly.` };
+    const invocation = stripInvocationPrefix(segment);
+    const parsed = parseGitInvocation(invocation, event.cwd ? resolve(event.cwd) : process.cwd());
+    if (!parsed) {
+      // Distinguish "git" merely appearing in another command's arguments from an actual git invocation that alters execution.
+      if (!/^(?:\S*[\\/])?git(?:\.exe)?\b/is.test(invocation)) return { allow: false, reason: `git-guard: 'git' appears in the arguments of '${head}', which may execute it; ask the user to run it explicitly.` };
+      return { allow: false, reason: `git-guard: 'git ${segment}' alters git's execution (-c/--exec-path/--namespace) or its --git-dir/--work-tree points outside the project; ask the user to run it explicitly.` };
+    }
     if (destructiveGit(parsed.subcommand, parsed.args)) return { allow: false, reason: `git-guard: destructive git ${parsed.subcommand} is denied; ask the user to run it explicitly.` };
     if (["diff", "log", "show"].includes(parsed.subcommand) && parsed.args.some((arg) => GIT_DENIED_READ_OPTIONS.test(arg))) return { allow: false, reason: "git-guard: diff machinery output or external execution is denied." };
   }

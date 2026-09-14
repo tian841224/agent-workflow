@@ -9,6 +9,8 @@ export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
+  "locale-reminder": ["platform", "state-root"],
+  "locale-lint": ["platform", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd", "auto"],
   "workflow-plan": ["task-path", "policy-path"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
@@ -102,6 +104,11 @@ async function main(): Promise<void> {
     const platform = option(parsed.values, "platform", "Codex");
     const event = option(parsed.values, "event", "PreToolUse");
     (await import("./hooks.js")).runGuard(platform, event, payload, option(parsed.values, "state-root", stateRoot()));
+  }
+  else if (command === "locale-reminder") (await import("./locale-hooks.js")).runLocaleReminder(option(parsed.values, "state-root", stateRoot()));
+  else if (command === "locale-lint") {
+    let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
+    (await import("./locale-hooks.js")).runLocaleLint(payload, option(parsed.values, "state-root", stateRoot()));
   }
   else if (command === "memory-context") {
     // Only Antigravity's PreInvocation hook carries a payload worth reading here; the other

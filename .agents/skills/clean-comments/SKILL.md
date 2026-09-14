@@ -1,10 +1,11 @@
 ---
 name: clean-comments
-description: 詳細程式碼註解規範；只有新增／重寫多行註解、public/doc comments、高風險判斷依據，或 review 發現 comment pollution 時載入。一般 logic change 只遵守 AGENTS.md 的短註解規則。
+description: 程式碼註解規範，適用於所有新增或修改的程式碼註解——一般 logic change 只需遵守常駐核心規則（由 Claude 的 PreToolUse hook 強制、AGENTS.md 短規則涵蓋）；新增／重寫多行註解、public/doc comments、高風險判斷依據，或 review 發現 comment pollution 時才載入本檔全文查邊界案例。
 ---
 
 # 精簡與結構化程式碼註解規範
 
+<!-- enforcement:start -->
 | 註解類型 | 放置位置 | 核心職責 | 長度上限 |
 | :--- | :--- | :--- | :--- |
 | **函式註解** | 函式／介面宣告正上方 | 站在呼叫端視角說明功能目的與核心合約 | 1–2 句 |
@@ -23,6 +24,7 @@ Go 等有慣例的語言，函式註解以函式名稱開頭。
 7. 要說明的是「一整條流程」或「跨函式的完整機制」時，寫進 `docs/flows/<slug>.md` 或 `docs/modules/<slug>.md`（見 [project-docs skill](../project-docs/SKILL.md)），程式碼裡只留 1 句目的性註解或指向文件的線索。
 
 例外：高風險路徑（金流、對外契約、不可逆的降級／關閉操作）上的判斷依據註解可以超過 1 句，把支撐這個判斷的具體事實、查證狀態與誤判後果一併寫出來。
+<!-- enforcement:end -->
 
 ## 正反例
 
