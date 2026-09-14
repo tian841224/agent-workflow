@@ -11,6 +11,28 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-reminder --platform Claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-lint --platform Claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "*",
@@ -19,6 +41,16 @@
             "type": "command",
             "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Claude",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "timeout": 30,
+            "prompt": "[agent-workflow managed: clean-comments]\n檢查這次 Edit/Write 是否新增或修改程式碼註解。非程式碼檔（*.md/*.json/*.yaml 等）或未動到註解時回傳 {\"ok\":true}。有動到註解時只依下列 policy 判斷，不得自創規則；高風險路徑（金流、對外契約、不可逆降級／關閉）允許超過 1 句。違反時回傳 {\"ok\":false,\"reason\":\"clean-comments Rule N: <引用違反的註解> ...\"}。\n\n{{POLICY:clean-comments}}\n\n$ARGUMENTS"
           }
         ]
       }

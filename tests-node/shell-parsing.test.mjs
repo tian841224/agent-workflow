@@ -74,6 +74,35 @@ test("read-only git commands survive every stripping layer", () => {
   }
 });
 
+// A multi-line -m message or a PowerShell here-string embeds a literal newline in the segment;
+// the anchoring regex must still match past it instead of misreporting an execution-altering flag.
+test("a multi-line commit message is not misreported as altering git's execution", () => {
+  for (const command of [
+    'git commit -m "title\n\nbody line"',
+    "git commit -m @'\ntitle\n\nbody\n'@"
+  ]) {
+    const result = guard("git-guard", command);
+    assert.doesNotMatch(result.stdout, /"permissionDecision":"deny"/, command);
+  }
+});
+
+test("a multi-line git command still denies -c and destructive flags", () => {
+  const configEscape = guard("git-guard", 'git -c core.hooksPath=x commit -m "a\nb"');
+  assert.match(configEscape.stdout, /"permissionDecision":"deny"/);
+  assert.doesNotMatch(configEscape.stdout, /'git' appears in the arguments of/);
+  const destructive = guard("git-guard", 'git push --force "origin"\nmain');
+  assert.match(destructive.stdout, /"permissionDecision":"deny"/);
+});
+
+// 'git' appearing only in another command's arguments (not as the segment head) is a different
+// failure mode than an execution-altering git invocation, and needs its own accurate message.
+test("git-guard denies 'git' inside another command's arguments with an accurate reason, not the execution-altering message", () => {
+  const result = guard("git-guard", `node -e "require('child_process').execSync('git push')"`);
+  assert.match(result.stdout, /"permissionDecision":"deny"/);
+  assert.doesNotMatch(result.stdout, /alters git's execution/);
+  assert.match(result.stdout, /'git' appears in the arguments of 'node'/);
+});
+
 // git gets a stricter rule than the general read-only allowlist: any indirection at all around a
 // segment that mentions git is denied outright, even when the wrapped git call would itself have
 // been read-only-safe. The guard no longer tries to resolve what is inside a wrapper/interpreter/

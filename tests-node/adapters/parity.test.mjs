@@ -52,6 +52,25 @@ test("adapter templates contain exactly one PreToolUse guard and no proof lifecy
   }
 });
 
+test("only the Claude adapter carries the clean-comments prompt hook, on Edit|Write", () => {
+  const claudeBody = readFileSync("adapters/claude/settings.hooks.json", "utf8");
+  assert.equal((claudeBody.match(/\{\{POLICY:clean-comments\}\}/g) || []).length, 1, "expected exactly one clean-comments prompt hook in the Claude adapter");
+  assert.match(claudeBody, /"matcher":\s*"Edit\|Write"/);
+  assert.match(claudeBody, /"type":\s*"prompt"/);
+  for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
+    assert.doesNotMatch(readFileSync(path, "utf8"), /clean-comments/, path);
+  }
+});
+
+test("only the Claude adapter enforces localization-tw via UserPromptSubmit/Stop hooks", () => {
+  const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
+  assert.equal((JSON.stringify(claudeHooks.UserPromptSubmit).match(/locale-reminder --platform Claude/g) || []).length, 1);
+  assert.equal((JSON.stringify(claudeHooks.Stop).match(/locale-lint --platform Claude/g) || []).length, 1);
+  for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
+    assert.doesNotMatch(readFileSync(path, "utf8"), /locale-reminder|locale-lint/, path);
+  }
+});
+
 test("the Antigravity adapter declares only lifecycle events the platform still supports", () => {
   const allowed = new Set(["PreToolUse", "PostToolUse", "PreInvocation", "PostInvocation", "Stop"]);
   const hooks = JSON.parse(readFileSync("adapters/antigravity/hooks.json", "utf8"));
