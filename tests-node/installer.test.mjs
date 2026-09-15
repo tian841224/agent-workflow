@@ -74,7 +74,9 @@ test("clean-comments PreToolUse prompt hook renders SKILL.md's enforcement block
   const preToolUse = JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks.PreToolUse;
   const promptGroups = preToolUse.filter((group) => JSON.stringify(group).includes("[agent-workflow managed: clean-comments]"));
   assert.equal(promptGroups.length, 1, "clean-comments prompt hook must not duplicate across repairs");
-  const prompt = promptGroups[0].hooks[0].prompt;
+  const cleanCommentsHook = promptGroups[0].hooks[0];
+  assert.equal(cleanCommentsHook.continueOnBlock, true, "clean-comments blocks must return the reason to Claude so it can fix and retry instead of ending the turn");
+  const prompt = cleanCommentsHook.prompt;
   assert.doesNotMatch(prompt, /\{\{POLICY:/, "no unrendered policy placeholder should remain");
   const skillBody = readFileSync("./.agents/skills/clean-comments/SKILL.md", "utf8");
   const enforcement = skillBody.match(/<!-- enforcement:start -->([\s\S]*?)<!-- enforcement:end -->/)[1].trim();
