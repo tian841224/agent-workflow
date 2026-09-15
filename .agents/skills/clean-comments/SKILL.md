@@ -1,6 +1,6 @@
 ---
 name: clean-comments
-description: 程式碼註解規範，適用於所有新增或修改的程式碼註解——一般 logic change 只需遵守常駐核心規則（由 Claude 的 PreToolUse hook 強制、AGENTS.md 短規則涵蓋）；新增／重寫多行註解、public/doc comments、高風險判斷依據，或 review 發現 comment pollution 時才載入本檔全文查邊界案例。
+description: 程式碼註解規範，適用於所有新增或修改的程式碼註解——一般開發只需遵守 AGENTS.md 的短規則；Claude 在任務結束前由 Stop agent gate 讀取本 skill 並檢查本次 git diff，只針對新增或修改的註解做最終合規驗證。新增／重寫多行註解、public/doc comments、高風險判斷依據，或 review 發現 comment pollution 時可在開發期間主動載入本檔全文查邊界案例。
 ---
 
 # 精簡與結構化程式碼註解規範
