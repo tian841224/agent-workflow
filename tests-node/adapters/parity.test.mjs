@@ -52,11 +52,15 @@ test("adapter templates contain exactly one PreToolUse guard and no proof lifecy
   }
 });
 
-test("only the Claude adapter carries the clean-comments prompt hook, on Edit|Write", () => {
-  const claudeBody = readFileSync("adapters/claude/settings.hooks.json", "utf8");
-  assert.equal((claudeBody.match(/\{\{POLICY:clean-comments\}\}/g) || []).length, 1, "expected exactly one clean-comments prompt hook in the Claude adapter");
-  assert.match(claudeBody, /"matcher":\s*"Edit\|Write"/);
-  assert.match(claudeBody, /"type":\s*"prompt"/);
+test("only the Claude adapter carries the clean-comments Stop diff gate", () => {
+  const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
+  const stop = JSON.stringify(claudeHooks.Stop || []);
+  const preToolUse = JSON.stringify(claudeHooks.PreToolUse || []);
+  assert.equal((stop.match(/\[agent-workflow managed: clean-comments\]/g) || []).length, 1, "expected exactly one clean-comments Stop gate in the Claude adapter");
+  assert.match(stop, /"type":"agent"/);
+  assert.match(stop, /git diff/);
+  assert.match(stop, /clean-comments\/SKILL\.md/);
+  assert.doesNotMatch(preToolUse, /clean-comments|Edit\|Write/);
   for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), /clean-comments/, path);
   }
@@ -100,4 +104,3 @@ test("automatic memory context requires relevance and Antigravity still injects 
   assert.deepEqual(memory({ invocationNum: 3 }, "demo memory"), { injectSteps: [] });
   assert.deepEqual(memory({}, "demo memory"), { injectSteps: [] });
 });
-
