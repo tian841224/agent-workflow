@@ -63,7 +63,7 @@ test("repeated repairs do not duplicate a platform's own managed hooks (Windows 
   assert.equal((preToolUse.match(/git-guard --platform Claude/g) || []).length, 1);
 });
 
-test("clean-comments PreToolUse prompt hook renders SKILL.md's enforcement block, once, with no leftover placeholder", () => {
+test("clean-comments installs exactly once as a Claude Stop agent gate and not as an Edit/Write PreToolUse hook", () => {
   const root = join(tmpdir(), `agent-workflow-clean-comments-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
   const claudeTarget = join(root, "claude");
@@ -71,19 +71,17 @@ test("clean-comments PreToolUse prompt hook renders SKILL.md's enforcement block
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
-  const preToolUse = JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks.PreToolUse;
-  const promptGroups = preToolUse.filter((group) => JSON.stringify(group).includes("[agent-workflow managed: clean-comments]"));
-  assert.equal(promptGroups.length, 1, "clean-comments prompt hook must not duplicate across repairs");
-  const cleanCommentsHook = promptGroups[0].hooks[0];
-  assert.equal(cleanCommentsHook.continueOnBlock, true, "clean-comments blocks must return the reason to Claude so it can fix and retry instead of ending the turn");
-  const prompt = cleanCommentsHook.prompt;
-  assert.doesNotMatch(prompt, /\{\{POLICY:/, "no unrendered policy placeholder should remain");
-  const skillBody = readFileSync("./.agents/skills/clean-comments/SKILL.md", "utf8");
-  const enforcement = skillBody.match(/<!-- enforcement:start -->([\s\S]*?)<!-- enforcement:end -->/)[1].trim();
-  assert.ok(prompt.includes(enforcement), "prompt must embed the skill's enforcement block verbatim");
+  const hooks = JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks;
+  const stop = JSON.stringify(hooks.Stop || []);
+  const preToolUse = JSON.stringify(hooks.PreToolUse || []);
+  assert.equal((stop.match(/\[agent-workflow managed: clean-comments\]/g) || []).length, 1, "clean-comments Stop gate must not duplicate across repairs");
+  assert.match(stop, /"type":"agent"/, "clean-comments must run as a Stop agent gate so it can inspect the repository diff and installed skill");
+  assert.doesNotMatch(preToolUse, /clean-comments|Edit\|Write/, "clean-comments must not run on every Edit/Write");
+  assert.match(stop, /git diff/);
+  assert.match(stop, /clean-comments\/SKILL\.md/);
 });
 
-test("repair preserves a platform's own Stop hook alongside agent-workflow's locale-lint Stop hook", () => {
+test("repair preserves a platform's own Stop hook alongside agent-workflow's managed Stop hooks", () => {
   const root = join(tmpdir(), `agent-workflow-stop-merge-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
   const claudeTarget = join(root, "claude");
@@ -97,7 +95,8 @@ test("repair preserves a platform's own Stop hook alongside agent-workflow's loc
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   const stopHooks = JSON.stringify(JSON.parse(readFileSync(settingsPath, "utf8")).hooks.Stop);
   assert.match(stopHooks, /user's own stop hook/);
-  assert.equal((stopHooks.match(/locale-lint --platform Claude/g) || []).length, 1, "agent-workflow's own Stop hook must not duplicate across repairs");
+  assert.equal((stopHooks.match(/locale-lint --platform Claude/g) || []).length, 1, "locale-lint Stop hook must not duplicate across repairs");
+  assert.equal((stopHooks.match(/\[agent-workflow managed: clean-comments\]/g) || []).length, 1, "clean-comments Stop gate must not duplicate across repairs");
 });
 
 test("repair sweeps retired Antigravity lifecycle hooks and keeps the user's own", () => {
