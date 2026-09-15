@@ -35,7 +35,7 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 ### task.md 與 task.json 的分工
 
-`task.md` 只保存 human-readable intent：Goal、Scope、Completion criteria，以及 freeze-required 任務的 Non-goals and compatibility／Acceptance cases。`task.json` 是 classification、lifecycle、transition、waiver、project_docs、machine evidence 與 gate evaluation 的 machine authority，並保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 記錄高風險任務已取得的使用者確認。`agent-workflow task-report` 從兩者產生一次性的 Markdown 檢視，不形成第三個 authority。
+`task.md` 只保存 human-readable intent：Goal、Scope、Completion criteria，以及 freeze-required 任務的 Non-goals and compatibility／Acceptance cases。`task.json` 是 classification、lifecycle、transition、waiver、project_docs、machine evidence 與 gate evaluation 的 machine authority，並保存版本化 lifecycle、transition、waiver 與 evidence，並以 `state_revision`／`plan_revision` 追蹤狀態與計畫版本、以 `intent_approval` 記錄高風險任務 intent 的核准（預設由 agent 自行 attest）。`agent-workflow task-report` 從兩者產生一次性的 Markdown 檢視，不形成第三個 authority。
 
 ### task.json 的寫入路徑
 
@@ -60,7 +60,7 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 兩件事本框架明確不保證，設計上以 attestation 而非 proof 處理：
 
 - **初始分類由 AI 負責。** Runtime 無法分辨「這次真的沒有 authorization 風險」與「AI 漏判了 authorization 風險」，除非另建 static analysis 或分類驗證器。Runtime 的職責是保證**已宣告**的高風險不能被靜默繞過：`required` 不能靠少填 `workflow_request` 移除，移除 risk flag 或把 `managed_change` 改回 `false` 都必須走 `reclassify`。
-- **使用者確認是 attestation。** `approve-intent --as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。使用者訊息或已核准 Plan 已明示的意圖可直接作為確認來源，不要求 agent 複述後再問一次；agent 自行補上或推導的內容仍須另外取得確認。
+- **使用者確認是 attestation。** `approve-intent --as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。`approve-intent` 預設由 agent 自行執行、不加 `--as-user`（`source: cli-attestation`），不停下來要求使用者確認 intent；`intent_hash` 仍負責偵測核准後 Goal／Scope／Completion criteria 被改動。
 
 ## Hook trust boundary
 

@@ -36,7 +36,7 @@ coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚
 
 Reviewer 結果只透過 `review-record` 寫入 task.json；summary 保留 blocker、path、symbol／hunk、可觸發情境、影響與最小修正方向。`agent-workflow task-report` 會把 role evidence 呈現給人閱讀，task.md 不再保存第二份 Reviewer ledger。
 
-- Review 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則停手取得使用者確認，或 supersede 舊 task 另建新 task。
+- Review 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
 - 回填後的 task 路徑即為唯一版本，後續複審與 knowledge 回寫都以它為準。
 - 有 blocker 時主對話修正、重新執行相關驗證，再重跑上述各趟。
 
