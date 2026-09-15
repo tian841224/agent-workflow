@@ -8,6 +8,36 @@ import { test } from "node:test";
 
 const cli = join(process.cwd(), "dist", "agent-workflow.mjs");
 
+test("startup navigation and prompt retrieval keep task selection bounded and refresh on each prompt", () => {
+  const root = join(tmpdir(), `agent-workflow-prompt-memory-${process.pid}-${Date.now()}`);
+  const dir = join(root, "knowledge", "global", "entries");
+  mkdirSync(dir, { recursive: true });
+  const entry = (name, body, extra = "") => writeFileSync(join(dir, `${name}.md`), `---\ntopic: ${name}\nstatus: verified\nupdated_at: 2026-09-15T00:00:00Z\n${extra}\n---\n${body}`);
+  entry("redis", "快取 Redis 過期設定 CACHE_DETAIL");
+  entry("billing", "帳單結算 BILLING_DETAIL");
+  entry("stale", "Redis STALE_DETAIL", "source_path: missing-source\nsource_sha256: old");
+  const run = (event, payload, extra = []) => spawnSync(process.execPath, [cli, "memory-context", "--platform", "Codex", "--state-root", root, "--auto", "--event", event, ...extra], { input: JSON.stringify(payload), encoding: "utf8" });
+  const startup = run("SessionStart", {});
+  assert.equal(startup.status, 0, startup.stderr);
+  assert.match(startup.stdout, /redis/);
+  assert.doesNotMatch(startup.stdout, /CACHE_DETAIL|BILLING_DETAIL|STALE_DETAIL/);
+  for (const prompt of ["Please fix Redis expiry", "請修正快取的過期設定"]) {
+    const result = run("UserPromptSubmit", { prompt });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.hookEventName, "UserPromptSubmit");
+    assert.match(result.stdout, /CACHE_DETAIL/);
+    assert.doesNotMatch(result.stdout, /BILLING_DETAIL|STALE_DETAIL/);
+  }
+  const next = run("UserPromptSubmit", { prompt: "請處理帳單結算" });
+  assert.match(next.stdout, /BILLING_DETAIL/);
+  assert.doesNotMatch(next.stdout, /CACHE_DETAIL/);
+  for (const payload of [{}, { prompt: "請開始" }, { prompt: "astronomy telescope" }, { prompt: 42 }]) {
+    assert.equal(run("UserPromptSubmit", payload).stdout.trim(), "");
+  }
+  assert.equal(run("UserPromptSubmit", { prompt: "Redis" }, ["--query", "redis nonexistent"]).stdout.trim(), "", "explicit query keeps AND semantics and takes precedence");
+  assert.notEqual(run("InvalidEvent", {}).status, 0);
+});
+
 test("memory-context for one project never includes a knowledge entry written under a different project id", () => {
   const root = join(tmpdir(), `agent-workflow-knowledge-isolation-${process.pid}-${Date.now()}`);
   const repo = join(root, "repo");

@@ -20,5 +20,6 @@
 
 - 修改 `.agents/` 底下 agent 或 skill 文件 → `writing-for-agents`；新增 skill 的 manifest 分類也依該 skill 處理。
 - 修改 agents、skills、hooks 或 workflow contract → 先讀 [docs/architecture.md](docs/architecture.md)。
-- EN／JA ↔ zh-TW 翻譯、中文 UI copy 或需要術語校對的正式在地化內容 → `localization-tw`；一般 zh-TW 回覆只用上方短 locale 規則。<!-- skill:localization-tw -->
+- 所有中文回覆（含進度、問答、review 與最終回覆）→ 首次回覆前讀 `localization-tw` 並依其規則檢查整份輸出；同一對話重用已讀規則，術語不確定時才查 references。<!-- skill:localization-tw -->
+- 每次新任務先使用當前任務的相關記憶；hook 未提供時，以 `agent-workflow memory-context --auto --query '<task keywords>'` 查詢。任務改變時重新查詢，同一任務重用結果；沒有命中不以近期記憶補足。
 - 查看或分析前端頁面 → 優先讀 DOM，無法解析時才用截圖。

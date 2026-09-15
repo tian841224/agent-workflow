@@ -1,10 +1,10 @@
 # zh-TW Locale
 
-Use this file when wording itself needs Taiwan-specific localization. Ordinary technical conversation should not load more than necessary.
+所有中文回覆均適用本檔；首次讀取後重用規則，回覆前檢查整份輸出。
 
 ## Core rules
 
-- Use臺灣慣用繁體中文，不使用簡體字或中國特有技術詞彙。
+- 使用臺灣慣用繁體中文，不使用簡體字或中國特有技術詞彙。
 - 技術名詞以臺灣業界常用譯法為主；沒有自然譯名時保留英文。
 - 中文敘述使用全形標點；程式碼、指令、路徑、identifier 保留原格式。
 - 語氣自然、直接，避免翻譯腔與為了正式而堆疊冗詞。

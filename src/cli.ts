@@ -1,4 +1,4 @@
-import { PRODUCT_VERSION, flag, option, optionList, parseArgs, stateRoot, stdinJson } from "./core.js";
+import { PRODUCT_VERSION, JsonObject, flag, option, optionList, parseArgs, stateRoot, stdinJson } from "./core.js";
 
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
@@ -11,7 +11,7 @@ export const commandOptions: Record<string, string[]> = {
   "git-guard": ["platform", "event", "state-root"],
   "locale-reminder": ["platform", "state-root"],
   "locale-lint": ["platform", "state-root"],
-  "memory-context": ["platform", "state-root", "query", "cwd", "auto"],
+  "memory-context": ["platform", "state-root", "query", "cwd", "auto", "event"],
   "workflow-plan": ["task-path", "policy-path"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
   skill: ["action", "name", "from", "source", "source-type", "skill-path", "root"],
@@ -111,13 +111,16 @@ async function main(): Promise<void> {
     (await import("./locale-hooks.js")).runLocaleLint(payload, option(parsed.values, "state-root", stateRoot()));
   }
   else if (command === "memory-context") {
-    // Only Antigravity's PreInvocation hook carries a payload worth reading here; the other
-    // platforms invoke this on SessionStart with nothing on stdin to wait for.
     const platform = option(parsed.values, "platform", "Codex");
+    const requestedEvent = option(parsed.values, "event");
+    const event: "SessionStart" | "UserPromptSubmit" | undefined = requestedEvent === "SessionStart" || requestedEvent === "UserPromptSubmit" ? requestedEvent : undefined;
+    if (requestedEvent && !event) throw new Error("memory-context: --event must be SessionStart or UserPromptSubmit");
+    let payload: JsonObject = {};
+    if (event || platform.toLowerCase() === "antigravity") { try { payload = stdinJson(); } catch { payload = {}; } }
     let invocationNum: number | undefined;
-    if (platform.toLowerCase() === "antigravity") { try { const value = stdinJson().invocationNum; invocationNum = typeof value === "number" ? value : undefined; } catch { invocationNum = undefined; } }
+    if (platform.toLowerCase() === "antigravity") invocationNum = typeof payload.invocationNum === "number" ? payload.invocationNum : undefined;
     if (platform.toLowerCase() === "antigravity" && invocationNum !== 0) { process.stdout.write(`${JSON.stringify({ injectSteps: [] })}\n`); return; }
-    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", process.cwd()), invocationNum, flag(parsed.values, "auto"));
+    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", typeof payload.cwd === "string" ? payload.cwd : process.cwd()), invocationNum, flag(parsed.values, "auto"), event ? { event, prompt: typeof payload.prompt === "string" ? payload.prompt : undefined } : undefined);
   }
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);

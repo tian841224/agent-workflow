@@ -58,4 +58,4 @@ notice as it is to be a contradiction, so the judgement is yours per group.
 
 When the same kind of conclusion has been recorded several times, load the `distill` skill to turn it into a reviewable skill draft.
 
-At session start, a hook automatically loads the current project and part of the shared global memory; memories are reference only — verify against the current repo before use, and use `knowledge --action Search` to actively look up more context when needed.
+SessionStart loads bounded verified memory topic navigation. Claude/Codex UserPromptSubmit selects relevant excerpts from the current prompt; each new task without matching hook context uses an explicit query. See [memory procedure](../workflow/memory.md). Treat memories as reference and verify claims against the current repo.

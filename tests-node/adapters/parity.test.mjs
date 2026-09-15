@@ -47,28 +47,27 @@ test("adapter templates contain exactly one PreToolUse guard and no proof lifecy
     const body = readFileSync(path, "utf8");
     assert.equal((body.match(/git-guard --platform/g) || []).length, 1, path);
     assert.doesNotMatch(body, /skill-guard|PostToolUse|SessionEnd/, path);
-    assert.equal((body.match(/memory-context --platform/g) || []).length, 1, path);
-    assert.equal((body.match(/memory-context --platform .* --auto/g) || []).length, 1, `${path} must enable strict automatic-memory mode`);
+    assert.equal((body.match(/memory-context --platform/g) || []).length, path.includes("antigravity") ? 1 : 2, path);
+    assert.match(body, /--event SessionStart/, `${path} must preserve startup memory navigation`);
+    if (path.includes("claude") || path.includes("codex")) assert.match(body, /--event UserPromptSubmit/, `${path} must filter memory for each submitted task`);
   }
 });
 
-test("only the Claude adapter carries the clean-comments Stop diff gate", () => {
+test("platform adapters do not start a separate clean-comments Stop agent", () => {
   const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
   const stop = JSON.stringify(claudeHooks.Stop || []);
   const preToolUse = JSON.stringify(claudeHooks.PreToolUse || []);
-  assert.equal((stop.match(/\[agent-workflow managed: clean-comments\]/g) || []).length, 1, "expected exactly one clean-comments Stop gate in the Claude adapter");
-  assert.match(stop, /"type":"agent"/);
-  assert.match(stop, /git diff/);
-  assert.match(stop, /clean-comments\/SKILL\.md/);
+  assert.doesNotMatch(stop, /clean-comments|"type":"agent"/);
   assert.doesNotMatch(preToolUse, /clean-comments|Edit\|Write/);
   for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), /clean-comments/, path);
   }
 });
 
-test("only the Claude adapter enforces localization-tw via UserPromptSubmit/Stop hooks", () => {
+test("required localization skill and Claude lexical Stop check are the locale enforcement", () => {
   const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
-  assert.equal((JSON.stringify(claudeHooks.UserPromptSubmit).match(/locale-reminder --platform Claude/g) || []).length, 1);
+  assert.equal((JSON.stringify(claudeHooks.UserPromptSubmit).match(/locale-reminder --platform Claude/g) || []).length, 0);
+  assert.equal(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills["localization-tw"].required, true);
   assert.equal((JSON.stringify(claudeHooks.Stop).match(/locale-lint --platform Claude/g) || []).length, 1);
   for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), /locale-reminder|locale-lint/, path);

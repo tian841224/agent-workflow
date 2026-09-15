@@ -70,7 +70,7 @@ Task safety 只保護直接命名 `task.json` 的工具或 shell segment。明�
 
 Git safety 只在 command 提到 Git 時解析。破壞性操作（hard reset、clean、branch delete、path checkout、restore、force push）及 hidden execution（wrapper、直譯器、remote/container、substitution、改變 Git 執行方式的 option）拒絕；其餘直接 Git 呼叫交由平台 native permission，包括 `cd repo && git checkout -b branch`。平台是否提示 approval 由平台 permission 設定決定，guard 放行本身不代表已獲使用者核准。diff machinery 的 output／external execution 與跨 project git-dir／work-tree 邊界仍保留。
 
-`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不再保存或驗證 session read proof，也沒有 PostToolUse／SessionEnd guard。Claude／Codex 只在 SessionStart 載入 memory；Antigravity 保留 PreInvocation，後續 invocation 在 CLI dispatcher 載入 knowledge 模組前即回傳空結果。
+`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不再保存或驗證 session read proof，也沒有 PostToolUse／SessionEnd guard。Claude／Codex 在 SessionStart 載入有界記憶主題導航，再由 UserPromptSubmit 使用 prompt 與 cwd 篩選相關記憶。Antigravity 保留首次 PreInvocation 的導航，後續任務由 agent 明確查詢。
 
 這是對直接資源與高風險 pattern 的窄範圍檢查，不是完整 shell sandbox；變數間接算出的路徑、任意 script、alias 或同機程序的行為仍由平台權限管理。它不試圖防止擁有本機檔案權限者停用 hook。task runtime 的 schema、鎖、evidence freshness 與 reviewer gate 維持原有 authority。
 
@@ -97,4 +97,4 @@ non_goals:      本次明確不順便處理的項目
 
 ## Memory 的有界選取
 
-自動 `memory-context --auto` 沒有能代表目前任務的有效 query 時，在列舉或讀取 knowledge entries 前直接回空；同 project 或最近更新不構成 relevance。只有有明確 query 的情況才做 verified memory 的 relevance 篩選與 source freshness 檢查，再套用 6 筆／800 字元上限。任務需要歷史脈絡但 hook 沒有可靠 query 時，由 agent 以 `knowledge --action Search --query '<keywords>'` 明確搜尋。沒有新增 persistent index；Project Docs whole-tree digest 與 legacy cleanup 不屬於本次 workflow contract。
+`memory-context --auto --event SessionStart` 在沒有 query 時提供 verified 主題導航與每次任務前的查詢指示，不把主題樣本當作相關結論。Claude／Codex 的 `--event UserPromptSubmit` 讀取 JSON payload 的 prompt 與 cwd，以英文／中文斷詞匹配記憶正文與主題；prompt 只作資料，不放進 shell。Explicit query 保留 AND 條件，未指定 event 的 automatic 無 query 呼叫仍回空。所有載入保留來源 freshness、專案隔離及 6 筆／800 字元上限。SessionStart 不保證知道當前任務，Antigravity 或 hook 未命中時由 agent 依完整任務脈絡明確搜尋；詞彙匹配不宣稱語意搜尋。沒有新增 persistent index 或讀取 transcript。

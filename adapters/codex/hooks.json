@@ -6,7 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Codex --auto"
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Codex --auto --event SessionStart"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Codex --auto --event UserPromptSubmit"
           }
         ]
       }

@@ -89,7 +89,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 ### 跨平台記憶讀取
 
-專案保留 Claude Code、Codex 與 Antigravity 的 `memory-context` hook，但自動 hook 一律使用嚴格 relevance gate。沒有能代表目前任務的有效 query 時直接回空，且在列舉／讀取 knowledge entries 前就停止；不得用同 project、最近更新或降低 threshold 來補結果。有 query 時，只有所有有效關鍵字都命中的 verified memory 才能注入，沒有相關結果就是 0 筆。
+Claude Code 與 Codex 在 SessionStart 載入有界記憶主題導航，並在每次 UserPromptSubmit 依當前任務篩選相關記憶；Antigravity 在首次 PreInvocation 提供導航。所有平台都保留 verified、來源 freshness、專案隔離及 6 筆／800 字元上限。沒有相關命中時不注入近期記憶；平台未提供 prompt 的情況，由 agent 依任務關鍵字明確搜尋。
 
 任務真的需要歷史脈絡時，由 agent 以目前任務的 2–5 個關鍵字執行 `agent-workflow knowledge --action Search --query '<keywords>'`；原生來源與 curated knowledge 都只作參考，使用前仍需依目前程式、文件或設定驗證。
 

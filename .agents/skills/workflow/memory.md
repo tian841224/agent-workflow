@@ -1,16 +1,13 @@
 # Knowledge 與 retrospective
 
-任務依賴歷史脈絡、使用者要求或已知回歸時才讀本檔；簡單、局部且不依賴歷史的修改略過。
+## 每次任務前的記憶讀取
 
-## 查詢
-
-1. 以 2–5 個關鍵字執行 `agent-workflow knowledge --action Search --query '<keywords>' --limit 5`。Query 用小寫英文單字、空白分隔（topic 是英文 kebab-case，中文與整串連字號的命中率極低）。
-2. Search 只回傳 entry 第一行前 180 字，命中後要讀 `path` 全文。
-3. Managed hook 會執行 `memory-context --auto`：Claude／Codex 在 `SessionStart`，Antigravity 在 `PreInvocation`。自動模式必須先有可用來判斷任務關聯性的 query；沒有有效 query 時直接回空，而且不得 fallback 到同 project 或最近更新的記憶。即使有 query，也只有所有有效關鍵字都命中的 verified memory 才能注入；沒有相關結果就是 0 筆。
-4. `--auto` 的 0 筆結果不是錯誤，也不要用降低 threshold、減少 Top-K 或改用 recency 補結果。任務真的需要歷史脈絡時，由 agent 依第 1 點用當前任務關鍵字明確 Search。
-5. `needs_verification` 或可能過時的記憶只當線索，使用前回查目前程式、文件或設定。
-6. Reviewer 可自行執行 Search 建立脈絡。
-7. 專案結構與模組流程不走 knowledge，改走 project docs（見 [project-docs skill](../project-docs/SKILL.md)）。
+1. Claude／Codex 的 SessionStart 自動提供最多 6 筆、800 字元的 verified 記憶主題導航；這不是任務相關性判定，也不是完整索引。Antigravity 在首次 PreInvocation 提供同一入口。
+2. Claude／Codex 的 UserPromptSubmit 使用 payload 的 prompt 與 cwd，依當前任務篩選記憶。自然語句用英文／中文斷詞後匹配內容；不將 prompt 插入 shell。每次提交都重新篩選，沒有命中就不注入。
+3. 每次新任務先讀相關記憶。Hook 沒有提供相關摘要、只回覆簡短承接語句或平台沒有 prompt hook 時，由 agent 依完整任務脈絡執行 `agent-workflow memory-context --auto --query '<task keywords>' --cwd '<repo>'`。Explicit query 維持所有有效關鍵字都要命中的語意；用 2–5 個精準的 topic／symbol 關鍵字，不把整段需求貼成 query。
+4. 所有注入都保留 verified、source freshness、目前 project／global 範圍與 6 筆／800 字元上限。記憶只作參考，使用前核對現況；沒有相關結果不以最近更新補足。同一任務重用查詢結果，任務或影響面改變才補查。
+5. 摘要不足以判斷時，用 `agent-workflow knowledge --action Search --scope Project --query '<keywords>' --limit 5` 取得 path 並讀全文；查全域偏好時明列 `--scope Global`。未 verified 結果僅作線索。詞彙匹配不是語意搜尋，同義詞／跨語言未命中時改用記憶 topic 的詞彙查詢。
+6. Reviewer 可自行搜尋；專案結構與模組流程走 project docs。
 
 ## 寫入
 
