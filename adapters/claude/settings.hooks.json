@@ -29,6 +29,11 @@
             "type": "command",
             "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-lint --platform Claude",
             "timeout": 15
+          },
+          {
+            "type": "agent",
+            "timeout": 60,
+            "prompt": "[agent-workflow managed: clean-comments]\n任務準備結束前執行 clean-comments 最終檢查。先讀取目前安裝的 clean-comments/SKILL.md 全文，再檢查本次工作樹的 git diff（包含 staged、unstaged 與新增未追蹤的程式碼檔案）。只檢查本次新增或修改的程式碼註解；未修改的既有註解與純刪除註解忽略。依 skill 規則逐一判斷。若全部符合，回傳 {\"ok\":true}。若有違規，回傳 {\"ok\":false,\"reason\":\"列出每個 file:line、clean-comments Rule N、原註解、違規原因、建議改寫；要求主 Claude 修正後再結束任務\"}。不得修改檔案，只做檢查。"
           }
         ]
       }
@@ -41,17 +46,6 @@
             "type": "command",
             "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Claude",
             "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "prompt",
-            "timeout": 30,
-            "continueOnBlock": true,
-            "prompt": "[agent-workflow managed: clean-comments]\n檢查這次 Edit/Write 是否新增或修改程式碼註解。非程式碼檔（*.md/*.json/*.yaml 等）或未動到註解時回傳 {\"ok\":true}。只審查 new_string／content 中新增或修改的註解；僅出現在 old_string 的已刪除註解視為未動到。有動到註解時只依下列 policy 判斷，不得自創規則；高風險路徑（金流、對外契約、不可逆降級／關閉）允許超過 1 句。違反時回傳 {\"ok\":false,\"reason\":\"clean-comments Rule N: <引用違反的註解> ... 建議改為：<符合 policy 的改寫，或「刪除此註解」>\"}。\n\n{{POLICY:clean-comments}}\n\n$ARGUMENTS"
           }
         ]
       }
