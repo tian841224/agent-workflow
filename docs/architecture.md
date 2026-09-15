@@ -60,7 +60,7 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 兩件事本框架明確不保證，設計上以 attestation 而非 proof 處理：
 
 - **初始分類由 AI 負責。** Runtime 無法分辨「這次真的沒有 authorization 風險」與「AI 漏判了 authorization 風險」，除非另建 static analysis 或分類驗證器。Runtime 的職責是保證**已宣告**的高風險不能被靜默繞過：`required` 不能靠少填 `workflow_request` 移除，移除 risk flag 或把 `managed_change` 改回 `false` 都必須走 `reclassify`。
-- **使用者確認是 attestation。** `approve-intent --as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。
+- **使用者確認是 attestation。** `approve-intent --as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。使用者訊息或已核准 Plan 已明示的意圖可直接作為確認來源，不要求 agent 複述後再問一次；agent 自行補上或推導的內容仍須另外取得確認。
 
 ## Hook trust boundary
 

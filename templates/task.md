@@ -2,7 +2,7 @@
      validation, hashes, waivers, and project-doc bookkeeping live in task.json or generated
      `agent-workflow task-report` output. task.json is written only through the runtime CLI.
      After task-init, run one `agent-workflow preflight --task-path <path> --repo-root <repo-root>`;
-     keep the user confirmation for Goal, Scope, Non-goals, and Completion criteria together. -->
+     intent confirmation follows workflow/risk-flags.md: do not re-ask for what the user already stated. -->
 
 # <Task title>
 

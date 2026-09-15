@@ -34,8 +34,14 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 命中 `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 任一值時：
 
 - 只在 `## Scope` 下補 `### Non-goals and compatibility`，在 `## Completion criteria` 下補 `### Acceptance cases`。這兩段位於 `intent_hash` 涵蓋的區域，使用者批准的非目標與驗收案例才不會在批准後被改掉而雜湊不變；影響面、方案與證據留在 task.json 的分類、plan 與 evidence。
-- task-gate 在通過時比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、修錯字不受影響。取得使用者對目標、非目標與完成條件的確認後執行 `agent-workflow approve-intent --confirmed-by <who> --as-user`（runtime 自己算雜湊），task-gate 才會放行。這三段內容再變動就必須重新 `approve-intent`。
+- task-gate 在通過時比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、修錯字不受影響。依下方「意圖確認」取得確認後執行 `agent-workflow approve-intent --confirmed-by <who> --as-user`（runtime 自己算雜湊），task-gate 才會放行。這三段內容再變動就必須重新 `approve-intent`。
 - 通過雜湊比對前，目標、非目標與完成條件維持不動；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)。
+
+### 意圖確認
+
+- 使用者已在自己的訊息或已核准的 Plan 中明示目標、非目標與完成條件時，agent 直接整理成 task.md 並執行 `approve-intent --as-user`，`--confirmed-by` 註明來源（例如 `user message`、`plan approval`）；不把同樣內容複述回去再要求確認。改寫措辭、整理成驗收表不算新增內容。
+- 只就 agent 補上、使用者沒說過的實質內容提問：新增的非目標、刻意接受的風險取捨（例如不回滾、不冪等）、擴大或縮小範圍、改變意義的驗收案例。只列差異，不重貼整份 intent。
+- 意圖完全由 agent 從程式碼或籠統需求推導時，仍須先取得使用者確認，不得逕以 `--as-user` 提交。
 
 ## unclear_requirements 的釐清流程
 
@@ -43,4 +49,4 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 
 1. 先用 [planning skill](../planning/SKILL.md) 釐清目標、限制與成功標準，梳理出初步架構與方向。
 2. 計畫或假設仍有較高風險、分支未明或涉及重大決策時，加開 [grill-me skill](../grill-me/SKILL.md) 逐一提問、壓力測試計畫與假設。`planning` 足以釐清時就直接繼續。
-3. Code task 需在同一輪把目標、非目標、完成條件與已知安全性取捨交給使用者確認後才能解凍（執行 `approve-intent`）；只有新發現實質改變這些內容時才再次提問。純討論或規劃則藉此收斂至具體可行的下一步。
+3. Code task 依「意圖確認」解凍（執行 `approve-intent`）：釐清後使用者已明示的內容不再複述確認，只就 agent 補上的非目標與安全性取捨提問；之後只有新發現實質改變這些內容時才再次提問。純討論或規劃則藉此收斂至具體可行的下一步。
