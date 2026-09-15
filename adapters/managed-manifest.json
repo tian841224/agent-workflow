@@ -13,7 +13,7 @@
     "learn": {"required": true, "description": "保存使用者確認的可重複使用結論"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
-    "clean-comments": {"required": true, "description": "多行、doc comment、高風險判斷或 comment pollution 的詳細註解規範"},
+    "clean-comments": {"required": true, "description": "開發期間提供詳細註解規範，Claude 任務結束前由 Stop gate 讀取並檢查本次 diff 的新增／修改註解"},
     "project-docs": {"required": false, "description": "module/shared behavior、contract、data/schema 或 expanded exploration 才載入的專案文件查詢與更新規範", "triggers": ["module-change", "shared-behavior", "contract", "data", "schema", "expanded-exploration"]},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
     "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
