@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: 由 managed_change 決定是否進入 managed workflow；進入後只讀 compiled plan 與被指向的 procedure。純文件、唯讀分析與不降低驗證能力的 test-only 修改 bypass；可能影響執行、資料、契約、安全性、部署、交付或 test integrity 的修改進入 workflow。
+description: 由 managed_change 決定是否進入 managed workflow；進入後依 compiled plan 執行影響行為、資料、契約、安全性、交付或 verification integrity 的變更。
 ---
 
 # agent-workflow

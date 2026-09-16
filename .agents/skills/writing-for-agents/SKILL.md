@@ -1,6 +1,6 @@
 ---
 name: writing-for-agents
-description: Use when writing or editing any agent or skill document under .agents/. Covers pointer wording, layered progressive disclosure, and the no-op / negation criteria that keep docs from bloating and repeating themselves.
+description: Use when editing `.agents/` agent or skill docs; apply pointer、progressive disclosure 與 no-op／negation 規則。
 ---
 
 # Writing Documents for Agents to Read

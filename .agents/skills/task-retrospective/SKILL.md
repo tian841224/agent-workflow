@@ -1,6 +1,6 @@
 ---
 name: task-retrospective
-description: Retrospective recording explicitly requested by the user. Load only when the user asks to track or analyze this task's workflow execution, hook/skill usage, timing, errors, retries, or workflow friction; never auto-load merely because a task ends, fails, or uses managed workflow.
+description: Load only when the user requests analysis of workflow execution, hook/skill usage, timing, errors, retries, or friction.
 ---
 
 # Task Retrospective

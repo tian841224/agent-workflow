@@ -119,13 +119,18 @@ function isOwnHook(item: Json, needle: string): boolean {
   const text = JSON.stringify(item).replaceAll("\\\\", "/").toLowerCase();
   return text.indexOf(needle) >= 0 || text.indexOf(OWN_HOOK_MARKER.toLowerCase()) >= 0;
 }
+function hasEmptyHooks(item: Json): boolean {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const hooks = (item as JsonObject).hooks;
+  return Array.isArray(hooks) && hooks.length === 0;
+}
 function removeOwnHooks(value: Json, marker: string): Json {
   const needle = marker.replaceAll("\\", "/").toLowerCase();
   if (Array.isArray(value)) {
     return value.map((item) => removeOwnHooks(item, marker)).filter((item) => !isOwnHook(item, needle))
       // a hook group left with no hooks (ours just removed, or already stale) does nothing; drop it
       // instead of letting empty {"hooks":[]} groups accumulate across repeated installs.
-      .filter((item) => !(item && typeof item === "object" && !Array.isArray(item) && Array.isArray((item as JsonObject).hooks) && (item as JsonObject).hooks.length === 0));
+      .filter((item) => !hasEmptyHooks(item));
   }
   if (!value || typeof value !== "object") return value;
   const record = value as JsonObject;
@@ -202,7 +207,9 @@ const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "wo
 function workflowFieldsFromFrontmatter(fields: Frontmatter): JsonObject {
   const result: JsonObject = {};
   for (const key of workflowFrontmatterKeys) if (fields[key] !== undefined) result[key] = fields[key] as Json;
-  if (typeof fields.workflow_facts === "string" && fields.workflow_facts.trim()) { try { result.workflow_facts = JSON.parse(fields.workflow_facts); } catch { } }
+  if (typeof fields.workflow_facts === "string" && fields.workflow_facts.trim()) {
+    try { result.workflow_facts = JSON.parse(fields.workflow_facts); } catch { return result; }
+  }
   return result;
 }
 function taskMigration(root: string, backup: string): number {

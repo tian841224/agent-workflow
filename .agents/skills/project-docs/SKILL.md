@@ -1,6 +1,6 @@
 ---
 name: project-docs
-description: Read only when the execution packet marks project documentation as relevant to the change because module/shared behavior, contracts, data/schema, expanded exploration, or another high-impact boundary may depend on durable project context.
+description: Load when the execution packet marks durable project context as relevant to module/shared behavior, contracts, data/schema, or expanded exploration.
 ---
 
 # Project Docs
