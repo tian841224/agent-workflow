@@ -113,7 +113,6 @@ Claude Code 與 Codex 在 SessionStart 載入有界記憶主題導航，並在�
 | [`distill`](.agents/skills/distill/SKILL.md) | 選擇性 | 記憶中同一類結論反覆出現或 review 歸因達門檻時，提煉成待審的 skill 草稿或分派補救措施；Promote 需要使用者明確核准。 |
 | [`operational-verification`](.agents/skills/operational-verification/SKILL.md) | 選擇性 | 進行安裝、同步、部署、migration、provisioning 或外部整合驗證時，區分靜態設定、本機 mock、本機 runtime 與遠端環境證據層級。 |
 | [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 選擇性 | 核心規則常駐於 `AGENTS.md`；Claude 額外由 UserPromptSubmit 每輪短提醒、Stop 時對 `references/vocabulary.md` 的 `<!-- lint:start -->` 詞彙清單做無 LLM 的確定性檢查，命中即擋下該次回覆要求改寫。EN／JA ↔ zh-TW 翻譯、中文 UI copy 或術語敏感的正式在地化才需載入本 skill；內再分 `locale.md`、`translation.md` 與按需 `references/`。 |
-| [`archify`](.agents/skills/archify/SKILL.md) | 選擇性 | 將架構、workflow、sequence、data-flow 與 lifecycle 需求轉成可驗證、可互動的 standalone HTML 圖表；final `deliver` 是 authoritative acceptance，未變更的 validation evidence 直接重用。來源：[tt-a1i/archify](https://github.com/tt-a1i/archify)。 |
 | [`design-and-refine`](.agents/skills/design-and-refine/SKILL.md) | 選擇性 | 只有需要比較多個實質不同的 UI 方向時才進 Design Lab；問題數與 variant 數依實際設計空間決定，不固定問卷或固定五種方案。來源：[0xdesign/design-plugin](https://github.com/0xdesign/design-plugin)。 |
 | [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 共用 | 大型規格、提案或決策文件才按需要使用 context／refinement／reader testing；資訊足夠時直接起草，不先要求使用者選流程。 |
 | [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 共用 | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
