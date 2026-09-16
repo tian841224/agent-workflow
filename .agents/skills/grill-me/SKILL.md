@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Use when the user explicitly asks to be grilled, or when a plan already exists and its high-risk assumptions, irreversible branches, or major trade-offs still need pressure-testing before work starts or a task unfreezes; ask one question at a time until the decision tree is clear and the next step is defensible. For requirements that are still vague and have no plan yet, use `planning` first.
+description: Use for explicit grilling or high-risk plan assumptions; use `planning` first when requirements are still vague.
 ---
 
 # Grill Me

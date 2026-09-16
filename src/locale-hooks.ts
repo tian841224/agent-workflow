@@ -1,7 +1,7 @@
 // Deterministic (no LLM) enforcement for the localization-tw policy: a short per-turn reminder and
 // a lexical check on the assistant's own final text. Both read the same generated policy file so
 // the vocabulary stays single-sourced in .agents/skills/localization-tw/references/vocabulary.md.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { JsonObject, output, readJson } from "./core.js";
 

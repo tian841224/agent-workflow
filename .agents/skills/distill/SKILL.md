@@ -1,6 +1,6 @@
 ---
 name: distill
-description: Turn accumulated evidence into a rule. Use when the user asks to turn repeated corrections into a rule, when the same kind of conclusion or review push-back has happened several times, or when `agent-workflow review-cause --action Escalate` reports a cause at threshold.
+description: Use when repeated corrections or review causes should become a reusable rule.
 ---
 
 # distill

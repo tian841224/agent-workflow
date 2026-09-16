@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Test-driven development procedure. Load only when the compiled workflow plan selects the tdd capability. This skill defines red-green-refactor execution and does not decide whether a task enters the managed workflow.
+description: Load when the compiled workflow plan selects `tdd`; defines red-green-refactor execution and seam evidence.
 ---
 
 # Test-Driven Development

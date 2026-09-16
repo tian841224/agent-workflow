@@ -1,10 +1,6 @@
 ---
 name: humanizer
-description: |
-  Rewrite AI-sounding text so it reads naturally without changing what it says.
-  Use when editing or reviewing prose for inflated claims,
-  sales language, vague sources, repetitive structure, stock AI words, passive
-  voice, filler, or chatbot artifacts. Based on Wikipedia's "Signs of AI writing."
+description: Rewrite AI-sounding prose when requested or when a concrete style problem needs correction; preserve meaning, facts, and voice.
 license: MIT
 metadata:
   version: "2.11.2"

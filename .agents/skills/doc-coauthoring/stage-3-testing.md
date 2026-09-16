@@ -4,13 +4,13 @@ Tests whether the doc works for a reader with no context — catching blind spot
 
 ## Predicting reader questions
 
-Generate 5–10 questions a real reader would realistically ask when trying to understand this document.
+Generate only the reader questions needed to expose likely ambiguity or missing context. The number is adaptive; a clear short document may need none.
 
 ## Testing
 
-**With sub-agent access** (e.g. Claude Code): invoke a sub-agent per question, giving it only the document content and the question — no conversation context. Summarize what it got right or wrong for each. Also invoke a sub-agent to check for ambiguity, false assumptions, and contradictions; summarize any issues found.
+**With independent reader access** (e.g. a fresh model or reviewer): run one reader pass over the document and the selected questions. Add separate readers only when their perspectives resolve a real uncertainty. Check ambiguity, false assumptions, and contradictions in the same pass when practical.
 
-**Without sub-agent access** (e.g. claude.ai web): the user runs the test manually. Give them: (1) open a fresh Claude conversation, (2) paste or share the document, (3) ask it the generated questions plus — for each — whether anything was ambiguous, and what context it assumed was already known. Also have them ask: "What in this doc might be ambiguous to readers?", "What context does this doc assume readers already have?", "Are there any internal contradictions?"
+**Without independent reader access** (e.g. claude.ai web): the user can run one fresh-reader pass manually. Give them the document and selected questions, then ask what was ambiguous, what context it assumed, and whether contradictions remain.
 
 ## Iterating
 

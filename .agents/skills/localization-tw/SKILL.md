@@ -1,6 +1,6 @@
 ---
 name: localization-tw
-description: 所有中文回覆的臺灣繁體中文規則。首次中文回覆前讀取，後續重用並檢查整份輸出；翻譯與術語查詢依需讀取 references。
+description: 所有中文回覆的臺灣繁體中文規則；翻譯與術語判斷時再讀取相關 references。
 ---
 
 # 正體中文（臺灣）在地化

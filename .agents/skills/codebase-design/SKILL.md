@@ -1,6 +1,6 @@
 ---
 name: codebase-design
-description: Deep-module vocabulary (module, interface, depth, seam, adapter) and design criteria. Read this when the `codebase_design` capability is selected, or when the reviewer, tdd, or architecture-review document points here. Not a standalone entry point — to review an existing codebase use `architecture-review` instead.
+description: Use for deep-module, interface, seam, and adapter design when the workflow plan or another review skill points here.
 ---
 
 # Codebase Design

@@ -906,7 +906,7 @@
         },
         {
           "id": "BD3",
-          "title": "提出 3–5 個排序後且可證偽的根因假設",
+          "title": "提出足以區分候選原因、可證偽且依證據排序的根因假設",
           "when": [
             [
               {
@@ -1459,7 +1459,7 @@
         },
         {
           "id": "OV2",
-          "title": "實際啟動服務並驗證網路可達（以 evidence-run 產生 runtime evidence）",
+          "title": "依交付類型啟動目標 runtime entrypoint 並驗證可用性（以 evidence-run 產生 runtime evidence）",
           "when": [
             [
               {
