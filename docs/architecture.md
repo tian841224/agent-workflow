@@ -70,7 +70,7 @@ Task safety 只保護直接命名 `task.json` 的工具或 shell segment。明�
 
 Git safety 只在 command 提到 Git 時解析。破壞性操作（hard reset、clean、branch delete、path checkout、restore、force push）及 hidden execution（wrapper、直譯器、remote/container、substitution、改變 Git 執行方式的 option）拒絕；其餘直接 Git 呼叫交由平台 native permission，包括 `cd repo && git checkout -b branch`。平台是否提示 approval 由平台 permission 設定決定，guard 放行本身不代表已獲使用者核准。diff machinery 的 output／external execution 與跨 project git-dir／work-tree 邊界仍保留。
 
-`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不再保存或驗證 session read proof，也沒有 PostToolUse／SessionEnd guard。Claude／Codex 在 SessionStart 載入有界記憶主題導航，再由 UserPromptSubmit 使用 prompt 與 cwd 篩選相關記憶。Antigravity 保留首次 PreInvocation 的導航，後續任務由 agent 明確查詢。
+`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不再保存或驗證 session read proof，也沒有 PostToolUse／SessionEnd guard。三平台共用同一組 hook 功能矩陣：啟動時 memory navigation、每次工具呼叫的 git guard、回覆結束時的 localization lint；Claude／Codex 以 `SessionStart`／`UserPromptSubmit`／`Stop` 觸發，Antigravity 以 `PreInvocation`（首次注入）／`PreToolUse`／`PostInvocation` 做必要映射。Antigravity 沒有等價的 prompt-submit lifecycle 時，不重複掃描記憶，後續任務由 agent 明確查詢。
 
 這是對直接資源與高風險 pattern 的窄範圍檢查，不是完整 shell sandbox；變數間接算出的路徑、任意 script、alias 或同機程序的行為仍由平台權限管理。它不試圖防止擁有本機檔案權限者停用 hook。task runtime 的 schema、鎖、evidence freshness 與 reviewer gate 維持原有 authority。
 

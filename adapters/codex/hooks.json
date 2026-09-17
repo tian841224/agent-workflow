@@ -21,6 +21,16 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-lint --platform Codex"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "*",

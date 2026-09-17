@@ -3,7 +3,7 @@ import { PRODUCT_VERSION, JsonObject, flag, option, optionList, parseArgs, state
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
 // documented flag that no command reads is a finding instead of a silently ignored argument.
-const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
+const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "ponytail", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
 const TASK_TARGET_OPTIONS = ["task-path", "task"];
 export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
@@ -88,6 +88,7 @@ async function main(): Promise<void> {
     target: option(parsed.values, "target-agent", option(parsed.values, "agent", "All")),
     root: option(parsed.values, "state-root", stateRoot()),
     skills: option(parsed.values, "skills") || undefined,
+    ponytail: flag(parsed.values, "ponytail"),
     nonInteractive: flag(parsed.values, "non-interactive"),
     dryRun: flag(parsed.values, "dry-run"),
     claude: option(parsed.values, "claude-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.claude`),

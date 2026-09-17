@@ -49,14 +49,17 @@ export function lintViolations(message: string, terms: LocaleTerm[]): LocaleTerm
   return hits;
 }
 
-export function runLocaleLint(payload: JsonObject, root: string): void {
+export function runLocaleLint(payload: JsonObject, root: string, platform = "Claude"): void {
   const policy = readLocalePolicy(root);
   if (!policy) return;
   if (payload.stop_hook_active === true) return; // this is already a retry after our own block; do not loop
-  const message = typeof payload.last_assistant_message === "string" ? payload.last_assistant_message : "";
+  const message = [payload.last_assistant_message, payload.prompt_response, payload.assistant_response]
+    .find((value): value is string => typeof value === "string") || "";
   if (!message) return;
   const hits = lintViolations(message, policy.terms);
   if (!hits.length) return;
   const replacements = hits.map((hit) => `${hit.avoid} → ${hit.use}`).join("；");
-  output({ hookSpecificOutput: { hookEventName: "Stop", decision: "block", decisionReason: `localization-tw 違規：${replacements}；請修正整份回答後重新輸出。` } });
+  const reason = `localization-tw 違規：${replacements}；請修正整份回答後重新輸出。`;
+  if (platform.toLowerCase() === "antigravity") output({ decision: "deny", reason });
+  else output({ hookSpecificOutput: { hookEventName: "Stop", decision: "block", decisionReason: reason } });
 }

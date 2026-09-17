@@ -18,6 +18,9 @@ function reminder(root) {
 function lint(root, payload) {
   return spawnSync(process.execPath, [cli, "locale-lint", "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(payload) });
 }
+function hookLint(root, platform, payload) {
+  return spawnSync(process.execPath, [join(process.cwd(), "dist", "agent-workflow-hook.mjs"), "locale-lint", "--platform", platform, "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(payload) });
+}
 
 test("locale-reminder outputs the policy's UserPromptSubmit additionalContext", () => {
   const result = reminder(installedRoot);
@@ -66,6 +69,14 @@ test("locale-lint is a no-op on a retry (stop_hook_active) even if still in viol
   const result = lint(installedRoot, { last_assistant_message: "運行服務器", stop_hook_active: true });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), "");
+});
+
+test("Antigravity locale hook accepts its prompt_response field and emits deny", () => {
+  const result = hookLint(installedRoot, "Antigravity", { prompt_response: "運行服務器" });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.decision, "deny");
+  assert.match(parsed.reason, /運行 → 執行/);
 });
 
 test("both hooks no-op with exit 0 when localization-tw was not installed", () => {

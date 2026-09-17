@@ -24,7 +24,7 @@ if (!HOOK_COMMANDS.has(command)) {
       // A hook that cannot read its payload still has to answer, so an unreadable stdin becomes an
       // empty event rather than an exception the platform would read as "no opinion".
       let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
-      if (command === "locale-lint") runLocaleLint(payload, root);
+      if (command === "locale-lint") runLocaleLint(payload, root, option(parsed.values, "platform", "Claude"));
       else runGuard(option(parsed.values, "platform", "Codex"), option(parsed.values, "event", "PreToolUse"), payload, root);
     }
   }

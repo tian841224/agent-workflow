@@ -16,6 +16,16 @@ test("install writes a standalone Node runtime and required skills", () => {
   assert.match(run(["verify", "--state-root", join(root, "state")]).stdout, /"valid":true/);
 });
 
+test("Ponytail native install is opt-in and dry-run only plans upstream commands", () => {
+  const root = join(tmpdir(), `agent-workflow-ponytail-${process.pid}-${Date.now()}`);
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const result = run(["install", "--non-interactive", "--skills", "workflow", "--ponytail", "--dry-run", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")]);
+  assert.equal(result.status, 0, result.stderr);
+  const native = JSON.parse(result.stdout).native;
+  assert.equal(native.results.every((item) => item.status === "planned"), true);
+  assert.match(native.results.map((item) => item.command).join("\n"), /codex plugin add ponytail@ponytail/);
+});
+
 test("a global CLI shim resolves its recorded source from the managed state root", () => {
   const root = join(tmpdir(), `agent-workflow-global-cli-${process.pid}-${Date.now()}`);
   const state = join(root, "state");

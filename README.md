@@ -224,6 +224,15 @@ install.cmd --target-agent All --skills all
 
 `Repair` 未指定 `--skills` 時會沿用上次安裝的選擇。若要在腳本或 CI 中避免互動提示，請加上 `--non-interactive`；未指定 skills 時會安裝全部 skills。
 
+Ponytail 不 vendor 進本專案；來源與三平台原生安裝指令保存在 `adapters/upstream-manifest.json`。預設不安裝，明確指定時才執行：
+
+```text
+install.cmd --action Repair --target-agent All --ponytail --non-interactive
+install.cmd --action Repair --target-agent All --ponytail --dry-run --non-interactive
+```
+
+`--dry-run` 只列出原生指令。Codex 與 Claude 使用各自的 plugin CLI；Antigravity 使用 upstream 的 `agy` CLI，若本機沒有該 CLI，該平台會回報失敗，不會被誤報為已安裝。
+
 `--target-agent` 可依需求指定安裝平台：
 
 - `Claude`
@@ -232,6 +241,8 @@ install.cmd --target-agent All --skills all
 - `All`
 
 安裝程式會將共用的 skills、角色、workflow 規則與 hooks 設定到對應平台，並在使用者家目錄建立 `.agent-workflow` runtime 與資料夾。
+
+三平台的 hook 功能保持一致：啟動時 memory navigation、每次工具呼叫的 Git guard、回覆結束時 localization lint；Claude／Codex 使用 `SessionStart`、`UserPromptSubmit`、`Stop`，Antigravity 使用 `PreInvocation`、`PreToolUse`、`PostInvocation` 做平台事件映射。
 
 新增 skill 時，先確認要列為必裝或選擇性，再在 `adapters/managed-manifest.json` 的 `skills` catalog 登錄名稱、說明與 `required` 設定。
 

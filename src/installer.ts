@@ -8,7 +8,7 @@ import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, o
 
 type Platform = "Claude" | "Codex" | "Antigravity";
 type FileRecord = { path: string; sha256: string; kind: string };
-type InstallOptions = { action: "Install" | "Repair" | "Verify" | "Uninstall"; target: string; root: string; skills?: string; nonInteractive: boolean; dryRun: boolean; claude: string; codex: string; antigravity: string; };
+type InstallOptions = { action: "Install" | "Repair" | "Verify" | "Uninstall"; target: string; root: string; skills?: string; ponytail: boolean; nonInteractive: boolean; dryRun: boolean; claude: string; codex: string; antigravity: string; };
 
 const platforms: Record<Platform, { entrypoint: string; hook: string[]; skills: string[] }> = {
   Claude: { entrypoint: "CLAUDE.md", hook: ["settings.json"], skills: ["skills"] },
@@ -27,6 +27,29 @@ function sourceRoot(): string {
     if (typeof recorded === "string" && existsSync(join(recorded, "adapters", "managed-manifest.json"))) return resolve(recorded);
   }
   throw new Error("installed runtime has no valid recorded source; run Repair from a source checkout");
+}
+
+function installUpstreamPonytail(source: string, selected: Platform[], options: InstallOptions): JsonObject {
+  const manifest = readJson(join(source, "adapters", "upstream-manifest.json"));
+  const integration = (manifest.integrations as JsonObject)?.ponytail as JsonObject | undefined;
+  if (!integration || typeof integration.source !== "string" || typeof integration.ref !== "string") throw new Error("upstream manifest has no valid Ponytail entry");
+  const commands = integration.platforms as JsonObject;
+  const results: Json[] = [];
+  for (const platform of selected) {
+    const executable = platform === "Claude" ? "claude" : platform === "Codex" ? "codex" : "agy";
+    const steps = commands[platform] as Json[] | undefined;
+    if (!Array.isArray(steps)) continue;
+    for (const step of steps) {
+      if (!Array.isArray(step) || !step.every((value) => typeof value === "string")) throw new Error(`invalid Ponytail command for ${platform}`);
+      const args = (step as string[]).map((value) => value.replaceAll("$source", integration.source as string).replaceAll("$ref", integration.ref as string));
+      const command = [executable, ...args].join(" ");
+      if (options.dryRun) { results.push({ platform, command, status: "planned" }); continue; }
+      const result = spawnSync(executable, args, { encoding: "utf8" });
+      results.push({ platform, command, status: result.status === 0 ? "installed" : "failed", exit_code: result.status ?? 1, output: `${result.stdout || ""}${result.stderr || ""}`.trim() });
+      if (result.status !== 0) break;
+    }
+  }
+  return { source: integration.source, ref: integration.ref, results };
 }
 
 function home(): string { return process.env.USERPROFILE || process.env.HOME || "."; }
@@ -361,7 +384,8 @@ export async function install(options: InstallOptions): Promise<number> {
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity", source);
   }
   if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true } : {}) } });
-  output({ ok: true, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, migration }); return 0;
+  const native = options.ponytail ? installUpstreamPonytail(source, selected, options) : null;
+  output({ ok: !native || !(native.results as Json[]).some((item) => (item as JsonObject).status === "failed"), action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, native, migration }); return native && (native.results as Json[]).some((item) => (item as JsonObject).status === "failed") ? 1 : 0;
 }
 export function verify(options: InstallOptions): number {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const managedPath = join(state, "managed-runtime.json"); const errors: string[] = [];

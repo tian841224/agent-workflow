@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "integrations": {
+    "ponytail": {
+      "source": "https://github.com/DietrichGebert/ponytail",
+      "ref": "main",
+      "platforms": {
+        "Claude": [
+          ["plugin", "marketplace", "add", "$source"],
+          ["plugin", "install", "ponytail@ponytail"]
+        ],
+        "Codex": [
+          ["plugin", "marketplace", "add", "$source", "--ref", "$ref", "--json"],
+          ["plugin", "add", "ponytail@ponytail", "--json"]
+        ],
+        "Antigravity": [
+          ["plugin", "install", "$source"]
+        ]
+      }
+    }
+  }
+}
