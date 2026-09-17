@@ -24,11 +24,11 @@ The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`,
 
 ## Flow
 
-`task-init/task-write > preflight > compiled plan`
+`task-init (returns compiled plan) > preflight once > selected procedures`
 
 `focused: implementation > focused feedback`
 
-`expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > stable delivery > affected/regression > Reviewer > DV1 > task-gate > close-task`
+`expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > stable delivery > affected/regression evidence (including DV1 when covered) > selected Reviewer > close-task (evaluates gate)`
 
 Focused file-local work stays direct. Expanded, cross-module, high-risk, or multi-behavior work uses
 ordered slices; a dependent slice cannot begin until the prior slice's local feedback passes. Slices

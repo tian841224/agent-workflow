@@ -18,14 +18,17 @@ test("workflow documents preserve focused work and the ordered slice loop", () =
   assert.match(runtime, /expanded: ordered slice .*local feedback > next dependent slice > stable delivery/);
   assert.match(evidence, /goal, scope, acceptance\s+criteria, local verification command, and dependencies/);
   assert.match(evidence, /dependent slice waits until the previous\s+slice's local feedback passes/);
-  assert.match(evidence, /After the slices are stable, run the\s+affected\/regression checks, Reviewer, and `delivery_validation\.DV1` final receipt in that order/);
+  assert.match(evidence, /affected\/regression checks through `evidence-run`, including `delivery_validation\.DV1` in the same\s+batch/);
+  assert.match(evidence, /Read-only review leaves a matching receipt reusable/);
   assert.match(evidence, /Do\s+not add a human approval or a second Reviewer to every slice/);
 
   const stable = runtime.indexOf("stable delivery");
   const regression = runtime.indexOf("affected/regression", stable);
   const reviewer = runtime.indexOf("Reviewer", regression);
-  const dv1 = runtime.indexOf("DV1", reviewer);
-  assert.ok(stable >= 0 && regression > stable && reviewer > regression && dv1 > reviewer, "final delivery gates must follow stable delivery");
+  const dv1 = runtime.indexOf("DV1", regression);
+  const close = runtime.indexOf("close-task", reviewer);
+  assert.ok(stable >= 0 && regression > stable && dv1 > regression && reviewer > dv1 && close > reviewer, "stable validation can cover DV1 before read-only review and gated close");
+  assert.doesNotMatch(runtime, /> task-gate > close-task/);
 });
 
 test("active contract no longer exposes workflow cost artifacts, timing flags, or timing fields", () => {

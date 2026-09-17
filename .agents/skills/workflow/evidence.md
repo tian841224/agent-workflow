@@ -29,8 +29,9 @@ Runtime execution evidence must come from `evidence-run`. Its freshness is curre
 reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
 relevant environment remain the same. A change anywhere in the delivered worktree invalidates the
 receipt. Use the implementation flow below for local feedback, then run the final regression and
-delivery receipt once after source, tests, documents, and review are stable. If anything in the
-delivery changes afterward, rerun every required final command; do not infer path-scoped reuse without
+delivery receipt once after source, tests, and documents are stable, then follow the review flow below. If anything in the
+delivery changes afterward, rerun each distinct required final command once, batching the requirement
+ids it actually covers; do not infer path-scoped reuse without
 a separately verified dependency map.
 
 ## Implementation slices and local feedback
@@ -46,7 +47,12 @@ The coordinator chooses the smallest flow that matches the task:
 Slices are coordinator working notes. They do not add slice state to `task.json`, change the
 `ExecutionPacket` or evidence authority, add a feedback CLI, or enable automatic orchestration. Do
 not add a human approval or a second Reviewer to every slice. After the slices are stable, run the
-affected/regression checks, Reviewer, and `delivery_validation.DV1` final receipt in that order.
+affected/regression checks through `evidence-run`, including `delivery_validation.DV1` in the same
+batch when that command covers delivery validation. Then run the selected Reviewer and close with
+`close-task`, which evaluates the gate itself. Read-only review leaves a matching receipt reusable;
+review findings that change the delivery require fresh validation. A separate DV1 command is needed
+only when the existing command does not cover delivery validation. Use `task-gate` to diagnose
+blockers, not as a prerequisite to `close-task`.
 
 ## Scope
 

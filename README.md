@@ -53,11 +53,11 @@ npx --yes @tian/agent-workflow@latest
 3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
 4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀或 orchestration 情境才使用 `task_type: read_only`；探索深度仍由 compiled plan 的 `exploration_profile` 決定，不假設各 AI 平台都能遵守自訂模型分級。
 
-流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration，直接走 `implementation -> focused feedback`；低信心、影響面擴大、契約／資料／schema／不可逆、跨模組或含多個獨立行為的情境才使用 expanded exploration，依序拆成具備 goal、scope、acceptance、local verification command、dependencies 的 slices，每個 slice 先取得局部回饋，依賴 slice 才能開始。所有 slices 穩定後才做 affected／regression、Reviewer 與 DV1；不對每個 slice 增加人工核准或第二位 Reviewer。Slices 是 coordinator 的工作流程，不新增 `task.json`／ExecutionPacket authority 或新的 slice state，也不啟用 automatic orchestration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
+流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration，直接走 `implementation -> focused feedback`；低信心、影響面擴大、契約／資料／schema／不可逆、跨模組或含多個獨立行為的情境才使用 expanded exploration，依序拆成具備 goal、scope、acceptance、local verification command、dependencies 的 slices，每個 slice 先取得局部回饋，依賴 slice 才能開始。所有 slices 穩定後，依 [evidence procedure](.agents/skills/workflow/evidence.md#implementation-slices-and-local-feedback) 批次記錄驗證，再執行選取的 Reviewer 並結案；不對每個 slice 增加人工核准或第二位 Reviewer。Slices 是 coordinator 的工作流程，不新增 `task.json`／ExecutionPacket authority 或新的 slice state，也不啟用 automatic orchestration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
 
 Project docs 也採條件式載入：單純 `code_change: true` 不會自動加入 project-doc procedure；只有 module+、shared behavior、contract、data/schema、expanded exploration 或其他相關高影響邊界才做 Lookup／讀取／Remember。高信心的 file-local `local_behavior` 修改直接依程式與測試處理。
 
-建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間依 focused 或 expanded 路徑提供局部回饋；待程式碼、測試、文件與 Review 穩定後，再執行一次最終回歸並批次記錄 runtime evidence。最後一次交付變更會使舊 receipt 失效，必須重新執行；內容、命令、環境與驗證範圍都沒有改變時則重用仍有效的 evidence，不為了流程節點重跑相同檢查。
+建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間依 focused 或 expanded 路徑提供局部回饋；待程式碼、測試與文件穩定後，以最終回歸命令批次記錄其涵蓋的 runtime evidence（可包含 DV1），再進行選取的唯讀 Review。最後一次交付變更會使舊 receipt 失效，必須重新執行；內容、命令、環境與驗證範圍都沒有改變時則重用仍有效的 evidence，不為了流程節點重跑相同檢查。
 
 `workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
 
@@ -81,7 +81,7 @@ Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 a
 
 - **可重用結論保存**：使用者要求記憶、糾正 agent、拍板決策或確認錯誤修正時，立即透過 active `learn` skill 記錄可重用結論。
 - **模式提煉**：同一類結論反覆出現時，runtime 會把它標為可提煉的模式；agent 依 `distill` skill 寫成 skill 草稿暫存在 `skill-drafts/`。草稿只有在使用者於對話中明確同意時才執行 Promote 成生效的 skill。
-- **Review 歸因與補救**：Review 有打回並修正後，開下一輪前記錄一次歸因（缺文件、任務描述不足、缺規範或有規範未讀）。累積達門檻的補救措施（補文件、改 task 模板、寫 skill）一律需使用者明確同意。
+- **Review 歸因與補救**：Review 歸因可併入失敗回報，記錄時機與增量複審依 [review procedure](.agents/skills/workflow/review.md#review-round-與增量錨定)。累積達門檻的補救措施（補文件、改 task 模板、寫 skill）一律需使用者明確同意。
 
 ### 每週記憶檢視
 
