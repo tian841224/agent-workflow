@@ -17,6 +17,23 @@
           ["plugin", "install", "$source"]
         ]
       }
+    },
+    "design-and-refine": {
+      "source": "https://github.com/0xdesign/design-plugin",
+      "ref": "main",
+      "executables": {"Claude": "claude", "Codex": "npx", "Antigravity": "npx"},
+      "platforms": {
+        "Claude": [
+          ["plugin", "marketplace", "add", "$source"],
+          ["plugin", "install", "design-and-refine@design-plugins"]
+        ],
+        "Codex": [
+          ["-y", "skills", "add", "$source", "--skill", "design-lab", "--agent", "codex"]
+        ],
+        "Antigravity": [
+          ["-y", "skills", "add", "$source", "--skill", "design-lab", "--agent", "antigravity"]
+        ]
+      }
     }
   }
 }
