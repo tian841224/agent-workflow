@@ -13,4 +13,5 @@ coordinator writes ordered slices before implementation. Every slice names its g
 acceptance criteria, local verification command, and dependencies. Implement and give local feedback
 on one slice before starting a dependent slice. Keep slices in the coordinator's working plan; they
 are not new task state, ExecutionPacket authority, or automatic orchestration. Once all slices are
-stable, continue with affected/regression validation and the selected Reviewer/DV1 gates.
+stable, continue with affected/regression validation, then the task-level Reviewer and DV1 gates
+described in [review.md](review.md).

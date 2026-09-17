@@ -9,8 +9,7 @@
     "architecture-review": {"required": false, "description": "架構、跨層耦合與遷移風險審查"},
     "diagnosing-bugs": {"required": false, "description": "原因不明、間歇性或效能型問題的證據導向診斷"},
     "planning": {"required": true, "description": "高影響方向、技術取捨與真正模糊需求的規劃"},
-    "push-back": {"required": false, "description": "使用者方案有明顯錯誤、危險或不必要複雜時檢查並提出替代方案"},
-    "learn": {"required": true, "description": "保存使用者確認的可重複使用結論"},
+    "learn": {"required": true, "description": "只保存使用者明確要求或確認的可重複使用結論"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
     "clean-comments": {"required": true, "description": "遇到多行、公開合約或有疑義的程式碼註解時查閱"},
@@ -19,9 +18,8 @@
     "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證", "triggers": ["deploy", "install", "provision", "migrate"]},
     "localization-tw": {"required": true, "description": "所有中文回覆的臺灣繁體中文規則與完整輸出檢查", "triggers": ["chinese-response", "translation", "localized-copy", "terminology-review"]},
-    "design-and-refine": {"required": false, "description": "只有需要比較多個 UI 方向與互動回饋時才使用的設計探索"},
-    "adhd-comms": {"required": false, "description": "採取 Action-first 與高掃讀性溝通"},
-    "humanizer": {"required": false, "description": "使用者要求或草稿出現明確 AI 腔調時重寫文字"},
+    "adhd-comms": {"required": false, "description": "依內容選擇 Action-first、易掃讀且保留證據的溝通格式"},
+    "humanizer": {"required": false, "description": "使用者要求或草稿出現明確 AI 腔調時重寫，預設只交付最終稿"},
     "hallmark": {"required": false, "description": "明確要求 Hallmark／anti-AI-slop 時的 UI 建置、稽核、重設計與 study"}
   }
 }

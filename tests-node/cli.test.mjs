@@ -16,6 +16,21 @@ test("CLI lists the Node command surface", () => {
   assert.match(result.stdout, /migrate-state/);
 });
 
+test("task classification help shows stdin usage and schema enum values", () => {
+  for (const command of ["task-init", "task-write"]) {
+    const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", command, "--help"], {
+      cwd: process.cwd(),
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Input: pipe one JSON object on stdin/);
+    assert.match(result.stdout, /task_type: fix \| feature \| refactor/);
+    assert.match(result.stdout, /impact_scope: file \| module \| multi_module \| cross_project/);
+    assert.match(result.stdout, /risk_flags\[\]: .*authorization/);
+    assert.match(result.stdout, /workflow_facts keys: .*changes_module_interface/);
+  }
+});
+
 test("project-resolver reproduces the legacy project_id formula for a git repo with a remote", () => {
   const root = join(tmpdir(), `agent-workflow-project-id-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });

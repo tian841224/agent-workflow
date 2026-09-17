@@ -6,6 +6,12 @@
 
 Runtime contract 只認得 `role.reviewer` 一種身份，第二位 reviewer 就算真的跑了也無法被證明，因此高風險情境改成把對抗式要求寫進同一位 reviewer 的指令。reviewer 回報 blocker 並修正後，重新執行同一個 reviewer capability。
 
+## Review timing
+
+正式 Reviewer 以整個 task 的穩定交付為單位執行。使用 ordered slices 的 task 先完成所有 slices、整合程式碼／測試／文件，再完成受影響範圍的整體驗證，才建立第一輪 `pre-review` 快照並派出 Reviewer。Slice 的 local feedback 是 coordinator 的實作回饋，不是正式 Reviewer。
+
+需要獨立發布、不可逆外部操作或不可回溯前提的範圍，建立獨立 task；該 task 也要等自己的全部實作完成後才進入 Reviewer。暫停或恢復同一 task 不會改變這個 review boundary。
+
 ## 執行方式
 
 reviewer 與 coordinator 兩趟盲點互補：獨立 reviewer 抓得到主對話因為熟悉而略過的死碼與慣例偏離，coordinator 抓得到 reviewer 缺少專案脈絡而串不起來的跨檔案語意問題。
@@ -30,7 +36,7 @@ coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚
 
 每輪 review 前主對話跑一次 `agent-workflow pre-review`，它同時回傳 `git diff --check` 結果與 `workspace_sha256`；把該 sha256 傳給 `review-record --expected-workspace-sha256 <sha256>`，工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。快照到 `review-record` 之間工作樹保持不動（含 stash/pop）；與本任務無關的既有異動在 `task-init` 前處理。
 
-`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 對 role evidence fail-closed，下列任一情況都使既有 review 失效並要求重新複審：已 review 範圍內的內容改變、交付新增原 `reviewed_paths` 未涵蓋的 changed path、分類異動使 `plan_revision` 前進，或 `reviewed_base` 已無法解析而算不出 freshness。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。重跑時沿用下方的 delta-first 規則，不必重新探索未受影響的脈絡。
+`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 對 role evidence fail-closed，下列任一情況都使既有 review 失效並要求重新複審：已 review 範圍內的內容改變、交付新增原 `reviewed_paths` 未涵蓋的 changed path、分類異動使 `plan_revision` 前進，或 `reviewed_base` 已無法解析而算不出 freshness。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。重跑時沿用下方的 delta-first 規則，不必重新探索未受影響的脈絡。第一輪快照只在全部 slices 完成並通過整體驗證後建立。
 
 ## 結果回填
 

@@ -45,7 +45,7 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
 export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   if (!touchesProtected(event, TASK_STATE_PATTERN)) return { allow: true };
   const allowed = event.command ? taskCommandAllowed(event.command, root) : isReadOnlyTool(event.tool);
-  return allowed ? { allow: true } : { allow: false, reason: "task-guard: task.json is runtime-owned; use the verified agent-workflow task CLI instead of editing it directly." };
+  return allowed ? { allow: true } : { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-report` for read-only inspection and the verified agent-workflow task CLI for writes instead of editing it directly." };
 }
 const TASK_STATE_PATTERN = /\btask\.json\b/i;
 // Quoted path fragments such as task".json" still name the protected file.

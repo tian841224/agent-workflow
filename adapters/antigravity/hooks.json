@@ -3,7 +3,7 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Antigravity --auto --event SessionStart",
+        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow.mjs\" memory-context --platform Antigravity --state-root \"{{STATE_ROOT}}\" --auto --event SessionStart",
         "timeout": 15
       }
     ]
@@ -15,10 +15,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Antigravity",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Antigravity --state-root \"{{STATE_ROOT}}\"",
             "timeout": 15
           }
         ]
+      }
+    ]
+  },
+  "agent-workflow-locale-lint": {
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-lint --platform Antigravity --state-root \"{{STATE_ROOT}}\"",
+        "timeout": 15
       }
     ]
   }

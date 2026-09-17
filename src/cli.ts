@@ -1,15 +1,16 @@
 import { PRODUCT_VERSION, JsonObject, flag, option, optionList, parseArgs, stateRoot, stdinJson } from "./core.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
 // documented flag that no command reads is a finding instead of a silently ignored argument.
-const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
+const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "ponytail", "design-and-refine", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
 const TASK_TARGET_OPTIONS = ["task-path", "task"];
 export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
-  "locale-reminder": ["platform", "state-root"],
   "locale-lint": ["platform", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd", "auto", "event"],
   "workflow-plan": ["task-path", "policy-path"],
@@ -47,6 +48,24 @@ export const commandOptions: Record<string, string[]> = {
 };
 const commands = Object.keys(commandOptions);
 
+async function commandHelp(command: string, options: Set<string>): Promise<string> {
+  const lines = [`Usage: agent-workflow ${command} [options]`, "", "Options:", ...[...options].map((name) => `  --${name}`)];
+  if (command === "task-init" || command === "task-write") {
+    const { classificationHelp } = await import("./lifecycle/task-schema.js");
+    lines.push(
+      "",
+      "Input: pipe one JSON object on stdin.",
+      command === "task-init"
+        ? 'Example: {"code_change":true,"managed_change":true,"task_type":"fix","impact_scope":"file","impact_effect":"local_behavior","impact_confidence":"high"}'
+        : 'Example: {"impact_confidence":"high"}',
+      "",
+      "Classification values (from schemas/task.schema.json):",
+      classificationHelp()
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 function usage(): void {
   // orchestrate stays dispatchable (it refuses unflagged mutating use itself) but is listed only
   // under the flag, so nothing advertises a prototype phase tracker as a stable command.
@@ -74,7 +93,7 @@ async function main(): Promise<void> {
   const parsed = parseArgs(separator === -1 ? rest : rest.slice(0, separator));
   const allowedOptions = new Set(commandOptions[command]);
   if (parsed.values.has("help") || rest.includes("-h")) {
-    process.stdout.write(`Usage: agent-workflow ${command} [options]\n\nOptions:\n${[...allowedOptions].map((name) => `  --${name}`).join("\n")}\n`);
+    process.stdout.write(await commandHelp(command, allowedOptions));
     return;
   }
   const unknown = [...parsed.values.keys()].filter((key) => !allowedOptions.has(key));
@@ -88,11 +107,13 @@ async function main(): Promise<void> {
     target: option(parsed.values, "target-agent", option(parsed.values, "agent", "All")),
     root: option(parsed.values, "state-root", stateRoot()),
     skills: option(parsed.values, "skills") || undefined,
+    ponytail: flag(parsed.values, "ponytail"),
+    designAndRefine: flag(parsed.values, "design-and-refine"),
     nonInteractive: flag(parsed.values, "non-interactive"),
     dryRun: flag(parsed.values, "dry-run"),
-    claude: option(parsed.values, "claude-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.claude`),
-    codex: option(parsed.values, "codex-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.codex`),
-    antigravity: option(parsed.values, "antigravity-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.gemini`)
+    claude: option(parsed.values, "claude-target", join(homedir(), ".claude")),
+    codex: option(parsed.values, "codex-target", join(homedir(), ".codex")),
+    antigravity: option(parsed.values, "antigravity-target", join(homedir(), ".gemini"))
   });
   if (command === "install") process.exitCode = await (await import("./installer.js")).install(installOptions("Install"));
   else if (command === "repair") process.exitCode = await (await import("./installer.js")).install(installOptions("Repair"));
@@ -105,7 +126,6 @@ async function main(): Promise<void> {
     const event = option(parsed.values, "event", "PreToolUse");
     (await import("./hooks.js")).runGuard(platform, event, payload, option(parsed.values, "state-root", stateRoot()));
   }
-  else if (command === "locale-reminder") (await import("./locale-hooks.js")).runLocaleReminder(option(parsed.values, "state-root", stateRoot()));
   else if (command === "locale-lint") {
     let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
     (await import("./locale-hooks.js")).runLocaleLint(payload, option(parsed.values, "state-root", stateRoot()));

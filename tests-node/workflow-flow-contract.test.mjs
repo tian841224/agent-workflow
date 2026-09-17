@@ -11,18 +11,27 @@ const cli = join(root, "dist", "agent-workflow.mjs");
 
 test("workflow documents preserve focused work and the ordered slice loop", () => {
   const evidence = read(".agents/skills/workflow/evidence.md");
+  const review = read(".agents/skills/workflow/review.md");
   const runtime = read("docs/modules/workflow-runtime.md");
   const readme = read("README.md");
   assert.match(evidence, /`focused` file-local work follows `implementation -> focused feedback` directly/);
   assert.match(readme, /直接走 `implementation -> focused feedback`/);
-  assert.match(runtime, /expanded: ordered slice .*local feedback > next dependent slice > stable delivery/);
+  assert.match(runtime, /expanded: ordered slice .*local feedback > next dependent slice > all slices complete/);
   assert.match(evidence, /goal, scope, acceptance\s+criteria, local verification command, and dependencies/);
+  assert.match(evidence, /Before the first formal evidence batch, reuse the compiled plan/);
+  assert.match(evidence, /classification_incomplete/);
   assert.match(evidence, /dependent slice waits until the previous\s+slice's local feedback passes/);
   assert.match(evidence, /affected\/regression checks through `evidence-run`, including `delivery_validation\.DV1` in the same\s+batch/);
   assert.match(evidence, /Read-only review leaves a matching receipt reusable/);
   assert.match(evidence, /Do\s+not add a human approval or a second Reviewer to every slice/);
+  assert.match(evidence, /Each\s+slice receives local feedback only/);
+  assert.match(evidence, /task-level review timing in \[review\.md\]\(review\.md\)/);
+  assert.match(review, /正式 Reviewer 以整個 task 的穩定交付為單位執行/);
+  assert.match(review, /第一輪 `pre-review` 快照/);
+  assert.match(review, /需要獨立發布、不可逆外部操作或不可回溯前提的範圍，建立獨立 task/);
+  assert.match(review, /暫停或恢復同一 task 不會改變這個 review boundary/);
 
-  const stable = runtime.indexOf("stable delivery");
+  const stable = runtime.indexOf("all slices complete");
   const regression = runtime.indexOf("affected/regression", stable);
   const reviewer = runtime.indexOf("Reviewer", regression);
   const dv1 = runtime.indexOf("DV1", regression);

@@ -12,20 +12,12 @@ test.before(() => {
   assert.equal(install.status, 0, install.stderr);
 });
 
-function reminder(root) {
-  return spawnSync(process.execPath, [cli, "locale-reminder", "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8", input: "{}" });
-}
 function lint(root, payload) {
   return spawnSync(process.execPath, [cli, "locale-lint", "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(payload) });
 }
-
-test("locale-reminder outputs the policy's UserPromptSubmit additionalContext", () => {
-  const result = reminder(installedRoot);
-  assert.equal(result.status, 0, result.stderr);
-  const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.hookSpecificOutput.hookEventName, "UserPromptSubmit");
-  assert.match(parsed.hookSpecificOutput.additionalContext, /臺灣慣用繁體中文/);
-});
+function hookLint(root, platform, payload) {
+  return spawnSync(process.execPath, [join(process.cwd(), "dist", "agent-workflow-hook.mjs"), "locale-lint", "--platform", platform, "--state-root", join(root, "state")], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(payload) });
+}
 
 test("locale-lint blocks on a mainland-usage sentence with all offending terms listed", () => {
   const result = lint(installedRoot, { last_assistant_message: "修改配置後運行服務器" });
@@ -68,13 +60,18 @@ test("locale-lint is a no-op on a retry (stop_hook_active) even if still in viol
   assert.equal(result.stdout.trim(), "");
 });
 
-test("both hooks no-op with exit 0 when localization-tw was not installed", () => {
+test("Antigravity locale hook accepts its prompt_response field and emits deny", () => {
+  const result = hookLint(installedRoot, "Antigravity", { prompt_response: "運行服務器" });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.decision, "deny");
+  assert.match(parsed.reason, /運行 → 執行/);
+});
+
+test("locale-lint is a no-op with exit 0 when localization-tw was not installed", () => {
   const root = join(tmpdir(), `agent-workflow-locale-none-${process.pid}-${Date.now()}`);
   const install = spawnSync(process.execPath, [cli, "install", "--non-interactive", "--skills", "workflow", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr);
-  const reminderResult = reminder(root);
-  assert.equal(reminderResult.status, 0);
-  assert.equal(reminderResult.stdout.trim(), "");
   const lintResult = lint(root, { last_assistant_message: "運行服務器" });
   assert.equal(lintResult.status, 0);
   assert.equal(lintResult.stdout.trim(), "");

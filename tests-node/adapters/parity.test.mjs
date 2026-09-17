@@ -66,12 +66,12 @@ test("platform adapters do not start a separate clean-comments Stop agent", () =
 
 test("required localization skill and Claude lexical Stop check are the locale enforcement", () => {
   const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
-  assert.equal((JSON.stringify(claudeHooks.UserPromptSubmit).match(/locale-reminder --platform Claude/g) || []).length, 0);
   assert.equal(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills["localization-tw"].required, true);
   assert.equal((JSON.stringify(claudeHooks.Stop).match(/locale-lint --platform Claude/g) || []).length, 1);
-  for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
-    assert.doesNotMatch(readFileSync(path, "utf8"), /locale-reminder|locale-lint/, path);
-  }
+  const codexHooks = JSON.parse(readFileSync("adapters/codex/hooks.json", "utf8")).hooks;
+  const antigravityHooks = JSON.parse(readFileSync("adapters/antigravity/hooks.json", "utf8"));
+  assert.equal((JSON.stringify(codexHooks.Stop).match(/locale-lint --platform Codex/g) || []).length, 1);
+  assert.equal((JSON.stringify(antigravityHooks["agent-workflow-locale-lint"]).match(/locale-lint --platform Antigravity/g) || []).length, 1);
 });
 
 test("the Antigravity adapter declares only lifecycle events the platform still supports", () => {

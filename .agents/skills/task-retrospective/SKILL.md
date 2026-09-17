@@ -33,6 +33,10 @@ description: Load only when the user requests analysis of workflow execution, ho
 
 每份報告記錄可取得的 workflow/runtime version 或 commit、platform、repository、branch、task id、managed_change、risk flags 與 outcome。歷史 finding 只代表當時版本；提出改善前先確認目前版本仍存在同一問題。
 
+### Time and token boundaries
+
+把 context-window 用量、任務專屬 token 用量、各 phase duration、使用者等待時間與其他 session 的活動分開記錄。context-window 的累積值不能直接當成該 task 的 token 成本；沒有 task-level delta 或 runtime receipt 時，任務專屬用量標為 `unavailable`。只有 runtime／hook receipt 或可核對的 lifecycle／transcript 事件才能計入 phase duration、review 次數與 retry 次數；無法區分的 session 活動標為 `unavailable`，不以總數或相加值補足。
+
 ## Track what matters
 
 ### Execution
@@ -71,7 +75,7 @@ owner 使用 `workflow | runtime | hook | skill | adapter | agent | project | en
 
 不要因某一步耗時就判定 workflow 有問題。
 
-通常屬於 necessary cost：依風險要求的 safety gate、intent confirmation、reviewer、必要 validation、真實 scope conflict 的釐清，以及確實增加 correctness evidence 的探索。
+通常屬於 necessary cost：依風險要求的 safety gate、intent confirmation、全部 slices 完成後執行的 task-level reviewer、必要 validation、真實 scope conflict 的釐清，以及確實增加 correctness evidence 的探索。
 
 優先視為 avoidable friction：重複讀取／判斷／驗證、CLI 文件與 contract 不一致、只能靠 trial-and-error 找參數、hook false positive、同一內容被反覆 block、block reason 在 retry 間漂移、stale script/path、task 自己產生的暫存檔使 evidence 失效、已完成的 confirmation 被再次要求、沒有增加 evidence 的角色或工具往返、該觸發卻沒觸發或反覆重載的 skill。
 

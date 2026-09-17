@@ -18,12 +18,22 @@ Use one `evidence-record` or `evidence-run` command with repeated or comma-separ
 The runtime writes one evidence entry per id and one state revision for the batch. Every id must be a
 selected evidence step; role results use `review-record`.
 
+## Classification before evidence
+
+Before the first formal evidence batch, reuse the compiled plan and resolve every known
+`classification_incomplete` and `step_classification_incomplete` entry. Declare the missing task
+classification or `workflow_facts` in one classification update, then record evidence against the
+resulting plan. New risk discovered during exploration still triggers the normal reclassification and
+freshness rules; this ordering only prevents known omissions from invalidating an earlier evidence
+batch.
 ## Setup and handoff
 
 Run `agent-workflow preflight --task-path <path> --repo-root <repo-root>` once after task creation. It
 groups fixed environment failures before exploration, implementation, or validation starts. During
 implementation, keep one shared map of entrypoints, callers, boundaries, validation commands, and
-unknowns; pass that map by reference and add only new conclusions to each evidence step.
+unknowns; pass that map by reference and add only new conclusions to each evidence step. A handoff
+names the current task state, worktree diff, changed paths, and blockers; one coordinator owns writes
+to a worktree at a time, and the incoming coordinator checks those items before continuing.
 
 Runtime execution evidence must come from `evidence-run`. Its freshness is currently delivery-wide:
 reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
@@ -45,14 +55,12 @@ The coordinator chooses the smallest flow that matches the task:
   slice's local feedback passes.
 
 Slices are coordinator working notes. They do not add slice state to `task.json`, change the
-`ExecutionPacket` or evidence authority, add a feedback CLI, or enable automatic orchestration. Do
-not add a human approval or a second Reviewer to every slice. After the slices are stable, run the
+`ExecutionPacket` or evidence authority, add a feedback CLI, or enable automatic orchestration. Do not add a human approval or a second Reviewer to every slice. Each
+slice receives local feedback only. After every slice is complete and the delivery is stable, run the
 affected/regression checks through `evidence-run`, including `delivery_validation.DV1` in the same
-batch when that command covers delivery validation. Then run the selected Reviewer and close with
-`close-task`, which evaluates the gate itself. Read-only review leaves a matching receipt reusable;
-review findings that change the delivery require fresh validation. A separate DV1 command is needed
-only when the existing command does not cover delivery validation. Use `task-gate` to diagnose
-blockers, not as a prerequisite to `close-task`.
+batch when that command covers delivery validation. Then follow the task-level review timing in [review.md](review.md) for one Reviewer and close with `close-task`, which evaluates the gate itself. Read-only review leaves a matching receipt reusable; review findings that change the delivery require fresh
+validation. A separate DV1 command is needed only when the existing command does not cover delivery
+validation. Use `task-gate` to diagnose blockers, not as a prerequisite to `close-task`.
 
 ## Scope
 
