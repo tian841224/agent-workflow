@@ -264,6 +264,21 @@ test("task-init rejects a runtime-managed field and a patch that fails schema", 
   assert.match(spoofed.errors[0], /runtime-managed/);
 });
 
+test("task-init reports schema enum values, including array item enums", () => {
+  const root = join(tmpdir(), `agent-workflow-task-init-enum-${process.pid}-${Date.now()}`);
+  const run = (patch) => {
+    const task = join(root, `task-${Math.random().toString(36).slice(2)}`); mkdirSync(task, { recursive: true });
+    const path = join(task, "task.json");
+    return JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-init", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(patch) }).stdout);
+  };
+  const taskType = run({ task_type: "not-a-task" });
+  assert.equal(taskType.valid, false);
+  assert.match(taskType.errors.join("; "), /task\.json\/task_type .*allowed values: fix, feature, refactor/);
+  const riskFlag = run({ risk_flags: ["not-a-risk"] });
+  assert.equal(riskFlag.valid, false);
+  assert.match(riskFlag.errors.join("; "), /task\.json\/risk_flags\/0 .*allowed values: behavior_change, ui, data_write/);
+});
+
 // task-init switched from a blocklist (CREATE_MANAGED_KEYS) to an allowlist (TASK_INIT_WRITABLE_FIELDS)
 // specifically because the blocklist missed these four fields: a caller could otherwise plant a fake
 // task id, forge runtime/attested evidence, or forge an intent_approval it never actually obtained.

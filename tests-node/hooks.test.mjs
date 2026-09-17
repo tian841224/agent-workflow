@@ -41,6 +41,7 @@ test("task-guard denies a direct Edit/Write tool call targeting task.json", () =
   });
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.match(guarded.stdout, /task-guard/);
+  assert.match(guarded.stdout, /task-report/);
 });
 
 test("git-guard defers a directly parsed git mutation to the platform's own approval flow", () => {

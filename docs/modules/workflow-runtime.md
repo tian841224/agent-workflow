@@ -28,12 +28,14 @@ The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`,
 
 `focused: implementation > focused feedback`
 
-`expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > stable delivery > affected/regression > Reviewer > DV1 > task-gate > close-task`
+`expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > all slices complete > affected/regression > task-level Reviewer > DV1 > task-gate > close-task`
 
 Focused file-local work stays direct. Expanded, cross-module, high-risk, or multi-behavior work uses
 ordered slices; a dependent slice cannot begin until the prior slice's local feedback passes. Slices
 are coordinator working notes, not `task.json`, `ExecutionPacket`, or evidence authority, and they do
-not enable automatic orchestration. Do not add a human approval or a second Reviewer to each slice.
+not enable automatic orchestration. Each slice receives local feedback; the task-level Reviewer starts
+only after all slices and the overall affected/regression validation are complete. The timing rule is
+owned by [workflow review procedure](../../.agents/skills/workflow/review.md).
 
 `task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；focused task 只取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 

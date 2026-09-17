@@ -41,11 +41,14 @@ parallelism rules independently justify them.
 The coordinator owns: whether to split, creating or selecting isolated worktrees, creating worker
 tasks, assigning file ownership, building each worker's ExecutionPacket, dispatching each worker
 through the host platform, collecting worker results, integrating the changes, final validation,
-Reviewer, task-gate, and closing the task. Orchestration lifecycle actions stay with the coordinator.
+the single task-level Reviewer after all slices are complete, task-gate, and closing the task.
+Orchestration lifecycle actions stay with the coordinator.
 
 Worker handoffs should reference the ExecutionPacket and shared evidence map instead of copying their
 procedure text. A completion message carries changed paths, local validation, blockers, and any new
 impact or test gap; unchanged context is omitted so the coordinator can integrate from one source.
+Before a coordinator takes over a worktree, it checks the lifecycle state, current diff, changed
+paths, and outstanding blockers; only one coordinator writes that worktree at a time.
 
 `file_ownership` is a hard boundary, not a review filter: any path changed outside it fails the gate as an
 ownership violation. A delivery that legitimately reaches further needs the owner widened and its impact

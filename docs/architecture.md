@@ -25,6 +25,8 @@ Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `eng
 
 在不降低輸出品質、正確性、必要安全邊界與可驗證性的前提下，選擇 token 與執行時間最少的完整路徑。流程、角色、skill 與驗證必須由任務的實際風險與影響決定；沒有改變決策或增加證據的步驟不執行。
 
+Task-level Reviewer 的啟動時機由 [workflow review procedure](../.agents/skills/workflow/review.md) 統一管理；其他 workflow 文件只描述切片回饋與指向該規則。
+
 採用漸進式設計與揭露。所有場景共用的短規則留在入口；只適用於特定場景的流程、reference 與 skill，使用明確 trigger 指向並在需要時讀取。不得為少數場景把不相關內容放進每次 session 的常駐 context。
 
 ## 責任邊界
@@ -97,4 +99,4 @@ non_goals:      本次明確不順便處理的項目
 
 ## Memory 的有界選取
 
-`memory-context --auto --event SessionStart` 在沒有 query 時提供 verified 主題導航與每次任務前的查詢指示，不把主題樣本當作相關結論。Claude／Codex 的 `--event UserPromptSubmit` 讀取 JSON payload 的 prompt 與 cwd，以英文／中文斷詞匹配記憶正文與主題；prompt 只作資料，不放進 shell。Explicit query 保留 AND 條件，未指定 event 的 automatic 無 query 呼叫仍回空。所有載入保留來源 freshness、專案隔離及 6 筆／800 字元上限。SessionStart 不保證知道當前任務，Antigravity 或 hook 未命中時由 agent 依完整任務脈絡明確搜尋；詞彙匹配不宣稱語意搜尋。沒有新增 persistent index 或讀取 transcript。
+`~/.agent-workflow` 是跨平台共用的可寫 curated store；安裝時把同一個絕對 state root 寫入三平台 hooks。`memory-context --auto --event SessionStart` 在沒有 query 時提供 verified 主題導航與每次任務前的查詢指示，不把主題樣本當作相關結論。Claude／Codex 的 `--event UserPromptSubmit` 讀取 JSON payload 的 prompt 與 cwd，以英文／中文斷詞匹配記憶正文與主題；prompt 只作資料，不放進 shell。Explicit query 保留 AND 條件，未指定 event 的 automatic 無 query 呼叫仍回空。Curated entries 保留 verified、來源 freshness、專案隔離及 6 筆／800 字元上限；`memory-context` 也會唯讀掃描 Claude 的 `~/.claude/memory`／project memory、Codex 的 `~/.codex/memories`／`memory`、Antigravity 的 `~/.gemini/antigravity/brain`，原生候選標成 `needs_verification`，只能作線索。SessionStart 不保證知道當前任務，Antigravity 或 hook 未命中時由 agent 依完整任務脈絡明確搜尋；詞彙匹配不宣稱語意搜尋。沒有新增 persistent index 或讀取 transcript。

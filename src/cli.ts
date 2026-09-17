@@ -47,6 +47,24 @@ export const commandOptions: Record<string, string[]> = {
 };
 const commands = Object.keys(commandOptions);
 
+async function commandHelp(command: string, options: Set<string>): Promise<string> {
+  const lines = [`Usage: agent-workflow ${command} [options]`, "", "Options:", ...[...options].map((name) => `  --${name}`)];
+  if (command === "task-init" || command === "task-write") {
+    const { classificationHelp } = await import("./lifecycle/task-schema.js");
+    lines.push(
+      "",
+      "Input: pipe one JSON object on stdin.",
+      command === "task-init"
+        ? 'Example: {"code_change":true,"managed_change":true,"task_type":"fix","impact_scope":"file","impact_effect":"local_behavior","impact_confidence":"high"}'
+        : 'Example: {"impact_confidence":"high"}',
+      "",
+      "Classification values (from schemas/task.schema.json):",
+      classificationHelp()
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 function usage(): void {
   // orchestrate stays dispatchable (it refuses unflagged mutating use itself) but is listed only
   // under the flag, so nothing advertises a prototype phase tracker as a stable command.
@@ -74,7 +92,7 @@ async function main(): Promise<void> {
   const parsed = parseArgs(separator === -1 ? rest : rest.slice(0, separator));
   const allowedOptions = new Set(commandOptions[command]);
   if (parsed.values.has("help") || rest.includes("-h")) {
-    process.stdout.write(`Usage: agent-workflow ${command} [options]\n\nOptions:\n${[...allowedOptions].map((name) => `  --${name}`).join("\n")}\n`);
+    process.stdout.write(await commandHelp(command, allowedOptions));
     return;
   }
   const unknown = [...parsed.values.keys()].filter((key) => !allowedOptions.has(key));
