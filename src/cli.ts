@@ -1,4 +1,6 @@
 import { PRODUCT_VERSION, JsonObject, flag, option, optionList, parseArgs, stateRoot, stdinJson } from "./core.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
@@ -9,7 +11,6 @@ export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
-  "locale-reminder": ["platform", "state-root"],
   "locale-lint": ["platform", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd", "auto", "event"],
   "workflow-plan": ["task-path", "policy-path"],
@@ -110,9 +111,9 @@ async function main(): Promise<void> {
     designAndRefine: flag(parsed.values, "design-and-refine"),
     nonInteractive: flag(parsed.values, "non-interactive"),
     dryRun: flag(parsed.values, "dry-run"),
-    claude: option(parsed.values, "claude-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.claude`),
-    codex: option(parsed.values, "codex-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.codex`),
-    antigravity: option(parsed.values, "antigravity-target", `${process.env.USERPROFILE || process.env.HOME || "."}/.gemini`)
+    claude: option(parsed.values, "claude-target", join(homedir(), ".claude")),
+    codex: option(parsed.values, "codex-target", join(homedir(), ".codex")),
+    antigravity: option(parsed.values, "antigravity-target", join(homedir(), ".gemini"))
   });
   if (command === "install") process.exitCode = await (await import("./installer.js")).install(installOptions("Install"));
   else if (command === "repair") process.exitCode = await (await import("./installer.js")).install(installOptions("Repair"));
@@ -125,7 +126,6 @@ async function main(): Promise<void> {
     const event = option(parsed.values, "event", "PreToolUse");
     (await import("./hooks.js")).runGuard(platform, event, payload, option(parsed.values, "state-root", stateRoot()));
   }
-  else if (command === "locale-reminder") (await import("./locale-hooks.js")).runLocaleReminder(option(parsed.values, "state-root", stateRoot()));
   else if (command === "locale-lint") {
     let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
     (await import("./locale-hooks.js")).runLocaleLint(payload, option(parsed.values, "state-root", stateRoot()));

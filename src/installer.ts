@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as outputStream } from "node:process";
@@ -53,7 +54,7 @@ function installUpstreamIntegration(name: string, source: string, selected: Plat
   return { source: integration.source, ref: integration.ref, results };
 }
 
-function home(): string { return process.env.USERPROFILE || process.env.HOME || "."; }
+function home(): string { return homedir(); }
 function targetPlatforms(value: string): Platform[] {
   if (value === "Both") return ["Claude", "Codex"];
   if (value === "All") return ["Claude", "Codex", "Antigravity"];
@@ -114,6 +115,19 @@ function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): 
   };
   removeEmptyDirectories(runtime);
 }
+function pruneManagedSkills(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, dryRun: boolean): void {
+  const keep = new Set(records.filter((record) => record.kind === "canonical-skill" || record.kind === "platform-skill").map((record) => resolve(record.path)));
+  const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map((root) => resolve(root));
+  for (const item of Array.isArray(previous.files) ? previous.files : []) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as JsonObject;
+    if (record.kind !== "canonical-skill" && record.kind !== "platform-skill") continue;
+    if (typeof record.path !== "string" || typeof record.sha256 !== "string") continue;
+    const path = resolve(record.path);
+    if (keep.has(path) || !managedRoots.some((root) => path === root || path.startsWith(root + sep)) || !existsSync(path)) continue;
+    try { if (sha256(readFileSync(path)) === record.sha256 && !dryRun) rmSync(path); } catch { /* preserve files that cannot be checked */ }
+  }
+}
 function catalog(root: string): Record<string, JsonObject> {
   const value = readJson(join(root, "adapters", "managed-manifest.json")).skills;
   if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("managed manifest has no skills catalog");
@@ -122,7 +136,10 @@ function catalog(root: string): Record<string, JsonObject> {
 function requiredSkills(value: Record<string, JsonObject>): string[] { return Object.entries(value).filter(([, meta]) => meta.required === true).map(([name]) => name); }
 async function selectSkills(value: Record<string, JsonObject>, options: InstallOptions, previous: JsonObject): Promise<string[]> {
   let requested = options.skills;
-  if (!requested && options.action === "Repair" && Array.isArray(previous.selected_skills)) requested = previous.selected_skills.filter((x): x is string => typeof x === "string").join(",");
+  if (!requested && options.action === "Repair" && Array.isArray(previous.selected_skills)) {
+    const previousSkills = previous.selected_skills.filter((x): x is string => typeof x === "string" && Boolean(value[x]));
+    requested = previousSkills.length ? previousSkills.join(",") : requiredSkills(value).join(",");
+  }
   if (!requested && !options.nonInteractive && input.isTTY && outputStream.isTTY) {
     const names = Object.keys(value);
     process.stdout.write("請選擇要安裝的 optional skills（可輸入編號並以逗號分隔，0=全部）：\n");
@@ -182,7 +199,7 @@ function localeLintTerms(source: string): LocaleTerm[] {
   return terms.sort((a, b) => b.avoid.length - a.avoid.length);
 }
 function writeLocalizationPolicy(source: string, runtime: string, records: FileRecord[], dryRun: boolean): void {
-  const content = `${JSON.stringify({ reminder: policyBlock(source, "localization-tw"), terms: localeLintTerms(source) }, null, 2)}\n`;
+  const content = `${JSON.stringify({ terms: localeLintTerms(source) }, null, 2)}\n`;
   const destination = join(runtime, "localization-tw-policy.json");
   if (!dryRun) writeAtomic(destination, content);
   records.push({ path: destination, sha256: sha256(content), kind: "runtime" });
@@ -204,8 +221,11 @@ function policyBlock(source: string, skill: string): string {
   if (!match) throw new Error(`${skill}/SKILL.md has no <!-- enforcement:start/end --> block for {{POLICY:${skill}}}`);
   return match[1].trim();
 }
-function mergeHook(fragment: JsonObject, destination: string, runtime: string, node: string, dryRun: boolean, topLevel: boolean, source: string): void {
-  let templated = JSON.stringify(fragment).replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\")).replaceAll("{{NODE_EXE}}", node.replaceAll("\\", "\\\\"));
+function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, topLevel: boolean, source: string): void {
+  let templated = JSON.stringify(fragment)
+    .replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\"))
+    .replaceAll("{{STATE_ROOT}}", state.replaceAll("\\", "\\\\"))
+    .replaceAll("{{NODE_EXE}}", node.replaceAll("\\", "\\\\"));
   // JSON.stringify on the extracted block yields a quoted, escaped string; stripping its outer
   // quotes gives exactly the escaped form the surrounding JSON string literal needs.
   templated = templated.replace(/\{\{POLICY:([a-z0-9-]+)\}\}/g, (_match, skill: string) => JSON.stringify(policyBlock(source, skill)).slice(1, -1));
@@ -382,9 +402,11 @@ export async function install(options: InstallOptions): Promise<number> {
     const root = targetRoots[platform]; const skillRoot = join(root, ...platforms[platform].skills);
     for (const skill of selectedSkills) { const sourceSkill = join(canonical, "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(skillRoot, skill), records, "platform-skill", options.dryRun); }
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
-    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, node, options.dryRun, platform === "Antigravity", source);
+    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform === "Antigravity", source);
   }
-  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: Object.fromEntries(selected.map((name) => [name, targetRoots[name]])), selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true } : {}) } });
+  pruneManagedSkills(previous, records, canonical, selected, targetRoots, options.dryRun);
+  const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
+  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true } : {}) } });
   const integrations = [ ...(options.ponytail ? ["ponytail"] : []), ...(options.designAndRefine ? ["design-and-refine"] : []) ];
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,7 +12,7 @@ export type JsonObject = { [key: string]: Json };
 export const PRODUCT_VERSION = "7.0.0-dev.0";
 
 export function stateRoot(value?: string): string {
-  return resolve(value || process.env.AGENT_WORKFLOW_STATE_ROOT || join(process.env.USERPROFILE || process.env.HOME || ".", ".agent-workflow"));
+  return resolve(value || process.env.AGENT_WORKFLOW_STATE_ROOT || join(homedir(), ".agent-workflow"));
 }
 
 export function now(): string {

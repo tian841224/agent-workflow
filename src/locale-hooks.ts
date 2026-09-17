@@ -1,25 +1,18 @@
-// Deterministic (no LLM) enforcement for the localization-tw policy: a short per-turn reminder and
-// a lexical check on the assistant's own final text. Both read the same generated policy file so
-// the vocabulary stays single-sourced in .agents/skills/localization-tw/references/vocabulary.md.
+// Deterministic (no LLM) enforcement for the localization-tw policy. The hook reads the generated
+// vocabulary policy so the terms stay single-sourced in the skill reference.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { JsonObject, output, readJson } from "./core.js";
 
 export type LocaleTerm = { avoid: string; use: string; exceptions: string[] };
-export type LocalePolicy = { reminder: string; terms: LocaleTerm[] };
+export type LocalePolicy = { terms: LocaleTerm[] };
 
 export function readLocalePolicy(root: string): LocalePolicy | undefined {
   const path = join(root, "runtime", "localization-tw-policy.json");
   if (!existsSync(path)) return undefined;
   const parsed = readJson(path);
-  if (typeof parsed.reminder !== "string" || !Array.isArray(parsed.terms)) return undefined;
+  if (!Array.isArray(parsed.terms)) return undefined;
   return parsed as unknown as LocalePolicy;
-}
-
-export function runLocaleReminder(root: string): void {
-  const policy = readLocalePolicy(root);
-  if (!policy) return; // localization-tw not installed/selected: no opinion, not an error
-  output({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: policy.reminder } });
 }
 
 // Code fences, inline code, URLs/paths and quoted spans hold text the assistant is presenting or

@@ -6,7 +6,7 @@ description: Use when repeated corrections or review causes should become a reus
 # distill
 
 Two things accumulate on their own: memory entries written by [learn](../learn/SKILL.md), and review
-causes recorded per push-back round. Both stay inert until enough of the same thing has happened.
+causes recorded per review round. Both stay inert until enough of the same thing has happened.
 This skill is the single exit — it decides what the accumulation has earned.
 
 The runtime counts and routes; you write the prose; the user decides what takes effect.
@@ -50,7 +50,7 @@ agent-workflow review-cause --action Escalate --min-occurrences <n>
 ```
 
 Each group carries `cause`, `remedy_kind`, `occurrences`, `finding_ids`, `paths` and the per-round
-`evidence`. The remedy follows the cause — the same push-back means different work depending on what
+`evidence`. The remedy follows the cause — the same review finding means different work depending on what
 was actually missing:
 
 | remedy_kind | Cause | What to produce |
