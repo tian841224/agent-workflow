@@ -1,276 +1,211 @@
 # agent-workflow
 
-## 安裝
+**讓 AI 依任務風險選擇流程，並以實際驗證證據完成交付。**
 
-Clone 後執行：
+agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發工作流框架。它把任務分流、skills、角色分工、驗證、記憶與平台 hooks 整合成同一套規則與 Node.js runtime，讓小修改維持直接，複雜修改則具備足夠的規劃與品質檢查。
 
-```text
-npm install
-npm run build
-npm run setup
-```
+你可以繼續用自然語言向 AI 提出需求；agent 依情境載入指引，runtime 負責管理任務狀態與檢查已宣告的完成條件。
 
-`npm run build` 產生兩個不進版控的 ESM bundle，`npm run setup` 依賴兩者都存在才能執行安裝：`dist/agent-workflow.mjs` 是完整 CLI，`dist/agent-workflow-hook.mjs` 只含 guard 判斷所需的程式碼，供每次 tool call 都會執行的 hook 使用。`npm run setup` 會啟動互動式安裝：required skills 一律安裝，optional skills 由使用者選取。
+| ## 目錄
 
-安裝同時把 CLI 放上 PATH：`agent-workflow.mjs` 會原封不動複製到 npm global prefix 成為無副檔名的 `agent-workflow`（Windows 另加 `.cmd`），因此 `agent-workflow <command>` 在任何專案都能執行，不需要 repo checkout。這份副本必須與 runtime bundle 位元組相同，hook 的身分驗證才會通過，所以不要改用 `npm install -g` 產生的 shim 取代它。
-公開 npm package 則使用：
+- [核心概念](#核心概念)
+- [主要功能](#主要功能)
+- [快速安裝](#快速安裝)
+- [日常使用](#日常使用)
+- [Skills 一覽](#skills-一覽)
+- [專案架構與主要元件](#專案架構與主要元件)
+- [資料夾結構](#資料夾結構)
+- [專案演進](#專案演進)
+- [開發與延伸閱讀](#開發與延伸閱讀) |
 
-```text
-npx --yes @tian/agent-workflow@latest
-```
+## 核心概念
 
-`npx --yes .` 不可作為 clone 入口，因為 npm 不會從 current-project local directory package spec 選取其自身 bin。
+1. **依影響與風險組合流程**
+2. **只在需要時載入細節**
+3. **用可驗證的紀錄判定完成**
+4. **共用規則，平台各自轉接**
 
-跨 Claude Code、Codex 與 Antigravity 的 AI 開發工作流框架。
 
-## 一、專案介紹
 
-這個專案的核心目標，是在維持 AI 思考最大彈性的前提下，適度設計必要的流程與規範，並在「簡單任務快速完成」與「複雜任務維持嚴謹品質控管」之間取得平衡。
+## 主要功能
 
-### 設計取向
+| 功能 | 實際用途 |
+| --- | --- |
+| 任務分流與計畫編譯 | 依影響範圍、風險與信心選取能力、步驟和文件指引 |
+| 任務生命週期 | 管理建立、暫停、阻塞、恢復與結案，保留狀態變更紀錄 |
+| 驗證與 freshness 檢查 | 記錄命令、工作目錄、exit code、輸出摘要與交付指紋，拒絕過期或失敗的 evidence |
+| 條件式 Review | 一般任務由主對話自我檢查；policy 要求或加選時，由獨立唯讀 Reviewer 審查 |
+| 隔離工作分工 | 由主對話分派 ExecutionPacket 給 Worker，在指定 worktree 與範圍實作，再統一整合 |
+| 專案文件查詢 | 依受影響路徑尋找文件，追蹤讀取內容是否仍有效 |
+| 跨平台記憶 | 查詢共用 knowledge，唯讀搜尋平台原生記憶，依任務相關性提供線索 |
+| 學習與提煉 | 保存使用者要求或確認的可重用結論，將反覆出現的模式整理為待審 skill 草稿 |
+|  |
 
-大型 workflow framework 處理複雜任務時很完整，但面對小型或單純任務，容易產生過多角色、檢查與文件，增加 token 與時間成本。本專案的取向是：
-
-- 流程依照任務的風險與實際影響範圍組合，不固定套用。
-- 共用規則集中管理，Claude Code、Codex 與 Antigravity 讀同一份 canonical source。
-- 流程規劃、角色檢查、記憶管理與驗證能力整合成可重複使用的 runtime。
-- 保留複雜任務所需的品質控管，同時讓簡單任務維持輕量。
-
-## 二、功能介紹
-
-### 框架特色
-
-本框架採用條件式組合 workflow，所有流程、skills 與角色都會依據實際任務情境選擇性載入，而不是固定套用完整 pipeline。同時，框架採用漸進式載入方式，會根據每次任務的性質選擇適合的流程，並依當下情境決定需要讀取的文件深度，在維持輸出品質的前提下，盡可能減少 token 浪費與執行時間。透過這種設計，流程能保有最大的彈性與靈活度，既能讓簡單任務維持輕量，也能在複雜或高風險任務中提供足夠的規劃、角色分工與品質控管。
-
-### 任務分流與條件式 Workflow
-
-任務處理遵循精確的分流原則：
-
-是否進入 workflow 由 `managed_change` 決定，不是「有沒有改到程式碼」的 `code_change`：`managed_change` 判準是這次修改是否可能改變系統實際行為、資料、契約、安全性、部署或執行結果，因此 CI/CD、Dockerfile、migration script 等非 application source code 的高風險修改一樣要走 workflow。
-
-1. **Managed change**：`managed_change: true` 時建立 task，runtime 一次編譯 plan 與 procedure pointers；capability 由 policy 與任務脈絡決定。
-2. **Test-only change**：新增測試、強化 assertion 或安全 test refactor 可 `managed_change: false` 直接 bypass；刪除／skip 測試、弱化 assertion 或大量重寫 snapshot／fixture baseline 時改為 `managed_change: true`，並加入 `test_integrity` risk flag。
-3. **Non-application-source change**：純文件、註解、read-only 分析通常 bypass；CI/CD、Dockerfile、nginx、migration、deploy script、Terraform 等設定或 script 依是否會影響部署、執行、資料或交付結果判斷。
-4. **唯讀任務**：一般的唯讀問答、分析與 review 屬於 unmanaged，不建立 task，host 直接選用唯讀 reader agent，不啟動具寫入權限的 implementation worker。只有本來就存在 task record 的唯讀或 orchestration 情境才使用 `task_type: read_only`；探索深度仍由 compiled plan 的 `exploration_profile` 決定，不假設各 AI 平台都能遵守自訂模型分級。
-
-流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration，直接走 `implementation -> focused feedback`；低信心、影響面擴大、契約／資料／schema／不可逆、跨模組或含多個獨立行為的情境才使用 expanded exploration，依序拆成具備 goal、scope、acceptance、local verification command、dependencies 的 slices，每個 slice 先取得局部回饋，依賴 slice 才能開始。全部 slices、程式碼、測試與文件穩定後，才做 affected／regression，再依 [review procedure](.agents/skills/workflow/review.md) 執行單一 task-level Reviewer 與 DV1；獨立發布或不可逆範圍先拆成獨立 task。Slices 是 coordinator 的工作流程，不新增 `task.json`／ExecutionPacket authority 或新的 slice state，也不啟用 automatic orchestration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
-流程沒有固定的完整 pipeline。runtime 依 task metadata、`workflow_facts` 與 policy 編譯 `required`、`requested`、`selected`、步驟順序與 procedure pointers；`workflow_request` 只能增加檢查，不能移除 required。所有 managed task 都需要 `delivery_validation.DV1` runtime receipt；高風險 capability 仍各自保留。高信心、單檔、局部行為且無高風險 flag 的修改維持 focused exploration，直接走 `implementation -> focused feedback`；低信心、影響面擴大、契約／資料／schema／不可逆、跨模組或含多個獨立行為的情境才使用 expanded exploration，依序拆成具備 goal、scope、acceptance、local verification command、dependencies 的 slices，每個 slice 先取得局部回饋，依賴 slice 才能開始。全部 slices、程式碼、測試與文件穩定後，依 [evidence procedure](.agents/skills/workflow/evidence.md#implementation-slices-and-local-feedback) 批次記錄 affected／regression 驗證（命令涵蓋時可同批記錄 DV1），再依 [review procedure](.agents/skills/workflow/review.md) 執行單一 task-level Reviewer 並以 `close-task` 結案；獨立發布或不可逆範圍先拆成獨立 task。Slices 是 coordinator 的工作流程，不新增 `task.json`／ExecutionPacket authority 或新的 slice state，也不啟用 automatic orchestration。selected evidence 與 Reviewer 共用一份 impact map，同一個驗證命令可用多個 `--requirement-id` 一次記錄。需求未明時先用 `planning` 釐清；Freeze-required flags 仍依 task schema 的確認規則處理。
-
-Project docs 也採條件式載入：單純 `code_change: true` 不會自動加入 project-doc procedure；只有 module+、shared behavior、contract、data/schema、expanded exploration 或其他相關高影響邊界才做 Lookup／讀取／Remember。高信心的 file-local `local_behavior` 修改直接依程式與測試處理。
-
-建立 managed task 後先執行一次 `agent-workflow preflight --task-path <path> --repo-root <repo>`，集中檢查 Node、Git worktree、task intent、lease、依賴與平台 shell。實作期間依 focused 或 expanded 路徑提供局部回饋；待所有 slices、程式碼、測試與文件穩定後，依 evidence procedure 批次記錄最終 runtime evidence，再依 review procedure 進行 task-level Reviewer。最後一次交付變更會使舊 receipt 失效，必須重新執行；內容、命令、環境與驗證範圍都沒有改變時則重用仍有效的 evidence，不為了流程節點重跑相同檢查。
-
-`workflow_request` 的 capability 名稱以 `schemas/workflow-policy.json` 為唯一來源。未知名稱、重複項目或無效的 `workflow_facts` 會讓 `workflow-plan` 以非零狀態結束，不會靜默產生空 plan。
-
-本機驗證用 `node scripts/run-tests.mjs --profile <focused|affected|regression|full>`：`focused` 與 `affected` 要明列測試路徑，`regression` 可指定 subsystem 或省略路徑跑完整 regression set，`full` 固定跑全部 `tests-node/**/*.test.mjs` 且拒絕混入路徑。CI 仍使用 full profile；runtime evidence 應記錄實際使用的 profile 與路徑。
-
-### Review 與角色化品質檢查
-
-- **Review**：檢查影響範圍、架構一致性、程式碼品質、相容性與失敗情境，並從 real entrypoint 確認完成條件。預設由主對話完成基本自我檢查；當 `reviewer` capability 被 `required`（高 blast radius 或高風險分類）或被 `workflow_request` 加選時，待全部 slices 與整體驗證完成後，另外啟動一個獨立唯讀 Reviewer，由主對話整合 finding。Reviewer 時機與獨立交付邊界以 [review procedure](.agents/skills/workflow/review.md) 為準。
-- **Worker**：僅用於 host-native／manual isolated parallel development 的 implementation role；Worker 只執行 coordinator 提供的 ExecutionPacket，不自行重新選 capability 或 workflow。
-- **Reader**：專案唯讀檢查角色，僅用於讀取、分析與審查，不可修改檔案或 repository 狀態。
-
-### 平行開發
-
-目前 automatic orchestration runtime 仍是 Experimental phase tracker，尚未提供正式的 worker dispatch、worktree creation、patch collect／apply 或 multi-worker completion protocol。
-
-正式 workflow 預設使用 sequential execution；如果 host 平台本身支援 isolated sub-agent／worktree，可由主對話手動拆分互不重疊的子任務、建立或綁定各自 worktree，並以 ExecutionPacket dispatch Worker。所有 worker 結果由主對話統一整合後，再執行 final validation、Review 與 task gate。
-
-Experimental `agent-workflow orchestrate` 只追蹤 phase，不是已完成的 automatic parallel engine。
-
-### 記憶與自動學習
-
-- **可重用結論保存**：使用者要求記憶、糾正 agent、拍板決策或確認錯誤修正時，立即透過 active `learn` skill 記錄可重用結論。
-- **模式提煉**：同一類結論反覆出現時，runtime 會把它標為可提煉的模式；agent 依 `distill` skill 寫成 skill 草稿暫存在 `skill-drafts/`。草稿只有在使用者於對話中明確同意時才執行 Promote 成生效的 skill。
-- **Review 歸因與補救**：Review 歸因可併入失敗回報，記錄時機與增量複審依 [review procedure](.agents/skills/workflow/review.md#review-round-與增量錨定)。累積達門檻的補救措施（補文件、改 task 模板、寫 skill）一律需使用者明確同意。
-
-### 每週記憶檢視
-
-每次 `close-task` 成功結束任務時，runtime 會檢查是否已超過七天；到期才在輸出中詢問使用者是否執行記憶檢視，同一週不會重複詢問。使用者同意後執行 `npm run memory-review`，完成後標記 `memory-review --action Reviewed`。結果只提供證據與建議目的地，不會自動建立、Promote 或 Reject；由使用者決定後續處理。詳細流程見 [`docs/weekly-memory-review.md`](docs/weekly-memory-review.md)。
-
-### 跨平台記憶讀取
-
-可重用記憶統一寫入 `~/.agent-workflow`（可用 `AGENT_WORKFLOW_STATE_ROOT` 覆寫）；安裝時會把同一個絕對 state root 寫入 Claude、Codex 與 Antigravity hooks。Claude Code 與 Codex 在 SessionStart 載入有界記憶主題導航，並在每次 UserPromptSubmit 依當前任務篩選相關記憶；Antigravity 在首次 PreInvocation 提供導航。Curated entries 保留 verified、來源 freshness、專案隔離及 6 筆／800 字元上限；三平台原生 memory 目錄（Claude 的 `~/.claude/memory` 與 project memory、Codex 的 `~/.codex/memories`／`memory`、Antigravity 的 `~/.gemini/antigravity/brain`）也會唯讀掃描，並以 `needs_verification` 標示，不會直接變成可信記憶。沒有相關命中時不注入近期記憶；平台未提供 prompt 的情況，由 agent 依任務關鍵字明確搜尋。
-
-任務真的需要歷史脈絡時，由 agent 以目前任務的 2–5 個關鍵字執行 `agent-workflow knowledge --action Search --query '<keywords>'`；原生來源與 curated knowledge 都只作參考，使用前仍需依目前程式、文件或設定驗證。
-
-### Skills
-
-`.agents/skills/` 是跨平台共用的 skill canonical source。安裝程式會依 managed manifest 將適用的 skill 同步到指定平台的 adapter；AI agent 會根據任務性質與 workflow_request 載入適用的 skill。
-
-| Skill | 類型 | 用途與適用時機 |
-| --- | --- | --- |
-| [`workflow`](.agents/skills/workflow/SKILL.md) | 必裝 | 由 `managed_change` 決定是否建立 task，再依實際 impact／risk 決定 `workflow_request` 與 required capability；安全 test-only、文件與 read-only 任務可 bypass，高風險設定／script 與 test-integrity 修改仍進 workflow。 |
-| [`codebase-design`](.agents/skills/codebase-design/SKILL.md) | 必裝 | 設計或改善模組介面、尋找加深機會、決定 seam 位置時，提供 deep module／interface／depth／seam／adapter 等設計標準；選取 `codebase_design` capability 時主動載入。 |
-| [`planning`](.agents/skills/planning/SKILL.md) | 必裝 | 只有方向、技術取捨或真正模糊需求會影響後續實作時使用；可逆低風險決定優先依 repo convention 自行處理。 |
-| [`learn`](.agents/skills/learn/SKILL.md) | 必裝 | 只在使用者要求記憶，或確認可重複使用的糾正、決策與修正方式時保存結論。 |
-| [`grill-me`](.agents/skills/grill-me/SKILL.md) | 必裝 | 使用者要求壓力測試或計畫已有高風險未決假設時，逐題進行深度提問直到決策樹清晰。 |
-| [`tdd`](.agents/skills/tdd/SKILL.md) | 必裝 | 定義 red → green → refactor、seam、行為導向測試、測試反模式與 mock 邊界；選取 `tdd` capability 時由 workflow 主動載入並記錄 TDD evidence。 |
-| [`clean-comments`](.agents/skills/clean-comments/SKILL.md) | 必裝 | 核心短規則常駐於 `AGENTS.md`；新增／重寫多行註解、public/doc comments、高風險判斷依據或 review 發現 comment pollution 時才載入完整規範。 |
-| [`architecture-review`](.agents/skills/architecture-review/SKILL.md) | 選擇性 | 審查既有程式架構、跨層耦合、模組責任、契約漂移與遷移風險；以 static fact、hypothesis、runtime proof 區分證據並提出漸進改善方案。 |
-| [`diagnosing-bugs`](.agents/skills/diagnosing-bugs/SKILL.md) | 選擇性 | 原因不明、間歇性或效能型問題才載入；依可靠 signal、可證偽診斷與 confirmed fix 收斂，不強迫固定 phase 或 hypothesis 數量。 |
-| [`project-docs`](.agents/skills/project-docs/SKILL.md) | 選擇性 | execution packet 判定 module/shared behavior、contract、data/schema、expanded exploration 或其他高影響脈絡需要時才載入；file-local 高信心修改不自動讀文件。 |
-| [`distill`](.agents/skills/distill/SKILL.md) | 選擇性 | 記憶中同一類結論反覆出現或 review 歸因達門檻時，提煉成待審的 skill 草稿或分派補救措施；Promote 需要使用者明確核准。 |
-| [`operational-verification`](.agents/skills/operational-verification/SKILL.md) | 選擇性 | 進行安裝、同步、部署、migration、provisioning 或外部整合驗證時，區分靜態設定、本機 mock、本機 runtime 與遠端環境證據層級。 |
-| [`localization-tw`](.agents/skills/localization-tw/SKILL.md) | 選擇性 | 核心規則常駐於 `AGENTS.md`；Stop 時對 `references/vocabulary.md` 的 `<!-- lint:start -->` 詞彙清單做無 LLM 的確定性檢查，命中即擋下該次回覆要求改寫。EN／JA ↔ zh-TW 翻譯、中文 UI copy 或術語敏感的正式在地化才需載入本 skill；內再分 `locale.md`、`translation.md` 與按需 `references/`。 |
-| [`doc-coauthoring`](.agents/skills/doc-coauthoring/SKILL.md) | 共用 | 大型規格、提案或決策文件才按需要使用 context／refinement／reader testing；資訊足夠時直接起草，不先要求使用者選流程。 |
-| [`writing-for-agents`](.agents/skills/writing-for-agents/SKILL.md) | 共用 | 撰寫或修改 `.agents/` 底下的角色檔與 skill 文件時，統一 pointer 寫法、分層揭露與去重判準。 |
-| [`humanizer`](.agents/skills/humanizer/SKILL.md) | 選擇性 | 使用者要求重寫，或草稿出現明確 AI 腔調時才載入；詳細模式改由按需 reference 提供，預設只交付最終稿。 |
-| [`adhd-comms`](.agents/skills/adhd-comms/SKILL.md) | 選擇性 | 依內容選擇結論先行、易掃讀的段落或清單格式，保留必要證據與限制。 |
-| [`hallmark`](.agents/skills/hallmark/SKILL.md) | 選擇性 | 明確需要 anti-AI-slop 設計、audit、redesign 或 study 時使用；依 scope 與實際 acceptance criteria 決定探索與驗證，不跑固定 8 states／theme／variant recipe。來源：[nutlope/hallmark](https://github.com/nutlope/hallmark)。 |
-
-### 設計原則與硬護欄
-
-- **不自行變更 Git 狀態**：不自行 commit、push、rebase、merge 或執行破壞性 Git 操作。
-- **尊重使用者修改**：不覆寫、刪除或重設使用者未要求處理的修改與資料。
-- **技術判斷不盲從**：使用者指定的做法若明顯錯誤、矛盾、危險或造成不必要複雜度，先指出影響與替代方案；合理取捨則尊重選擇。
-- **註解只保留高資訊內容**：只說明非顯而易見的意圖、限制、合約或原因，不逐句翻譯程式碼或重述命名。
-- **最小變更與根因優先**：先讀現況與規則，只做需求直接需要的最小變更；驗證失敗先修根因，不降低完成條件。
-- **分層證據原則**：安裝、部署或外部整合驗證，證據不得跨越靜態設定、本機 mock、本機 runtime 與遠端環境等層級。
-- **安全邊界**：`unknown` 代表尚未證明，不代表沒有影響；Worker 為唯一寫入角色，其餘角色一律唯讀。
-
-## 三、專案架構、安裝與資料夾結構
-
-### 整體架構
+### 一個 managed task 如何完成
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ Claude Code              Codex              Antigravity       │
-│       │                    │                    │              │
-│       └──────────── platform adapters / hooks ─┘              │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-                    ~/.agent-workflow/runtime
-                               │
-   agent-workflow.mjs（CLI）  agent-workflow-hook.mjs（guard hook）
-                               │
-        ┌───────────────────────┼────────────────────────┐
-        │                       │                        │
-   Task / Workflow       Roles / Guards          Knowledge / Memory
-        │                       │                        │
-        └─────────────── schemas / templates ───────────┘
-                               │
-              .agents canonical source in this repository
+使用者提出需求
+  |
+  +-- 不影響行為或驗證完整性 --> 直接處理
+  |
+  +-- managed change
+        |
+        v
+      目標與分類 --> 編譯計畫 --> 一次 preflight
+        |
+        +-- focused  --> 實作 + 局部驗證
+        |
+        +-- expanded --> 依序完成切片，每片先取得局部回饋
+        |
+        v
+      交付內容穩定 --> 最終驗證與 evidence
+        |
+        v
+      Review（依計畫需要啟動獨立 Reviewer）
+        |
+        v
+      close-task 檢查完成條件並結案
 ```
 
-### Repository 結構
+
+
+### 記憶如何累積
+
+```text
+使用者要求或確認的結論 --> learn --> 共用 knowledge
+                                         |
+                         反覆出現的模式 --> distill
+                                         |
+                                         v
+                                   待審 skill 草稿
+                                         |
+                                   使用者明確核准
+                                         |
+                                         v
+                                      Promote
+```
+
+
+
+## 快速安裝
+
+### 需求
+
+- Node.js **20 以上**與 npm。
+- Git，用於取得原始碼與開發任務的版本控制檢查。
+- 已安裝要使用的 Claude Code、Codex 或 Antigravity。
+
+### 安裝步驟
+
+1. 安裝相依套件並建置：
+
+   ```powershell
+   npm install
+   npm run build
+   ```
+
+2. 執行安裝，依提示選擇 skills：
+
+   ```powershell
+   npm run setup
+   ```
+
+   若只使用 Codex，改執行：
+
+   ```powershell
+   npm run setup -- --target-agent Codex
+   ```
+
+## Skills 一覽
+
+Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，不代表每次任務都讀取全文。** 安裝分類以 [managed manifest](adapters/managed-manifest.json) 為準。
+
+### 核心 skills（必裝）
+
+| Skill | 何時使用 |
+| --- | --- |
+| [workflow](.agents/skills/workflow/SKILL.md) | 分流 managed change，依 compiled plan 執行與結案 |
+| [planning](.agents/skills/planning/SKILL.md) | 釐清架構方向、重要取捨或真正模糊的需求 |
+| [grill-me](.agents/skills/grill-me/SKILL.md) | 使用者要求深入提問，或需釐清高風險假設 |
+| [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組介面、責任邊界、seam 與 adapter |
+| [tdd](.agents/skills/tdd/SKILL.md) | 計畫選取 TDD 時，執行 red → green → refactor |
+| [learn](.agents/skills/learn/SKILL.md) | 保存使用者要求或確認的可重用結論 |
+| [clean-comments](.agents/skills/clean-comments/SKILL.md) | 撰寫多行、公開合約或需要解釋判斷依據的註解 |
+| [localization-tw](.agents/skills/localization-tw/SKILL.md) | 所有中文回覆的臺灣繁體中文規則；翻譯與術語按需查閱 references |
+| [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) | 編寫 `.agents/` 角色或 skill 指引，維持清楚的入口與分層揭露 |
+
+### 依需求選用
+
+| Skill | 何時使用 |
+| --- | --- |
+| [architecture-review](.agents/skills/architecture-review/SKILL.md) | 審查跨層耦合、責任失衡、契約漂移與遷移風險 |
+| [diagnosing-bugs](.agents/skills/diagnosing-bugs/SKILL.md) | 診斷原因不明、間歇性或效能問題 |
+| [project-docs](.agents/skills/project-docs/SKILL.md) | 計畫要求查詢或更新模組、共用行為、契約與資料相關文件 |
+| [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、部署、migration 與外部整合的實際環境驗證 |
+| [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的結論或 review 原因提煉改善；草稿核准後才生效 |
+| [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
+| [adhd-comms](.agents/skills/adhd-comms/SKILL.md) | 讓回覆重點先行、易掃讀，同時保留必要證據 |
+| [humanizer](.agents/skills/humanizer/SKILL.md) | 依要求重寫文字，或修正明確的 AI 腔調 |
+| [hallmark](.agents/skills/hallmark/SKILL.md) | 明確要求更有辨識度的 UI 設計、設計稽核或重設計 |
+
+另有 repository 內的 [doc-coauthoring](.agents/skills/doc-coauthoring/SKILL.md)，用於規格、提案與較大型文件；它列在 manifest 的 unmanaged_skills 清單，不屬於 installer 的 managed skill catalog。
+
+## 專案架構與主要元件
+
+```text
+Claude Code             Codex              Antigravity
+     |                    |                     |
+     +--------------------+---------------------+
+                          |
+                  平台 adapters / hooks
+                          |
+               共用 Node.js runtime / CLI
+                          |
+          +---------------+----------------+
+          |               |                |
+     分類與計畫      任務 / 驗證 / 結案    knowledge / memory
+          |               |                |
+          +---------------+----------------+
+                          |
+                 schemas / templates
+
+.agents/skills + .agents/agents --> 提供 agent 執行指引
+```
+
+
+## 資料夾結構
 
 ```text
 ~/
-├─ .agents/                   共用 canonical source
-│  ├─ agents/                 角色定義（worker.md, reader.md）
-│  └─ skills/                 跨平台 skills（workflow, tdd, planning...）
-├─ .claude/                   Claude Code 的 agent、skills 與 hooks
-├─ .codex/                    Codex 的 agent、skills、rules 與 hooks
-├─ .gemini/                   Antigravity 的 agent、skills 與 hooks
-└─ .agent-workflow/           agent-workflow runtime 與使用者資料
-   ├─ runtime/                已安裝的 Node runtime contract
-   ├─ knowledge/              跨專案與專案共用的 knowledge
-   ├─ skill-drafts/           待審的 skill 草稿與提煉狀態（不會被 agent 載入）
-   ├─ review-causes/          review 打回的歸因紀錄與累積狀態
-   ├─ skills/                 已核准的 skill，散佈到各平台
-   ├─ projects/               專案識別資料與 task 狀態
-   │  └─ <project-id>/
-   │     └─ tasks/
-   │        └─ <task-id>/
-   │           └─ task.md
-   └─ imports/                外部資料的匯入區
+|-- .agents/                  安裝後的共用指引與 skills
+|-- .claude/                  Claude Code adapter 設定
+|-- .codex/                   Codex adapter 設定
+|-- .gemini/                  Antigravity adapter 設定
+`-- .agent-workflow/          共用 runtime 與可寫資料
+    |-- managed-runtime.json 安裝版本、雜湊與 managed files 紀錄
+    |-- runtime/             已安裝 bundle、adapters、schemas、templates
+    |-- knowledge/           可重用結論
+    |-- skill-drafts/        待核准的 skill 草稿
+    |-- skills/              已核准的 skills
+    |-- review-causes/       Review 歸因紀錄
+    |-- projects/
+    |   `-- <project-id>/tasks/<task-id>/
+    |       |-- task.md      人可讀的目標與完成條件
+    |       `-- task.json    Runtime 管理的任務狀態與 evidence
+    `-- imports/             外部資料匯入區
 ```
 
-不同 AI 工具的原生設定由 installer 依平台建立，並透過 adapter 連結到 `.agents` 的 canonical source。未指定的平台不會建立或修改對應的 agent 資料夾。
+## 專案演進
 
-agents、skills、hooks 與 runtime 的架構原則見 [docs/architecture.md](docs/architecture.md)。
+**固定角色與多軌流程 → 情境式 skills → 組合式計畫 → runtime 契約與證據 → 保留必要品質、降低重複成本。**
 
-### 主要元件分工
-
-| 元件 | 責任 |
-| --- | --- |
-| `.agents/skills/` | 共用 skills、workflow policy、風險與平行編排規則 |
-| `.agents/agents/` | 角色定義（Worker 處理隔離子任務；Reader 處理唯讀分析） |
-| `src/lifecycle/` | task.json 的 transition、gate、evidence、intent approval 與 worktree lease |
-| `src/classification/` | 從 task.json 讀出 workflow policy 條件評估用的分類 context |
-| `src/execution/` | 把 intent、classification 與 compiled workflow plan 打包成單一 execution packet 給實作 agent |
-| `src/` 其餘 | workflow policy 編譯、installer、guard、skill manifest、knowledge、learn、distill 與驗證邏輯 |
-| `adapters/` | 各 AI 平台的設定、manifest 與 hooks |
-| `schemas/` | task、workflow、knowledge、project、retro、review-cause 等資料契約 |
-| `skills-lock.json` | 從外部來源 vendor 進來的 optional skill 的來源與雜湊紀錄 |
-| `templates/` | task intent 與其他工作流程範本 |
-| `runtime/` | Node runtime contract 與執行限制 |
-| `docs/` | 本 repo 自己的 project docs：architecture 原則、module 文件、發布驗證與歷史記錄 |
-| `tests-node/` | runtime、installer、hook、task、knowledge、orchestrate、adapter parity、migration 與 workflow contract 完整驗證 |
-
-## 四、安裝方法
-
-### 安裝需求
-
-- Windows
-- Node.js 20 以上
-
-### 安裝
-
-在 repository 根目錄執行：
-
-```bat
-install.cmd --target-agent All
-```
-
-未指定 `--skills` 時，互動式安裝會列出 skills 與簡短說明，輸入編號即可選擇；`workflow` 等必裝 skill 會自動納入，其餘 skills 可依需求挑選。也可以直接指定：
-
-```bat
-install.cmd --target-agent All --skills workflow,planning,tdd
-install.cmd --target-agent All --skills all
-```
-
-`Repair` 未指定 `--skills` 時會沿用上次安裝的選擇。若要在腳本或 CI 中避免互動提示，請加上 `--non-interactive`；未指定 skills 時會安裝全部 skills。
-
-Ponytail 不 vendor 進本專案；來源與三平台原生安裝指令保存在 `adapters/upstream-manifest.json`。預設不安裝，明確指定時才執行：
-
-```text
-install.cmd --action Repair --target-agent All --ponytail --non-interactive
-install.cmd --action Repair --target-agent All --ponytail --dry-run --non-interactive
-```
-
-`--dry-run` 只列出原生指令。Codex 與 Claude 使用各自的 plugin CLI；Antigravity 使用 upstream 的 `agy` CLI，若本機沒有該 CLI，該平台會回報失敗，不會被誤報為已安裝。
-
-Design Lab 同樣不 vendor 進本專案；來源與原生 skill 安裝指令保存在同一份 manifest。需要時明確指定：
-
-```text
-install.cmd --action Repair --target-agent All --design-and-refine --non-interactive
-```
-
-`--target-agent` 可依需求指定安裝平台：
-
-- `Claude`
-- `Codex`
-- `Antigravity`
-- `All`
-
-安裝程式會將共用的 skills、角色、workflow 規則與 hooks 設定到對應平台，並在使用者家目錄建立 `.agent-workflow` runtime 與資料夾。
-
-三平台的 hook 功能保持一致：啟動時 memory navigation、每次工具呼叫的 Git guard、回覆結束時 localization lint；Claude／Codex 使用 `SessionStart`、`UserPromptSubmit`、`Stop`，Antigravity 使用 `PreInvocation`、`PreToolUse`、`PostInvocation` 做平台事件映射。
-
-新增 skill 時，先確認要列為必裝或選擇性，再在 `adapters/managed-manifest.json` 的 `skills` catalog 登錄名稱、說明與 `required` 設定。
-
-三個版本欄位各自獨立演進：product version 是 CLI 顯示的版本；`adapters/managed-manifest.json` 的 `schema_version` 是 manifest 格式版本；`.agent-workflow/managed-runtime.json` 的 `schema_version` 是 installed state 格式版本。
-
-### 檢查安裝狀態
-
-```bat
-install.cmd --action Verify
-```
-
-`Verify` 會檢查 managed-state 與 manifest、bundle SHA-256、repo source 與 runtime 同步、三平台 required／selected skills、managed entrypoint、hooks 與 Codex hook trust。輸出包含 `valid`、`node`、`runtime_root` 與 `errors`；任一缺失、hash drift、source 自指或 hook 未信任都會回傳非零狀態。
-
-如果需要重新同步或修復已安裝的檔案：
-
-```bat
-install.cmd --action Repair --target-agent All
-```
-
-### 移除安裝
-
-```bat
-install.cmd --action Uninstall --target-agent All
-```
-
-移除安裝時，只會移除仍由本專案管理且未被使用者修改的 managed files，不會刪除既有的 knowledge、projects、tasks 或 imports 資料。
+| 版本 | 重大改變 | 重點 | 相較上版本的差異／優化 |
+| --- | --- | --- | --- |
+| v1 | 建立開發流程與護欄 | 導入角色分工、hooks、規格凍結與 TDD，禁止 agent 自行 commit。 | 從單純依賴 agent 自律，提升為有明確角色、規格與操作邊界的流程；降低未經檢查直接交付的風險。 |
+| v2 | 支援跨平台共用 | 從 Claude Code 擴展至 Codex、Antigravity，以 `.agents/` 統一維護共用規則與 skills。 | 從單一平台設定改為 canonical source 加 adapter；規則只需維護一份，減少三平台內容分歧。 |
+| v3 | 從固定流程改為按需組合 | 由多軌流程轉向情境式 skills 與組合式計畫，依任務風險選取必要能力與品質步驟。 | 從每個任務套用同一條完整 pipeline，改為小任務少走不必要步驟，複雜任務仍保留必要控管。 |
+| v4 | 將流程判定移入 runtime | 由 runtime 管理任務狀態、計畫與完成條件。 | 統一跨平台入口並降低環境差異。 |
+| v5 | 明確化任務與驗證契約 | 統一分流入口| 從以文字描述「已完成」改為 task schema 與 runtime receipt；可追蹤誰在何時以哪個工作樹與命令完成驗證，並拒絕 stale evidence。 |
+| v5 → v6 | 精簡角色與技能 | Skills 分為必裝與選用，減少固定角色交接，僅在需要時啟動獨立審查。 | 從固定 Reviewer／Verifier／Retrospective 角色改為依計畫啟動責任；降低交接與 token 成本，同時保留高風險任務的獨立審查。 |
+| v6 | 累積跨平台記憶 | 加入共用記憶與提煉機制，將可重用結論整理為待審 skill 草稿。 | 從每次任務重新摸索，改為可查詢且有範圍的 knowledge；草稿須經使用者核准才會生效，避免未驗證經驗污染流程。 |
+| v7 | 統一驗證並降低重複成本 | 整合 hooks、preflight、最終驗證與結案路徑，保留切片局部回饋，減少重複確認與不必要的文件載入。 | 從多個角色各自重跑檢查，改為共用 impact map、delivery fingerprint 與單一結案 gate；在維持 verification integrity 的前提下縮短 roundtrip。 |
