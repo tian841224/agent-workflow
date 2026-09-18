@@ -148,7 +148,10 @@ async function selectSkills(value: Record<string, JsonObject>, options: InstallO
     const answer = (await reader.question("選擇：")).trim(); reader.close();
     requested = answer === "0" ? "all" : answer.split(",").map((item) => names[Number(item.trim()) - 1]).filter(Boolean).join(",");
   }
-  const names = requested === "all" || !requested ? Object.keys(value) : requested.split(",").map((item) => item.trim()).filter(Boolean);
+  // "all" installs every optional skill; no request at all (fresh non-interactive install with no
+  // --skills and no TTY) installs only what the manifest marks required, matching the manifest's
+  // own required/optional split instead of silently pulling in every optional skill's reference tree.
+  const names = requested === "all" ? Object.keys(value) : !requested ? requiredSkills(value) : requested.split(",").map((item) => item.trim()).filter(Boolean);
   const unknown = names.filter((name) => !value[name]);
   if (unknown.length) throw new Error(`unknown skill(s): ${unknown.join(", ")}`);
   return [...new Set([...names, ...requiredSkills(value)])].sort();
@@ -358,6 +361,30 @@ function taskSchemaV4toV5Migration(root: string, backup: string, dryRun = false)
   }
   return migrated;
 }
+// workflow_mode, model_profile and validation_profile were legacy-compatibility or inert fields
+// with no active plan_hash/gate consumer; dropping them here rather than carrying them forever
+// keeps the active contract free of fields nothing reads.
+function taskSchemaV5toV6Migration(root: string, backup: string, dryRun = false): number {
+  let migrated = 0;
+  for (const taskJson of filesAt(join(root, "projects")).filter((path) => basename(path) === "task.json")) {
+    const state = readJson(taskJson);
+    if (state.schema_version !== 5) continue;
+    if (!dryRun) {
+      // A distinct subdirectory from the v4->v5 backup: a task migrated in the same call already
+      // has a "tasks" backup entry there, and writing this step's backup to that same relative path
+      // would silently overwrite the pre-v5 snapshot (losing the fields v4->v5 stripped) instead of
+      // adding a second one.
+      const backupTarget = join(backup, "tasks-v6", relative(join(root, "projects"), taskJson));
+      mkdirSync(dirname(backupTarget), { recursive: true });
+      writeAtomic(backupTarget, readFileSync(taskJson));
+      delete state.workflow_mode; delete state.model_profile; delete state.validation_profile;
+      state.schema_version = 6;
+      writeJson(taskJson, state);
+    }
+    migrated += 1;
+  }
+  return migrated;
+}
 export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const state = resolve(root); const managedPath = join(state, "managed-runtime.json"); const existing = existsSync(managedPath) ? readJson(managedPath) : {};
   const migrations = (existing.migrations && typeof existing.migrations === "object" ? existing.migrations : {}) as JsonObject;
@@ -366,7 +393,8 @@ export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const alreadySchemaV3Migrated = migrations.v2_to_v3_task_schema;
   const alreadySchemaV4Migrated = migrations.v3_to_v4_task_schema;
   const alreadySchemaV5Migrated = migrations.v4_to_v5_task_schema;
-  if (alreadyPythonMigrated && alreadySchemaV2Migrated && alreadySchemaV3Migrated && alreadySchemaV4Migrated && alreadySchemaV5Migrated) return { migrated: false, reason: "already-migrated" };
+  const alreadySchemaV6Migrated = migrations.v5_to_v6_task_schema;
+  if (alreadyPythonMigrated && alreadySchemaV2Migrated && alreadySchemaV3Migrated && alreadySchemaV4Migrated && alreadySchemaV5Migrated && alreadySchemaV6Migrated) return { migrated: false, reason: "already-migrated" };
   const stamp = now().replace(/[:.]/g, "-"); const backup = join(state, "migrations", `python-v6-${stamp}`);
   if (!dryRun) { mkdirSync(backup, { recursive: true }); if (existsSync(managedPath)) writeAtomic(join(backup, "managed-runtime.json"), readFileSync(managedPath)); }
   const migratedTasks = dryRun || alreadyPythonMigrated ? 0 : taskMigration(state, backup);
@@ -374,7 +402,8 @@ export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const migratedSchemaV3 = dryRun || alreadySchemaV3Migrated ? 0 : taskSchemaV2toV3Migration(state);
   const migratedSchemaV4 = dryRun || alreadySchemaV4Migrated ? 0 : taskSchemaV3toV4Migration(state);
   const migratedSchemaV5 = alreadySchemaV5Migrated ? 0 : taskSchemaV4toV5Migration(state, backup, dryRun);
-  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, migrated_schema_v3: migratedSchemaV3, migrated_schema_v4: migratedSchemaV4, migrated_schema_v5: migratedSchemaV5, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
+  const migratedSchemaV6 = alreadySchemaV6Migrated ? 0 : taskSchemaV5toV6Migration(state, backup, dryRun);
+  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, migrated_schema_v3: migratedSchemaV3, migrated_schema_v4: migratedSchemaV4, migrated_schema_v5: migratedSchemaV5, migrated_schema_v6: migratedSchemaV6, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
 }
 export async function install(options: InstallOptions): Promise<number> {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const source = sourceRoot(); const managedPath = join(state, "managed-runtime.json"); const previous = existsSync(managedPath) ? readJson(managedPath) : {};
@@ -406,7 +435,7 @@ export async function install(options: InstallOptions): Promise<number> {
   }
   pruneManagedSkills(previous, records, canonical, selected, targetRoots, options.dryRun);
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
-  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true } : {}) } });
+  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true } : {}) } });
   const integrations = [ ...(options.ponytail ? ["ponytail"] : []), ...(options.designAndRefine ? ["design-and-refine"] : []) ];
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;

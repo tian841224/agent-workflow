@@ -157,9 +157,12 @@ export function memoryContext(platform: string, root?: string, query = "", cwd =
     const topic = String(fields.topic || "");
     return { path, fields, updatedAt: String(fields.updated_at || ""), line: topic ? `${topic}: ${body.slice(0, 120)}` : body.slice(0, 120), haystack: `${topic} ${body} ${path}`.toLowerCase(), content: `${topic} ${body}`.toLowerCase(), native: false as const, source: "shared" };
   }).filter((candidate) => candidate.line && String(candidate.fields.status || "") === "verified");
-  // Native platform memory is read-only reference material. It stays marked needs_verification so
-  // it can help locate a prior decision without silently becoming trusted shared knowledge.
-  const candidates: Candidate[] = [...curated, ...nativeMemoryCandidates(resolvedRoot, cwd)];
+  // Native platform memory is read-only reference material and stays marked needs_verification so
+  // it can help locate a prior decision without silently becoming trusted shared knowledge. It is
+  // scanned only for an explicit query: an automatic hook (SessionStart/PreInvocation navigation or
+  // UserPromptSubmit) is a fixed per-turn cost paid whether or not it hits, so it stays limited to
+  // curated, already-verified knowledge.
+  const candidates: Candidate[] = automatic ? curated : [...curated, ...nativeMemoryCandidates(resolvedRoot, cwd)];
   const scored = candidates.map((candidate) => {
     const matches = fromPrompt ? terms.filter((term) => candidate.content.includes(term)).length : 0;
     return { candidate, score: fromPrompt ? (matches ? matches * 3 + relevanceScore(candidate, projectId, []) : -1) : relevanceScore(candidate, projectId, terms) };

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { changedPaths, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, stateRoot, workspaceFingerprint } from "../core.js";
 import { intentHash } from "../intent.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
-import { recordReviewCause, ReviewCauseInput } from "../records.js";
+import { recordReviewCause, ReviewCauseInput, roundIsValid } from "../records.js";
 import { covers } from "./ownership.js";
 import { schemaErrors } from "./task-schema.js";
 import { assertMutable, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
@@ -215,7 +215,8 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
   if (!["pass", "fail"].includes(result)) { output({ valid: false, errors: ["review-record requires --result pass or fail"] }); return 1; }
   if (!summary) { output({ valid: false, errors: ["review-record requires --summary"] }); return 1; }
   if (cause && result !== "fail") { output({ valid: false, errors: ["review-record cause attribution is only valid for a failed review"] }); return 1; }
-  if (cause && (cause.round < 2 || !cause.cause || !cause.evidence)) { output({ valid: false, errors: ["review-record cause attribution requires --cause-round >= 2, --cause, and --cause-evidence"] }); return 1; }
+  if (cause && (!roundIsValid(cause.round, cause.cause) || !cause.cause || !cause.evidence)) { output({ valid: false, errors: ["review-record cause attribution requires --cause-round >= 2 (>= 1 when --cause regression), --cause, and --cause-evidence"] }); return 1; }
+  if (cause?.cause === "regression" && !cause.missCategory) { output({ valid: false, errors: ["review-record cause attribution requires --cause-miss-category when --cause is regression"] }); return 1; }
   try {
     const roleKey = roleId.startsWith("role.") ? roleId : `role.${roleId}`;
     const repoRoot = projectIdentity(repoRootValue).root;

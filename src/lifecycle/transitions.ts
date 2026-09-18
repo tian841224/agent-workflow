@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, stateRoot, withFileLock, writeJson } from "../core.js";
-import { intentHash } from "../intent.js";
-import { memoryReviewPrompt } from "../memory-review.js";
+import { intentHash, intentValidationErrors } from "../intent.js";
 import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
 import { resolveProcedures } from "../execution/execution-packet.js";
 import { evaluateTaskGate } from "./task-gate.js";
-import { schemaErrors } from "./task-schema.js";
+import { readinessChecks, readinessSummary } from "./readiness.js";
+import { freezeRequired, schemaErrors } from "./task-schema.js";
 import { assertMutable, lifecycleOf, OPEN_STATUSES, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
 import { activateCodeTask, worktreeLeasePath, writeLease } from "./worktree-lease.js";
 
@@ -59,13 +59,26 @@ export function transitionTask(value: string, action: Transition, actor = "cli",
 // Allowlist rather than a blocklist of runtime-managed keys: an unrecognized field (including any
 // future task.schema.json addition) is rejected by default instead of silently passing through.
 const TASK_INIT_WRITABLE_FIELDS = new Set([
-  "code_change", "managed_change", "workflow_mode", "task_type",
-  "impact_scope", "impact_effect", "impact_confidence", "validation_profile", "risk_flags",
+  "code_change", "managed_change", "task_type",
+  "impact_scope", "impact_effect", "impact_confidence", "risk_flags",
   "workflow_facts", "workflow_request", "workflow_decision",
   "project_docs",
   "independence", "subtask_role", "parent_task_id", "file_ownership",
   "delivery_status", "integration_status"
 ]);
+// A freeze-required task used to need a separate `approve-intent --confirmed-by agent` call that
+// added no trust, only the hash. The runtime now records the same agent attestation as soon as the
+// task is (or becomes) freeze-required. An existing approval is never refreshed here: a stale hash is
+// exactly what the gate must keep catching, and re-approval stays an explicit approve-intent.
+function attestIntentIfFrozen(state: JsonObject, path: string): void {
+  if (state.intent_approval || !(Array.isArray(state.risk_flags) ? state.risk_flags : []).some((flag) => freezeRequired.has(String(flag)))) return;
+  const taskMd = join(dirname(path), "task.md");
+  if (!existsSync(taskMd)) return;
+  const markdown = readFileSync(taskMd, "utf8");
+  // An invalid intent is left for readiness to report; hashing it would attest nothing.
+  if (intentValidationErrors(markdown).length) return;
+  state.intent_approval = { intent_hash: intentHash(markdown), confirmed_at: now(), confirmed_by: "agent", source: "cli-attestation" };
+}
 function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
   const projectDocsPatch = patch.project_docs;
   if (!projectDocsPatch || typeof projectDocsPatch !== "object" || Array.isArray(projectDocsPatch)) return;
@@ -96,7 +109,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
         const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff, path) : undefined;
         const stamp = now();
         const state: JsonObject = {
-          schema_version: 5, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
+          schema_version: 6, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
           code_change: false, managed_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
           lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
           evidence: [], waivers: [],
@@ -104,6 +117,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
           ...patch,
           ...runtimeSeed
         };
+        attestIntentIfFrozen(state, path);
         const errors = schemaErrors(state);
         if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
         writeJson(path, state);
@@ -112,7 +126,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       };
       const created = codeChange ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask) : createTask();
       const plan = compilePlanForTaskPath(created, path);
-      if (emitOutput) output({ valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created) });
+      if (emitOutput) output({ valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created), readiness: readinessSummary(readinessChecks(path, repoRootValue, stateRootValue, created)) });
       return 0;
     } catch (error) { if (emitOutput) output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
@@ -133,7 +147,7 @@ function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
   return errors;
 }
 
-const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "validation_profile", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision", "project_docs", "independence"]);
+const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision", "project_docs", "independence"]);
 const CLASSIFICATION_KEYS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
 export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }, emitOutput = true, allowProjectDocEvidence = false): number {
   const path = taskPath(value);
@@ -178,15 +192,12 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
             current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}) };
           } else current[key] = fieldValue;
         }
-        // model_profile used to be runtime-derived but had no portable execution consumer across
-        // Claude Code, Codex and Antigravity. Keep old task files readable, but remove the inert field
-        // whenever a task is next rewritten instead of maintaining a control that cannot be enforced.
-        delete current.model_profile;
         // Activation rebinds identity/base_commit here rather than trusting whatever task-init
         // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
         // created against the wrong one.
         if (identity) { current.project_id = identity.projectId; current.worktree_id = identity.worktreeId; }
         if (baseCommit) current.base_commit = baseCommit;
+        attestIntentIfFrozen(current, path);
         // Same actor/at/reason/confirmed_by_user shape a waiver records, kept in the existing
         // workflow_decision prose so a downgrade cannot be performed without leaving a trace.
         if (reclassification) current.workflow_decision = [String(current.workflow_decision || ""), `reclassify at=${now()} actor=${reclassification.actor} confirmed_by_user=${reclassification.confirmedByUser} reason=${reclassification.reason} fields=${Object.keys(patch).sort().join(",")}`].filter(Boolean).join("\n");
@@ -228,7 +239,7 @@ export function closeTask(value: string, actor: string, confirmation: string, st
     applyTransition(state, path, "close", actor, confirmation, "");
     state.state_revision = Number(state.state_revision || 0) + 1;
     writeJson(path, state);
-    return { code: 0, body: { valid: true, closed: path, memory_review: memoryReviewPrompt(stateRootValue) } as JsonObject };
+    return { code: 0, body: { valid: true, closed: path } as JsonObject };
   });
   output(outcome.body);
   return outcome.code;

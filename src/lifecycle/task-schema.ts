@@ -8,7 +8,7 @@ import { JsonObject, schemaPath } from "../core.js";
 const addFormats = addFormatsRaw as unknown as (instance: InstanceType<typeof Ajv2020>) => void;
 const taskSchema = JSON.parse(readFileSync(schemaPath("task.schema.json"), "utf8")) as JsonObject;
 export const freezeRequired = new Set(((taskSchema.x_agent_workflow as JsonObject | undefined)?.freeze_required as string[] | undefined) || []);
-const CLASSIFICATION_FIELDS = ["task_type", "impact_scope", "impact_effect", "impact_confidence", "validation_profile"] as const;
+const CLASSIFICATION_FIELDS = ["task_type", "impact_scope", "impact_effect", "impact_confidence"] as const;
 
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];

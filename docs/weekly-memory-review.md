@@ -32,7 +32,7 @@ node scripts/weekly-memory-review.mjs --memory-path <MEMORY.md> --min-occurrence
 ## Review procedure
 
 ```text
-task completion asks when due
+user or maintenance session starts a review
       |
       v
 read MEMORY.md + run skill-draft Scan
@@ -49,21 +49,9 @@ only after approval: create Draft, update doc, Promote, or Reject
 
 The report must distinguish independent occurrences from duplicated records in one rollout. Project-specific facts belong in the relevant project document; a new skill is appropriate only when the procedure remains useful outside the named repository.
 
-## Task-completion trigger
+## When it runs
 
-`close-task` checks `<state-root>/memory-review.json` after successfully closing a task. When the last prompt or completed review is at least seven days old, its output includes a `question` result for the main conversation:
-
-```text
-close-task
-    |
-    +-- memory_review.due = false -> finish
-    |
-    +-- memory_review.due = true  -> ask the user
-                                      |
-                                      +-- yes -> npm run memory-review
-                                      |         then memory-review --action Reviewed
-                                      |
-                                      +-- no  -> memory-review --action Decision --decision no
-```
-
-The prompt is recorded immediately, so repeated task completions in the same week do not ask again. The script remains manually runnable and does not schedule itself.
+The review is maintenance, never part of task delivery: `close-task` only closes the task and does not
+check or prompt for it. Run it explicitly. `agent-workflow memory-review --action Check` reports
+whether seven days have passed since the last prompt or completed review; after a review, record it
+with `agent-workflow memory-review --action Reviewed`.

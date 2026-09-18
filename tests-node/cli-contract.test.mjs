@@ -78,7 +78,7 @@ test("task-report renders intent, compiled plan, project docs, evidence, and gat
   const root = join(tmpdir(), `agent-workflow-task-report-${process.pid}-${Date.now()}`);
   const task = join(root, "20260101-000000-task-report"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Report\n\n## Goal\n\nRender a report.\n\n## Scope\n\nOnly report output.\n\n## Completion criteria\n\n- [ ] report contains the current plan\n");
-  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false, validation_profile: "focused" }) });
+  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({ code_change: false, managed_change: false }) });
   assert.equal(init.status, 0, init.stdout || init.stderr);
   const remembered = run(["project-doc", "--action", "Remember", "--repo-root", process.cwd(), "--task-path", task, "--paths", "docs/architecture.md"]);
   assert.equal(remembered.status, 0, remembered.stdout || remembered.stderr);
@@ -88,7 +88,7 @@ test("task-report renders intent, compiled plan, project docs, evidence, and gat
   assert.match(report.stdout, /## Goal/);
   assert.match(report.stdout, /## Compiled plan/);
   assert.match(report.stdout, /exploration profile: focused/);
-  assert.match(report.stdout, /"validation_profile": "focused"/);
+  assert.match(report.stdout, /"managed_change": false/);
   assert.match(report.stdout, /docs\/architecture\.md/);
   assert.match(report.stdout, /digests:/);
   assert.equal(readFileSync(join(task, "task.json"), "utf8"), before, "task-report must be read-only");
@@ -102,7 +102,7 @@ test("review-record can attach optional cause telemetry without a separate criti
   const task = join(root, "20260101-000000-review-cause"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Review\n\n## Goal\n\nRecord review cause.\n\n## Scope\n\nOne file.\n\n## Completion criteria\n\n- [ ] cause is stored\n");
   const stateRoot = join(root, "state");
-  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--adopt-current-diff"], { input: JSON.stringify({ code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--adopt-current-diff"], { input: JSON.stringify({ code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
   assert.equal(init.status, 0, init.stdout || init.stderr);
   const reviewed = run(["review-record", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--role", "reviewer", "--result", "fail", "--summary", "found a missing invariant", "--cause-round", "2", "--cause", "logic_error", "--cause-evidence", "The branch condition was inverted.", "--cause-paths", "f.txt"]);
   assert.equal(reviewed.status, 0, reviewed.stdout || reviewed.stderr);
@@ -120,7 +120,7 @@ test("review-record rejects a workspace that changed after the pre-review finger
   const task = join(root, "20260101-000000-review-fingerprint"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Review\n\n## Goal\n\nBind review to the pre-review workspace.\n\n## Scope\n\nOne file.\n\n## Completion criteria\n\n- [ ] fingerprint is enforced\n");
   const stateRoot = join(root, "state");
-  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--adopt-current-diff"], { input: JSON.stringify({ code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
+  const init = run(["task-init", "--task-path", task, "--repo-root", repo, "--state-root", stateRoot, "--adopt-current-diff"], { input: JSON.stringify({ code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"] }) });
   assert.equal(init.status, 0, init.stdout || init.stderr);
   writeFileSync(join(repo, "f.txt"), "two");
   const opened = JSON.parse(run(["pre-review", "--path", repo]).stdout);
@@ -310,27 +310,15 @@ test("task-gate and contract-lint output match their declared shapes", () => {
   assert.ok(lintValidator(lint), JSON.stringify(lintValidator.errors));
 });
 
-test("next categorizes the gate's blockers and names the command that clears the first one", () => {
-  const root = join(tmpdir(), `agent-workflow-output-next-${process.pid}-${Date.now()}`);
-  const task = join(root, "20260101-000000-output-next");
-  mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Next shape\n\n## Goal\n\nVerify next output.\n\n## Scope\n\nNo source change.\n\n## Completion criteria\n\n- [ ] output validates\n");
-  const init = run(["task-init", "--task-path", task], { input: JSON.stringify({
-    // The ui flag is what draws baseline_validation: managed_change alone no longer requires any
-    // capability, so a confident, risk-free change would have nothing pending to categorize.
-    code_change: false, managed_change: true, workflow_mode: "main", task_type: "fix", risk_flags: ["ui"],
-    impact_scope: "module", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer"]
-  }) });
-  assert.equal(init.status, 0, init.stderr);
-  const result = run(["next", "--task-path", task]);
-  const plan = JSON.parse(result.stdout);
-  const validate = validatorFor("next");
-  assert.ok(validate(plan), JSON.stringify(validate.errors));
-  assert.deepEqual(plan.required_roles, ["reviewer"]);
-  assert.ok(plan.pending_evidence.includes("baseline_validation.BV1"), result.stdout);
-  // The role blocker carries a different category from the evidence ones it is mixed in with.
-  assert.deepEqual([...new Set(plan.blocking_reasons.map((reason) => reason.category))].sort(), ["evidence", "role"]);
-  assert.match(plan.next_action, /^run: agent-workflow evidence-record .*baseline_validation\.BV1/);
+// `next` duplicated task-gate's own evaluation as a second "what's blocking" view with no active
+// workflow caller; task-gate already returns the full errors list, and a failed close-task is the
+// one place that view is needed.
+test("the retired next command is not a recognized CLI command", () => {
+  const root = join(tmpdir(), `agent-workflow-output-next-retired-${process.pid}-${Date.now()}`);
+  mkdirSync(root, { recursive: true });
+  const result = run(["next", "--task-path", join(root, "task.json")]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Unknown command: next/);
 });
 
 test("contract-lint rejects a documented option the named command does not accept", () => {
@@ -362,6 +350,16 @@ test("contract-lint does not apply the vocabulary rules to a bundled third-party
   assert.deepEqual(JSON.parse(run(["contract-lint", "--root", root]).stdout).findings, []);
 });
 
+test("contract-lint reports a relative Markdown link whose target does not exist", () => {
+  const root = lintFixture(["placeholder"]);
+  writeFileSync(join(root, "README.md"), [
+    "[gone](docs/decisions/missing-plan.md) and [ok](templates/task.md#goal)",
+    "[web](https://example.com/x.md) [anchor](#top) ![img](missing.png) `[code](missing.md)`"
+  ].join("\n"));
+  const findings = JSON.parse(run(["contract-lint", "--root", root]).stdout).findings.filter((finding) => finding.rule === "missing-local-link");
+  assert.deepEqual(findings.map((finding) => finding.detail), ["docs/decisions/missing-plan.md does not exist"]);
+});
+
 function lintFixture(templateLines, extraSkills = {}) {
   const root = join(tmpdir(), `agent-workflow-lint-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   mkdirSync(join(root, "schemas"), { recursive: true });
@@ -372,13 +370,8 @@ function lintFixture(templateLines, extraSkills = {}) {
   for (const schema of readdirSync(join(process.cwd(), "schemas")).filter((name) => name.endsWith(".json"))) {
     writeFileSync(join(root, "schemas", schema), readFileSync(join(process.cwd(), "schemas", schema)));
   }
-  writeFileSync(join(root, ".agents", "skills", "workflow", "SKILL.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "SKILL.md")));
-  writeFileSync(join(root, ".agents", "skills", "workflow", "evidence.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "evidence.md")));
-  writeFileSync(join(root, ".agents", "skills", "workflow", "review.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "review.md")));
-  for (const pointer of [".agents/skills/workflow/elevated.md", ".agents/skills/workflow/orchestration.md", ".agents/agents/worker.md", ".agents/skills/project-docs/SKILL.md"]) {
-    mkdirSync(join(root, dirname(pointer)), { recursive: true });
-    cpSync(join(process.cwd(), pointer), join(root, pointer));
-  }
+  // The whole framework-owned .agents tree, so relative links between procedures still resolve.
+  cpSync(join(process.cwd(), ".agents"), join(root, ".agents"), { recursive: true });
   writeFileSync(join(root, "templates", "task.md"), templateLines.join("\n"));
   for (const [name, lines] of Object.entries(extraSkills)) {
     mkdirSync(join(root, ".agents", "skills", name), { recursive: true });

@@ -47,9 +47,12 @@ test("adapter templates contain exactly one PreToolUse guard and no proof lifecy
     const body = readFileSync(path, "utf8");
     assert.equal((body.match(/git-guard --platform/g) || []).length, 1, path);
     assert.doesNotMatch(body, /skill-guard|PostToolUse|SessionEnd/, path);
-    assert.equal((body.match(/memory-context --platform/g) || []).length, path.includes("antigravity") ? 1 : 2, path);
-    assert.match(body, /--event SessionStart/, `${path} must preserve startup memory navigation`);
-    if (path.includes("claude") || path.includes("codex")) assert.match(body, /--event UserPromptSubmit/, `${path} must filter memory for each submitted task`);
+    // Claude/Codex have a per-turn UserPromptSubmit event and no longer pay for a separate
+    // SessionStart scan; Antigravity has no prompt-submit lifecycle, so its one PreInvocation hook
+    // is still the startup navigation event.
+    assert.equal((body.match(/memory-context --platform/g) || []).length, 1, path);
+    if (path.includes("antigravity")) assert.match(body, /--event SessionStart/, `${path} must preserve startup memory navigation`);
+    else assert.match(body, /--event UserPromptSubmit/, `${path} must filter memory for each submitted task`);
   }
 });
 
@@ -83,7 +86,7 @@ test("the Antigravity adapter declares only lifecycle events the platform still 
   // PreInvocation takes a handler directly; the matcher/hooks wrapper is a PreToolUse/PostToolUse shape.
   for (const handler of hooks["agent-workflow-memory-context"].PreInvocation) {
     assert.equal(handler.type, "command", "PreInvocation handlers are declared directly, not wrapped in matcher/hooks");
-    assert.match(handler.command, /memory-context --platform Antigravity --auto/);
+    assert.match(handler.command, /memory-context --platform Antigravity --state-root ".*" --auto/);
   }
 });
 

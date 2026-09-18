@@ -143,3 +143,20 @@ test("repair sweeps retired Antigravity lifecycle hooks and keeps the user's own
   assert.ok(repaired["agent-workflow-memory-context"].PreInvocation, "repair must install the PreInvocation memory hook");
   assert.match(JSON.stringify(repaired["user-own-hook"]), /user's own stop hook/);
 });
+
+test("a fresh non-interactive install with no --skills selects only required skills; --skills all selects every skill", () => {
+  const root = join(tmpdir(), `agent-workflow-install-defaults-${process.pid}-${Date.now()}`);
+  const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const required = Object.entries(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills).filter(([, meta]) => meta.required === true).map(([name]) => name).sort();
+  const catalog = Object.keys(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills).sort();
+  assert.ok(catalog.length > required.length, "the manifest needs at least one optional skill for this test to mean anything");
+
+  const defaultInstall = run(["install", "--non-interactive", "--state-root", join(root, "state-default"), ...targets]);
+  assert.equal(defaultInstall.status, 0, defaultInstall.stderr);
+  assert.deepEqual(JSON.parse(defaultInstall.stdout).selected_skills, required);
+
+  const allInstall = run(["install", "--non-interactive", "--skills", "all", "--state-root", join(root, "state-all"), "--claude-target", join(root, "claude2"), "--codex-target", join(root, "codex2"), "--antigravity-target", join(root, "gemini2")]);
+  assert.equal(allInstall.status, 0, allInstall.stderr);
+  assert.deepEqual(JSON.parse(allInstall.stdout).selected_skills, catalog);
+});

@@ -28,9 +28,9 @@ freshness rules; this ordering only prevents known omissions from invalidating a
 batch.
 ## Setup and handoff
 
-Run `agent-workflow preflight --task-path <path> --repo-root <repo-root>` once after task creation. It
-groups fixed environment failures before exploration, implementation, or validation starts. During
-implementation, keep one shared map of entrypoints, callers, boundaries, validation commands, and
+`task-init` returns `readiness` with fixed environment failures grouped before exploration,
+implementation, or validation starts; `preflight` repeats the same checks only for manual diagnosis.
+During implementation, keep one shared map of entrypoints, callers, boundaries, validation commands, and
 unknowns; pass that map by reference and add only new conclusions to each evidence step. A handoff
 names the current task state, worktree diff, changed paths, and blockers; one coordinator owns writes
 to a worktree at a time, and the incoming coordinator checks those items before continuing.
@@ -62,14 +62,13 @@ slice receives local feedback only. After every slice is complete and the delive
 affected/regression checks through `evidence-run`, including `delivery_validation.DV1` in the same
 batch when that command covers delivery validation. Then follow the task-level review timing in [review.md](review.md) for one Reviewer and close with `close-task`, which evaluates the gate itself. Read-only review leaves a matching receipt reusable; review findings that change the delivery require fresh
 validation. A separate DV1 command is needed only when the existing command does not cover delivery
-validation. Use `task-gate` to diagnose blockers, not as a prerequisite to `close-task`.
+validation. Use `task-gate` only to diagnose a failed `close-task`, never as a step before it.
 
 ## Scope
 
 Keep analysis proportional to the selected steps and the task impact. A direct, well-reproduced fix
-does not need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. A
-parallel split is worthwhile only when its independent work is expected to save more time than context
-handoff, worktree setup, integration, and final verification.
+does not need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Whether
+a parallel split is worthwhile is decided in [orchestration.md](orchestration.md#worthwhile-before-eligible).
 
 ## Validation command
 
@@ -77,6 +76,6 @@ handoff, worktree setup, integration, and final verification.
 command. `focused`/`affected` need explicit paths; `regression` may target a subsystem or the full set;
 `full` runs the whole suite. Run the target project's own native test command at that scope (`go test
 ./path/...`, `npm test -- path`, ...) — `scripts/run-tests.mjs` only runs this framework's own
-`tests-node/` suite, not a general contract. `validation_profile` is optional metadata.
+`tests-node/` suite, not a general contract. The scope belongs to the command, not to a task field.
 
 Every managed delivery needs a `delivery_validation.DV1` runtime receipt, whatever else the packet selected.

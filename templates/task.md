@@ -1,8 +1,8 @@
 <!-- This file holds human-readable intent only. Classification, lifecycle, evidence, review,
      validation, hashes, waivers, and project-doc bookkeeping live in task.json or generated
      `agent-workflow task-report` output. task.json is written only through the runtime CLI.
-     After task-init, run one `agent-workflow preflight --task-path <path> --repo-root <repo-root>`;
-     intent approval follows workflow/risk-flags.md: the agent runs approve-intent itself, without asking the user. -->
+     Write this file before task-init: task-init returns readiness and, for a freeze-required task,
+     records the agent's intent attestation itself (workflow/risk-flags.md). -->
 
 # <Task title>
 

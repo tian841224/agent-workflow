@@ -61,7 +61,7 @@ export type ExecutionPacket = {
   task_id: string;
   intent: { goal: string; scope: string; completion_criteria: string };
   classification: {
-    code_change: boolean; managed_change: boolean; workflow_mode: string; task_type: string;
+    code_change: boolean; managed_change: boolean; task_type: string;
     impact_scope: string; impact_effect: string; impact_confidence: string;
     risk_flags: string[]; workflow_facts: JsonObject;
   };
@@ -149,7 +149,6 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
     classification: {
       code_change: task.code_change === true,
       managed_change: task.managed_change === true,
-      workflow_mode: String(task.workflow_mode || ""),
       task_type: String(task.task_type || ""),
       impact_scope: String(task.impact_scope || ""),
       impact_effect: String(task.impact_effect || ""),

@@ -1,17 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { test } from "node:test";
 
-test("hook policy defers an unrelated mutation and orchestration rejects duplicate apply", () => {
-  const root = join(tmpdir(), `agent-workflow-guard-${process.pid}-${Date.now()}`);
+test("hook policy defers an unrelated mutation", () => {
   const guarded = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Codex"], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ tool_name: "write_file", tool_input: {} }) });
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.doesNotMatch(guarded.stdout, /denied fail-closed/);
-  const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", action, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL: "1" } });
-  for (const action of ["Init", "StartExecution", "Integrate", "Apply"]) assert.equal(run(action).status, 0, action);
-  assert.notEqual(run("Apply").status, 0);
 });
 
 test("MCP connector write tools are not denied as unlocatable file mutations", () => {
@@ -24,13 +19,6 @@ test("MCP connector write tools are not denied as unlocatable file mutations", (
   });
   assert.equal(guarded.status, 0, guarded.stderr);
   assert.doesNotMatch(guarded.stdout, /denied fail-closed/);
-});
-
-test("orchestrate refuses Init without the experimental flag", () => {
-  const root = join(tmpdir(), `agent-workflow-orchestration-flag-${process.pid}-${Date.now()}`);
-  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", "Init", "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8" });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Experimental/);
 });
 
 test("task-guard denies a direct Edit/Write tool call targeting task.json", () => {

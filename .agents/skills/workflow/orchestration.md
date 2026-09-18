@@ -1,8 +1,16 @@
 # Parallel orchestration
 
-`agent-workflow orchestrate --protocol 3` is the supported deterministic control plane for
-independent implementation workers. The version 2 phase tracker remains available only for legacy
-state and is selected when `--protocol` is omitted.
+`agent-workflow orchestrate` (protocol 3, the default) is the only control plane for independent
+implementation workers. The retired protocol 2 phase tracker cannot create or advance state; only
+`--protocol 2 --action Read` of a leftover state file remains.
+
+## Worthwhile before eligible
+
+Eligibility is a safety gate, not a reason to parallelize. Use a batch only when there are at least
+two work packages and each one carries enough implementation and validation work to outweigh
+worktree setup, handoff, `Collect`／`Integrate`／`Apply`, and the parent's final validation.
+Otherwise run ordered slices in the parent task. This is a coordinator judgement; it adds no plan
+field.
 
 ## Eligibility
 
@@ -27,7 +35,7 @@ The plan is a JSON object passed with `--plan-path`:
 ```
 
 `has_order_dependency: true` and `shared_persistent_state: true` are explicit rejection signals.
-The parent task remains the authority for classification, lifecycle, task-gate, reviewer, and
+The parent task remains the authority for classification, lifecycle, evidence, reviewer, and
 closure. A child task inherits the parent's intent text and intent approval when present, adds a
 worker-assignment section, and receives the worker's ownership boundary.
 
@@ -76,8 +84,13 @@ prepared -> executing -> collecting -> integrating -> applied -> cleaned
 ```
 
 All state updates use the runtime JSON lock. `schemas/orchestration.schema.json` is the state
-authority; `schemas/cli-output.schema.json` defines the command output shapes. The parent task's
-normal `task-gate`, reviewer, final validation, and `close-task` still run after `Apply`.
+authority; `schemas/cli-output.schema.json` defines the command output shapes.
+
+## After Apply
+
+The protocol's responsibility ends at `Apply` (then `Cleanup`). The parent returns to its one
+finalization flow in [evidence.md](evidence.md): final evidence, the Reviewer when selected, then
+`close-task`, which evaluates the gate itself. Worker receipts never replace parent evidence.
 
 ## Ownership and recovery
 

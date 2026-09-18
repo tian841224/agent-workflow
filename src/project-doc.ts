@@ -26,6 +26,9 @@ function coversOf(header: string): string[] {
     : (header.match(/^covers:\s*\r?\n((?:\s*-.*\r?\n?)*)/m)?.[1] || "").split(/\r?\n/).map((line) => line.replace(/^\s*-\s*/, ""));
   return items.map((item) => item.trim().replace(/^(["'])(.*)\1$/, "$2").trim()).filter(Boolean);
 }
+// A dated review or retired plan still matches paths it once covered; marking it `status: historical`
+// keeps it as evidence without letting Lookup route an agent to it as current context.
+const historical = new WeakSet<JsonObject>();
 function docs(root: string, directory: string): JsonObject[] {
   const base = join(root, directory); if (!existsSync(base)) return [];
   const found: JsonObject[] = [];
@@ -38,7 +41,9 @@ function docs(root: string, directory: string): JsonObject[] {
         const header = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)?.[1];
         const type = header?.match(/^doc_type:\s*(.+)$/m)?.[1].trim().replace(/^['"]|['"]$/g, "");
         if (!type) continue;
-        found.push({ path: next, doc_type: type, covers: coversOf(header || ""), content_sha256: sha256(body) });
+        const entry: JsonObject = { path: next, doc_type: type, covers: coversOf(header || ""), content_sha256: sha256(body) };
+        if (/^status:\s*['"]?historical['"]?\s*$/m.test(header || "")) historical.add(entry);
+        found.push(entry);
       }
     }
   };
@@ -163,7 +168,8 @@ export function projectDoc(options: Options): number {
   if (action !== "Lookup") throw new Error(`unsupported project-doc action: ${action}`);
   const taskValue = text(options, "task-path"); const prior = projectDocState(root, taskValue);
   const requested = paths(options).map((path) => path.replaceAll("\\", "/")); const normalizedRequested = requested.map(normalizeRepoPath); const matched = new Set<string>();
-  const mapped = result.map((item) => {
+  const current = result.filter((item) => !historical.has(item));
+  const mapped = current.map((item) => {
     const coverValues = Array.isArray(item.covers) ? item.covers.map(String) : [];
     const matchedBy = requested.filter((path, index) => coverValues.some((cover) => {
       const normalizedCover = normalizeRepoPath(cover);
@@ -172,6 +178,6 @@ export function projectDoc(options: Options): number {
     matchedBy.forEach((path) => matched.add(normalizeRepoPath(path)));
     return { ...item, doc_type: String(item.doc_type), matched_by: matchedBy, digest_status: digestStatus(root, item, prior, taskValue) };
   }).filter((item) => !OVERVIEW_TYPES.includes(String(item.doc_type)) && item.matched_by.length > 0).sort((left, right) => Number(right.matched_by.length) - Number(left.matched_by.length));
-  const overview_candidates = result.filter((item) => OVERVIEW_TYPES.includes(String(item.doc_type))).map((item) => ({ path: item.path, doc_type: item.doc_type, content_sha256: item.content_sha256, reason: "repo-wide overview; read when the compiled exploration profile or task impact requires it", digest_status: digestStatus(root, item, prior, taskValue) }));
+  const overview_candidates = current.filter((item) => OVERVIEW_TYPES.includes(String(item.doc_type))).map((item) => ({ path: item.path, doc_type: item.doc_type, content_sha256: item.content_sha256, reason: "repo-wide overview; read when the compiled exploration profile or task impact requires it", digest_status: digestStatus(root, item, prior, taskValue) }));
   output({ docs: mapped, overview_candidates, uncovered: requested.filter((path) => !matched.has(normalizeRepoPath(path))) }); return 0;
 }

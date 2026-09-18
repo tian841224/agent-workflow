@@ -25,7 +25,7 @@ step 層同理：`workflow_facts` 沒宣告的欄位會讓依賴它的 step 停�
 capability 被選中後，它底下哪些 step 需要填，由 policy 內每個 step 的 `when` 依 `impact_scope`／`impact_effect`／`task_type`／`risk_flags`／`workflow_facts` 決定。這一層只會減少要寫的 evidence 行數，不影響 capability 是否被選中。`order_after` 只決定順序，不會把缺席的前置補回來。完整 step 清單與條件見 `schemas/workflow-policy.json`。
 
 ## 交付批次與角色時機
-task 建立後先用一次 `agent-workflow preflight --task-path <path> --repo-root <repo-root>` 排除固定環境問題。實作期間只保留必要的局部驗證回饋；所有 slices、檔案、測試與文件都穩定後，驗證批次、receipt 重用與結案順序見 [evidence.md](evidence.md#implementation-slices-and-local-feedback)，正式 Reviewer 的 task-level timing 見 [review.md](review.md)。receipt 產生後若交付內容再變動，依 freshness 規則重新執行所需的 runtime checks。
+task-init 回傳的 `readiness` 已列出固定環境問題，先處理 blockers。實作期間只保留必要的局部驗證回饋；所有 slices、檔案、測試與文件都穩定後，驗證批次、receipt 重用與結案順序見 [evidence.md](evidence.md#implementation-slices-and-local-feedback)，正式 Reviewer 的 task-level timing 見 [review.md](review.md)。receipt 產生後若交付內容再變動，依 freshness 規則重新執行所需的 runtime checks。
 角色以一個 task 的最終可交付 diff 為單位選取與執行。任務拆成多個實作階段時，各階段只完成其局部測試與必要驗證；待所有階段整合、完成條件與完整 execution path 穩定後，才對整體變更集執行 Review。若某階段會獨立發布、不可逆地寫入外部系統，或其產物已成為後續階段不可回溯的前提，先建立獨立 task，再依該 task 的完整交付邊界執行角色。
 
 finding 修正後採 delta-first 複查（見 [review.md](review.md)）；只有入口、公開介面、共用狀態、資料／契約、並發／非同步或錯誤邊界改變時，才重新展開完整路徑。
@@ -36,4 +36,4 @@ finding 修正後採 delta-first 複查（見 [review.md](review.md)）；只有
 
 後續分類以 `task-write` 更新；移除既有 `risk_flags` 或把 `managed_change` true 降為 false，只能走 `reclassify`，附使用者確認與原因。`impact_confidence` 調低會增加 gate 要求，可直接用 `task-write`。分類更新回傳新 plan，非分類 bookkeeping 只回傳 task 與 `state_revision`。
 
-`workflow_mode` 僅為 legacy compatibility；新 task 省略，舊 task 仍接受，不用它另行分流。`workflow_request` 只能在 runtime required 下加選。
+`workflow_request` 只能在 runtime required 下加選。

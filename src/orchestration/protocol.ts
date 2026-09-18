@@ -450,6 +450,20 @@ function failBatch(options: ProtocolOptions, root: string, id: string): number {
   output({ protocol: 3, action: "Fail", batch: next }); return 0;
 }
 
+// Protocol 3 is the only orchestration engine. The protocol 2 phase tracker had no worker semantics
+// and is retired: a leftover v2 state file stays readable so it can be inspected and removed, but
+// nothing creates or advances one.
+export function orchestrate(options: ProtocolOptions): number {
+  const requested = stringOption(options, "protocol", "3");
+  if (requested === "3") return protocol3(options);
+  const action = stringOption(options, "action", "Status"); const id = stringOption(options, "id");
+  if (requested === "2" && (action === "Status" || action === "Read") && /^[a-z0-9][a-z0-9-]*$/i.test(id)) {
+    const legacy = join(stateRoot(stringOption(options, "state-root") || undefined), "orchestration", `${id}.json`);
+    output({ protocol: 2, retired: true, state: existsSync(legacy) ? readJson(legacy) : null }); return 0;
+  }
+  throw new Error(`orchestrate: protocol ${requested} is retired; use protocol 3 (the default). Only --protocol 2 --action Read of a leftover state remains.`);
+}
+
 export function protocol3(options: ProtocolOptions): number {
   const root = stateRoot(stringOption(options, "state-root") || undefined); const id = stringOption(options, "id"); const action = stringOption(options, "action", "Status");
   if (!id) throw new Error("protocol 3 requires --id");

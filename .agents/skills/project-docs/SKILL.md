@@ -5,7 +5,7 @@ description: Load when the execution packet marks durable project context as rel
 
 # Project Docs
 
-目標 repo 的 `docs/` 回答「這塊 code 是什麼、流程怎麼走、為什麼這樣決定」。跨 task、跨 repo 的框架級教訓走 knowledge／retro，不走這裡。
+目標 repo 的 `docs/` 回答「這塊 code 是什麼、流程怎麼走、為什麼這樣決定」。跨 task、跨 repo 的框架級教訓走 knowledge／review-cause，不走這裡。
 
 這個 skill 不是所有 `code_change` 的前置步驟。高信心、file-local、`local_behavior` 且沒有相關高風險邊界的修改直接依程式與測試處理；只有 execution packet 明確指向本 skill 時才做下面的 Lookup。
 
@@ -15,11 +15,11 @@ description: Load when the execution packet marks durable project context as rel
 agent-workflow project-doc --action Lookup --task-path <task> --repo-root <repo-root> --paths '<本次要動的路徑>'
 ```
 
-在 workflow task 內一律帶 `--task-path`：runtime 會比對 `project_docs.read` 與 `project_docs.digests`，已讀且內容未變的文件回報 `digest_status: reusable`，同一 task 即使中斷、重啟 agent 或從 review 折返 implementation 也不必重讀。`unread`、`digest_missing` 與 `stale` 都要實際讀過才算數。
+在 workflow task 內一律帶 `--task-path`：runtime 會比對 `project_docs.read` 與 `project_docs.digests`，已 Remember 且內容未變的文件回報 `digest_status: reusable`。`unread`、`digest_missing` 與 `stale` 都要實際讀過才算數。frontmatter 標 `status: historical` 的文件是歷史紀錄，Lookup 不回傳。
 
 回傳真正命中的文件、可延後讀取的 `overview_candidates`（含 `content_sha256`），以及 `uncovered`。先讀命中的文件；只有 compiled plan 的 `exploration_profile`、影響面或共享狀態需要時才讀 overview，overview candidate 一律先保持 `unread`。文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容。
 
-讀完文件後執行 `agent-workflow project-doc --action Remember --task-path <task> --repo-root <repo-root> --paths <doc,...>`，把實際讀過的路徑與 `content_sha256` 寫入 task.json，下一次 Lookup 才能重用。
+Remember 不是固定步驟，gate 也不讀它。只有讀取結果需要在後續階段、Reviewer、agent 重啟或跨多輪的 expanded task 重用時，才執行 `agent-workflow project-doc --action Remember --task-path <task> --repo-root <repo-root> --paths <doc,...>` 記錄實際讀過的路徑與 `content_sha256`；同一 session 內讀完即用的短 task 不寫。
 
 ## 2. 改完後：依查詢結果處理
 
@@ -48,4 +48,4 @@ agent-workflow project-doc --action Lookup --task-path <task> --repo-root <repo-
 
 ## 3. 在 workflow task 內
 
-透過 `agent-workflow task-write` 只填入 task.json 的 `project_docs.updated`：本次建立或更新的文件路徑，沒有文件要動就填 `none - <具體理由>`。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據。需要人工閱讀時執行 `agent-workflow task-report`。
+只有本次實際建立或更新文件時，才透過 `agent-workflow task-write` 把路徑寫入 `project_docs.updated`；沒有文件變更就不寫，不填 `none` 之類的佔位值。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據。需要人工閱讀時執行 `agent-workflow task-report`。

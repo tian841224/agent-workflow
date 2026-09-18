@@ -86,12 +86,3 @@ test("memory-context drops entries that match none of the query terms", () => {
   assert.doesNotMatch(scoped.stdout, /REDIS_DISTINCTIVE_TEXT/);
 });
 
-test("orchestration state records its experimental status and revisions each locked transition", () => {
-  const root = join(tmpdir(), `agent-workflow-orch-state-${process.pid}-${Date.now()}`);
-  const env = { ...process.env, AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL: "1" };
-  const step = (action) => JSON.parse(run(["orchestrate", "--action", action, "--id", "demo", "--state-root", root], { env }).stdout);
-  const split = step("Init");
-  assert.equal(split.experimental, true);
-  assert.equal(split.state_revision, 1);
-  assert.equal(step("StartExecution").state_revision, 2);
-});

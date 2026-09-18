@@ -31,7 +31,7 @@ export function memoryReview(options: Map<string, string | boolean | string[]>):
   if (action === "Decision") {
     const value = options.get("decision");
     if (value !== "yes" && value !== "no") throw new Error("Decision requires --decision yes or --decision no");
-    output({ action, ...saveDecision(root, value === "yes" ? "run" : "skip", false), next: value === "yes" ? "run npm run memory-review, then mark Reviewed" : "wait until the next weekly task completion" }); return 0;
+    output({ action, ...saveDecision(root, value === "yes" ? "run" : "skip", false), next: value === "yes" ? "run npm run memory-review, then mark Reviewed" : "check again with memory-review --action Check next week" }); return 0;
   }
   if (action === "Reviewed") { output({ action, ...saveDecision(root, "run", true) }); return 0; }
   throw new Error(`unsupported memory review action: ${action}`);

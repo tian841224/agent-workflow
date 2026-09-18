@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -29,7 +30,7 @@ test("a v2 task carrying retired fields and no transition history migrates into 
   }));
   assert.equal(run(["migrate-state", "--state-root", root]).status, 0);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 5);
+  assert.equal(migrated.schema_version, 6);
   assert.equal(migrated.change_kind, undefined);
   assert.equal(migrated.complexity_hint, undefined);
   assert.equal(migrated.roles_waived, undefined);
@@ -107,7 +108,7 @@ test("evidence recency is compared as instants, not as strings", () => {
   writeFileSync(join(task, "task.md"), "# Timezone\n\n## Goal\n\nVerify instant comparison.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const base = {
-    schema_version: 5, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
+    schema_version: 6, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
     code_change: true, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
     state_revision: 1, plan_revision: 1,
     lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },
@@ -271,4 +272,52 @@ test("impact_confidence stays a task-write field in the docs and in the reclassi
 
   const source = readFileSync(join(process.cwd(), "src", "lifecycle", "transitions.ts"), "utf8");
   assert.doesNotMatch(source, /lower impact_confidence/);
+});
+
+// item 21: retro is retired; a regression finding is now one more `cause` value in review-cause,
+// not a second persistent escalation store.
+test("retro is no longer a recognized CLI command", () => {
+  const result = run(["retro"]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Unknown command: retro/);
+});
+
+test("review-cause records a regression at round 1 with a required miss_category, validating against the schema", () => {
+  const root = join(tmpdir(), `agent-workflow-review-cause-regression-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const task = join(root, "20260101-000000-regression-cause"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.json"), JSON.stringify({ id: "20260101-000000-regression-cause" }));
+
+  const missing = run(["review-cause", "--action", "Record", "--cause", "regression", "--round", "1", "--evidence", "missed a caller", "--task-path", task, "--state-root", state]);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /--miss-category/);
+
+  const recorded = run(["review-cause", "--action", "Record", "--cause", "regression", "--round", "1", "--evidence", "missed a caller", "--miss-category", "execution_path", "--proposed-change", "widen the impact map search", "--task-path", task, "--state-root", state]);
+  assert.equal(recorded.status, 0, recorded.stderr);
+  const body = JSON.parse(recorded.stdout);
+  assert.equal(body.cause, "regression");
+  assert.equal(body.remedy_kind, "framework_change");
+
+  const listed = JSON.parse(run(["review-cause", "--action", "List", "--state-root", state, "--cause", "regression"]).stdout);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].miss_category, "execution_path");
+  assert.equal(listed[0].proposed_change, "widen the impact map search");
+
+  const { Ajv2020 } = createRequire(import.meta.url)("ajv/dist/2020.js");
+  const addFormats = createRequire(import.meta.url)("ajv-formats");
+  const ajv = new Ajv2020({ allErrors: true, strict: false }); addFormats(ajv);
+  const schema = JSON.parse(readFileSync(join(process.cwd(), "schemas", "review-cause.schema.json"), "utf8"));
+  const validate = ajv.compile(schema);
+  assert.ok(validate(listed[0]), JSON.stringify(validate.errors));
+});
+
+test("a non-regression cause still requires round >= 2", () => {
+  const root = join(tmpdir(), `agent-workflow-review-cause-round-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const task = join(root, "20260101-000000-round-cause"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.json"), JSON.stringify({ id: "20260101-000000-round-cause" }));
+  const tooEarly = run(["review-cause", "--action", "Record", "--cause", "doc_gap", "--round", "1", "--evidence", "no doc covers this path", "--task-path", task, "--state-root", state]);
+  assert.notEqual(tooEarly.status, 0);
+  const ok = run(["review-cause", "--action", "Record", "--cause", "doc_gap", "--round", "2", "--evidence", "no doc covers this path", "--task-path", task, "--state-root", state]);
+  assert.equal(ok.status, 0, ok.stderr);
 });

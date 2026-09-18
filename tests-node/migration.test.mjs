@@ -13,8 +13,8 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).migrated, true);
   const migratedJson = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  // 單次 migrate-state 會把 v1 task.md 一路遷到最新 schema（v1→v2→v3→v4→v5 在同一次呼叫內串接執行）
-  assert.equal(migratedJson.schema_version, 5);
+  // 單次 migrate-state 會把 v1 task.md 一路遷到最新 schema（v1→v2→v3→v4→v5→v6 在同一次呼叫內串接執行）
+  assert.equal(migratedJson.schema_version, 6);
   assert.equal(migratedJson.evidence[0].kind, "legacy-unverified");
   assert.equal(migratedJson.evidence[0].status, "needs_reverification");
   assert.ok(existsSync(join(task, "task.md")));
@@ -23,7 +23,7 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
   assert.match(migratedMd, /legacy intent/);
 });
 
-test("a schema_version 2 frozen task migrates to schema_version 5 with intent_approval cleared and legacy-unverified evidence", () => {
+test("a schema_version 2 frozen task migrates to the latest schema with intent_approval cleared and legacy-unverified evidence", () => {
   const root = join(tmpdir(), `agent-workflow-migration-v3-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "project", "tasks", "frozen-task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Frozen task\n\n## Goal\n\nMigrate this task to schema v5.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
@@ -36,7 +36,7 @@ test("a schema_version 2 frozen task migrates to schema_version 5 with intent_ap
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).migrated, true);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 5);
+  assert.equal(migrated.schema_version, 6);
   assert.equal(migrated.lifecycle.status, "in_progress");
   assert.equal(migrated.lifecycle.frozen_at, undefined);
   // v3's intent_approval (populated by the v2->v3 step from frozen_at) cannot be safely reinterpreted
@@ -63,10 +63,10 @@ test("re-running migrate-state against an already-migrated task.json produces no
   const once = readFileSync(join(task, "task.json"), "utf8");
   assert.equal(run().status, 0);
   const twice = readFileSync(join(task, "task.json"), "utf8");
-  assert.equal(once, twice, "a second migrate-state run must not touch an already-v5 task.json");
+  assert.equal(once, twice, "a second migrate-state run must not touch an already-migrated task.json");
 });
 
-test("schema v4 execution evidence migrates to v5 with a backup and without timing fields", () => {
+test("schema v4 execution evidence migrates to the latest schema with a backup and without timing fields", () => {
   const root = join(tmpdir(), `agent-workflow-migration-v4-v5-${process.pid}-${Date.now()}`);
   const task = join(root, "projects", "project", "tasks", "timed-task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Timed task\n\n## Goal\n\nStrip obsolete execution timing fields.\n\n## Scope\n\nMigration fixture.\n\n## Completion criteria\n\n- [ ] fixture is migrated\n");
@@ -85,7 +85,7 @@ test("schema v4 execution evidence migrates to v5 with a backup and without timi
   const output = JSON.parse(result.stdout);
   assert.equal(output.migrated_schema_v5, 1);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 5);
+  assert.equal(migrated.schema_version, 6);
   assert.equal(migrated.evidence[0].started_at, undefined);
   assert.equal(migrated.evidence[0].duration_ms, undefined);
   const backup = join(output.backup, "tasks", "project", "tasks", "timed-task", "task.json");

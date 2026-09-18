@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -24,7 +24,7 @@ test("execution-packet is the complete worker execution contract", () => {
   writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nVerify the execution packet end to end.\n\n## Scope\n\nChange the payment module only.\n\n## Completion criteria\n\n- [ ] payment behavior is preserved\n- [ ] regression tests pass\n");
   const init = run(["task-init", "--task-path", task, "--repo-root", repo], {
     input: JSON.stringify({
-      code_change: true, managed_change: true, workflow_mode: "main",
+      code_change: true, managed_change: true,
       task_type: "refactor", impact_scope: "multi_module", impact_effect: "shared_behavior", impact_confidence: "high",
       risk_flags: [], workflow_facts: { testable_behavior_change: true }, workflow_request: ["reviewer"],
       subtask_role: "worker", parent_task_id: "20260101-000000-parent-task", file_ownership: ["src/payment/", "tests/payment/"]
@@ -39,7 +39,6 @@ test("execution-packet is the complete worker execution contract", () => {
   assert.match(packet.intent.completion_criteria, /payment behavior is preserved/);
   assert.equal(packet.classification.code_change, true);
   assert.equal(packet.classification.managed_change, true);
-  assert.equal(packet.classification.workflow_mode, "main");
   assert.equal(packet.classification.impact_confidence, "high");
   assert.equal(packet.classification.workflow_facts.testable_behavior_change, true);
   assert.equal(packet.constraints.repo_root, repo);
@@ -109,7 +108,7 @@ function setupPreflightTask(root, overrides = {}) {
   writeFileSync(join(task, "task.md"), overrides.taskMd ?? "# Test\n\n## Goal\n\nDo the thing.\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n");
   const init = run(["task-init", "--task-path", task, "--repo-root", repo], {
     input: JSON.stringify({
-      code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix",
+      code_change: true, managed_change: true, task_type: "fix",
       impact_scope: "file", impact_effect: "local_behavior", impact_confidence: overrides.impact_confidence ?? "high",
       risk_flags: overrides.risk_flags ?? [], workflow_request: []
     })
@@ -145,7 +144,7 @@ test("execution-packet rejects a task with incomplete classification", () => {
   // impact_scope cross_project already requires reviewer/execution_path_review outright, but leaving
   // impact_effect undeclared leaves data_impact classification-incomplete (see policy-completeness.test.mjs).
   const init = run(["task-init", "--task-path", task, "--repo-root", repo], {
-    input: JSON.stringify({ code_change: true, managed_change: true, workflow_mode: "main", task_type: "fix", impact_scope: "cross_project", impact_confidence: "high", risk_flags: [], workflow_request: [] })
+    input: JSON.stringify({ code_change: true, managed_change: true, task_type: "fix", impact_scope: "cross_project", impact_confidence: "high", risk_flags: [], workflow_request: [] })
   });
   assert.equal(init.status, 0, init.stdout);
   const plan = JSON.parse(run(["workflow-plan", "--task-path", task]).stdout);
@@ -155,19 +154,32 @@ test("execution-packet rejects a task with incomplete classification", () => {
   assert.match(JSON.parse(result.stdout).errors[0], /workflow classification is incomplete/);
 });
 
-test("execution-packet rejects a freeze-required task with a stale intent approval", () => {
+test("task-init attests intent for a freeze-required flag automatically, and a later edit goes stale", () => {
   const root = join(tmpdir(), `agent-workflow-execution-packet-preflight-intent-${process.pid}-${Date.now()}`);
   const { repo, task } = setupPreflightTask(root, { risk_flags: ["contract"] });
-  const reclassified = run(["reclassify", "--task-path", task, "--confirmed-by-user", "user", "--reason", "scoped"], { input: "{}" });
-  assert.equal(reclassified.status, 0, reclassified.stdout);
-  const noApproval = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
-  assert.notEqual(noApproval.status, 0);
-  assert.match(JSON.parse(noApproval.stdout).errors.join(";"), /intent_approval is required/);
-  assert.equal(run(["approve-intent", "--task-path", task, "--confirmed-by", "user", "--as-user"]).status, 0);
+  const created = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
+  assert.equal(created.intent_approval.source, "cli-attestation");
+  assert.equal(created.intent_approval.confirmed_by, "agent");
   const approved = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
   assert.equal(approved.status, 0, approved.stdout);
   writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nDo a DIFFERENT thing.\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n");
   const stale = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
   assert.notEqual(stale.status, 0);
   assert.match(JSON.parse(stale.stdout).errors.join(";"), /intent_approval\.intent_hash is stale/);
+  // Re-approval after an edit stays an explicit call; it is never auto-refreshed.
+  assert.equal(run(["approve-intent", "--task-path", task, "--confirmed-by", "user", "--as-user"]).status, 0);
+  const reapproved = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.equal(reapproved.status, 0, reapproved.stdout);
+});
+
+test("a freeze-required flag added later by task-write is attested immediately too", () => {
+  const root = join(tmpdir(), `agent-workflow-execution-packet-preflight-intent-reclassify-${process.pid}-${Date.now()}`);
+  const { repo, task } = setupPreflightTask(root, { risk_flags: [] });
+  assert.equal(JSON.parse(readFileSync(join(task, "task.json"), "utf8")).intent_approval, undefined);
+  const reclassified = run(["reclassify", "--task-path", task, "--confirmed-by-user", "user", "--reason", "scoped"], { input: JSON.stringify({ risk_flags: ["contract"] }) });
+  assert.equal(reclassified.status, 0, reclassified.stdout);
+  const after = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
+  assert.equal(after.intent_approval.source, "cli-attestation");
+  const packet = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
+  assert.equal(packet.status, 0, packet.stdout);
 });

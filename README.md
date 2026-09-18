@@ -6,17 +6,15 @@ agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發�
 
 你可以繼續用自然語言向 AI 提出需求；agent 依情境載入指引，runtime 負責管理任務狀態與檢查已宣告的完成條件。
 
-| ## 目錄
+## 目錄
 
 - [核心概念](#核心概念)
 - [主要功能](#主要功能)
 - [快速安裝](#快速安裝)
-- [日常使用](#日常使用)
 - [Skills 一覽](#skills-一覽)
 - [專案架構與主要元件](#專案架構與主要元件)
 - [資料夾結構](#資料夾結構)
 - [專案演進](#專案演進)
-- [開發與延伸閱讀](#開發與延伸閱讀) |
 
 ## 核心概念
 
@@ -39,7 +37,6 @@ agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發�
 | 專案文件查詢 | 依受影響路徑尋找文件，追蹤讀取內容是否仍有效 |
 | 跨平台記憶 | 查詢共用 knowledge，唯讀搜尋平台原生記憶，依任務相關性提供線索 |
 | 學習與提煉 | 保存使用者要求或確認的可重用結論，將反覆出現的模式整理為待審 skill 草稿 |
-|  |
 
 ### 一個 managed task 如何完成
 
@@ -51,9 +48,9 @@ agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發�
   +-- managed change
         |
         v
-      目標與分類 --> 編譯計畫 --> 一次 preflight
+      目標與分類 --> task-init 回傳計畫與 readiness
         |
-        +-- focused  --> 實作 + 局部驗證
+        +-- focused  --> 直接走 `implementation -> focused feedback`
         |
         +-- expanded --> 依序完成切片，每片先取得局部回饋
         |
@@ -69,7 +66,7 @@ agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發�
 
 ### 多 sub-agent 平行開發
 
-主對話是 coordinator。當至少兩個工作包沒有順序相依、ownership 不重疊且不共寫 persistent state 時，使用 `agent-workflow orchestrate --protocol 3 --action Prepare` 建立 dirty-worktree snapshot、detached worktree、child task 與 ExecutionPacket，再由平台原生 worker 執行。`worker-check` 驗證 cwd 與 ownership，`Collect`／`Integrate`／`Apply` 以 artifact digest、衝突檢查與 parent fingerprint 保護交付；Apply 後仍要跑 parent 的最終驗證、Reviewer、task-gate 與 close-task。完整操作契約見 [parallel orchestration](.agents/skills/workflow/orchestration.md) 與 [multi-agent development plan](docs/decisions/2026-09-18-multi-agent-development-plan.md)。
+主對話是 coordinator。只有兩個以上工作包值得平行、且彼此沒有順序相依、ownership 不重疊、不共寫 persistent state 時，才由 runtime 建立 dirty-worktree snapshot、detached worktree 與各 worker 的 ExecutionPacket，交給平台原生 worker 執行；收件、整合與套用以 artifact digest、衝突檢查與 parent fingerprint 保護交付。套用後回到同一條 parent 結案流程。操作契約見 [parallel orchestration](.agents/skills/workflow/orchestration.md)。
 
 
 

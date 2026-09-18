@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+
+function sourceFiles(directory) {
+  const result = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) result.push(...sourceFiles(full));
+    else if (entry.name.endsWith(".ts")) result.push(full);
+  }
+  return result;
+}
 
 const root = process.cwd();
 const read = (path) => readFileSync(join(root, path), "utf8");
@@ -48,13 +58,16 @@ test("active contract no longer exposes workflow cost artifacts, timing flags, o
   const evidenceSource = read("src/lifecycle/evidence.ts");
   assert.doesNotMatch(evidenceSource, /started_at|duration_ms|startedAt|durationMs/);
   const schema = JSON.parse(read("schemas/task.schema.json"));
-  assert.equal(schema.properties.schema_version.const, 5);
+  assert.equal(schema.properties.schema_version.const, 6);
   const step = schema.$defs.stepEvidence;
   const executionRule = step.allOf.find((rule) => rule.if?.properties?.evidence_kind?.const === "execution");
   assert.deepEqual(executionRule.then.required.sort(), ["command", "cwd", "delivery_fingerprint", "delivery_mode", "delivery_paths", "exit_code", "output_digest"].sort());
   assert.equal(Object.hasOwn(step.properties, "started_at"), false);
   assert.equal(Object.hasOwn(step.properties, "duration_ms"), false);
   assert.doesNotMatch(readmeWithoutLegacyBenchmark(), /replay-benchmark|procedure budget/);
+  // workflow_mode/model_profile/validation_profile were legacy-compatibility or inert fields with
+  // no active plan_hash or gate consumer; schema v6 drops them from the active contract.
+  for (const field of ["workflow_mode", "model_profile", "validation_profile"]) assert.equal(Object.hasOwn(schema.properties, field), false, field);
 });
 
 function readmeWithoutLegacyBenchmark() {
@@ -70,7 +83,7 @@ test("removed evidence CLI flags are rejected by the active parser", () => {
   assert.match(duration.stderr, /Unknown option\(s\).*--duration-ms/);
 });
 
-test("v4 execution evidence migrates to v5 once and preserves the original backup", () => {
+test("v4 execution evidence migrates to the latest schema once and preserves the original backup", () => {
   const stateRoot = join(tmpdir(), `agent-workflow-flow-migration-${process.pid}-${Date.now()}`);
   const task = join(stateRoot, "projects", "project", "tasks", "timed");
   mkdirSync(task, { recursive: true });
@@ -82,7 +95,7 @@ test("v4 execution evidence migrates to v5 once and preserves the original backu
   assert.equal(first.status, 0, first.stderr);
   const firstBody = JSON.parse(first.stdout);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 5);
+  assert.equal(migrated.schema_version, 6);
   assert.equal(migrated.evidence[0].started_at, undefined);
   assert.equal(migrated.evidence[0].duration_ms, undefined);
   assert.ok(existsSync(join(firstBody.backup, "tasks", "project", "tasks", "timed", "task.json")));
@@ -90,4 +103,14 @@ test("v4 execution evidence migrates to v5 once and preserves the original backu
   const second = run();
   assert.equal(second.status, 0, second.stderr);
   assert.equal(readFileSync(join(task, "task.json"), "utf8"), once);
+});
+
+test("lifecycle finalization stays a single authority: only transitions.ts closes a task, orchestration never imports the gate", () => {
+  const closers = sourceFiles(join(root, "src"))
+    .filter((file) => file !== join(root, "src", "lifecycle", "transitions.ts"))
+    .filter((file) => /applyTransition\(\s*[^)]*"close"|transitionTask\([^)]*"close"/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(closers, [], "only lifecycle/transitions.ts may drive the close transition");
+
+  const protocol = read("src/orchestration/protocol.ts");
+  assert.doesNotMatch(protocol, /lifecycle\/task-gate/, "orchestration must not re-evaluate the gate itself; the parent coordinator runs task-gate after Apply");
 });

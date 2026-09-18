@@ -8,11 +8,11 @@ import { DEFAULT_PROCEDURE, PROCEDURE_POINTERS, PROFILE_PROCEDURES } from "./exe
 // actionable without opening the git history.
 const RETIRED: { pattern: RegExp; replacement: string }[] = [
   { pattern: /\borchestrate\.py\b/, replacement: "agent-workflow orchestrate" },
-  { pattern: /\bsplit-plan\.py\b/, replacement: "agent-workflow split-plan" },
+  { pattern: /\bsplit-plan(?:\.py)?\b/, replacement: "orchestrate --protocol 3 --action Assess" },
   { pattern: /\bpre-review\.py\b/, replacement: "agent-workflow pre-review" },
   { pattern: /\bclose-task\.py\b/, replacement: "agent-workflow close-task" },
   { pattern: /\bknowledge\.py\b/, replacement: "agent-workflow knowledge" },
-  { pattern: /\bretro\.py\b/, replacement: "agent-workflow retro" },
+  { pattern: /\bretro(?:\.py)?\s+--action\b/, replacement: "review-cause --action Record --cause regression --miss-category <category>" },
   { pattern: /\breview_cause\.py\b/, replacement: "agent-workflow review-cause" },
   { pattern: /\bagent_workflow\.cmd\b/, replacement: "agent-workflow <command>" },
   { pattern: /\bwaive-roles\b/, replacement: "agent-workflow waive --requirement-id <id> --confirmed-by-user <text>" },
@@ -51,7 +51,7 @@ function codeSpans(text: string, insideFence: boolean): string[] {
 // schema, the policy or the CLI, which is the whole point of the check.
 const VOCABULARY_ALLOWLIST = [
   "agent_workflow", "task_json", "task_md", "node_modules",
-  "AGENT_WORKFLOW_STATE_ROOT", "AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL", "GIT_INDEX_FILE",
+  "AGENT_WORKFLOW_STATE_ROOT", "GIT_INDEX_FILE",
   "x_agent_workflow" // the annotation keyword itself; its contents are collected below
 ];
 // Every name the contract actually defines: schema properties and enum values across schemas/,
@@ -154,6 +154,16 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
         const accepted = named && commandOptions[named[1]];
         if (!accepted) continue;
         for (const flag of span.matchAll(/(?<=\s)--([a-z][a-z-]*)/g)) if (!accepted.includes(flag[1])) findings.push({ file: relativePath, line, rule: "unknown-option", detail: `'agent-workflow ${named[1]}' does not accept --${flag[1]}` });
+      }
+      // Relative Markdown links are contract pointers too: a moved or never-committed target is drift
+      // nothing else reports. Code spans are stripped so documented syntax is not read as a link;
+      // targets with a URI scheme, anchor-only links, images and bundled third-party skills are out of scope.
+      if (frameworkOwned && file.endsWith(".md") && !suppresses("missing-local-link")) for (const match of text.replace(/`[^`]*`/g, "").matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+        const target = match[1].split("#")[0];
+        if (!target || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+        let decoded = target;
+        try { decoded = decodeURIComponent(target); } catch { /* keep the raw target */ }
+        if (!existsSync(resolve(directory, decoded))) findings.push({ file: relativePath, line, rule: "missing-local-link", detail: `${match[1]} does not exist` });
       }
       // A backticked snake_case token is, in these documents, always a contract name.
       if (frameworkOwned && !suppresses("unknown-term")) for (const match of text.matchAll(/`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/g)) if (!vocabulary.has(match[1])) findings.push({ file: relativePath, line, rule: "unknown-term", detail: `\`${match[1]}\` is not a field, enum value, capability, step id or CLI option defined by the contract` });

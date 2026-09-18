@@ -34,13 +34,13 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 命中 `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 任一值時：
 
 - 只在 `## Scope` 下補 `### Non-goals and compatibility`，在 `## Completion criteria` 下補 `### Acceptance cases`。這兩段位於 `intent_hash` 涵蓋的區域，使用者批准的非目標與驗收案例才不會在批准後被改掉而雜湊不變；影響面、方案與證據留在 task.json 的分類、plan 與 evidence。
-- task-gate 在通過時比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、修錯字不受影響。依下方「意圖確認」執行 `agent-workflow approve-intent`（runtime 自己算雜湊），task-gate 才會放行。這三段內容再變動就必須重新 `approve-intent`。
+- gate 比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、修錯字不受影響。這三段內容在 attestation 後再變動，就必須重新 `approve-intent`。
 - 通過雜湊比對前，目標、非目標與完成條件維持不動；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)。
 
 ### 意圖確認
 
-- agent 寫完 task.md 後直接自行執行 `approve-intent --confirmed-by agent`，不停下來把 Goal／Scope／Completion criteria 貼給使用者確認，也不要求使用者自己跑指令。
-- 不加 `--as-user`：這筆紀錄是 agent 的 attestation（`source: cli-attestation`），不冒充使用者確認。只有使用者在訊息中實際確認過這份 intent 時才加 `--as-user`，`--confirmed-by` 註明來源（例如 `user message`、`plan approval`）。
+- 先寫好 task.md 再 `task-init`。task 建立時（或之後的 `task-write` 首次加上 freeze-required flag 時）若 task.md intent 有效，runtime 直接寫入 agent attestation（`source: cli-attestation`、`confirmed_by: agent`），不需另跑指令，也不停下來請使用者確認。intent 無效時 `readiness` 會列出 blocker，修正 task.md 後執行 `approve-intent --confirmed-by agent`。
+- 已存在的 attestation 不會自動更新；intent 變動後的重新確認一律明確執行 `approve-intent`。只有使用者在訊息中實際確認過這份 intent 時才用 `approve-intent --as-user` 升級為使用者確認，`--confirmed-by` 註明來源（例如 `user message`、`plan approval`）。
 - agent 自行補上的非目標、刻意接受的風險取捨（例如不回滾、不冪等）或範圍調整，在開始實作的進度訊息中一句話列出差異，不等待回覆。
 
 ## unclear_requirements 的釐清流程
@@ -49,4 +49,4 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 
 1. 先用 [planning skill](../planning/SKILL.md) 釐清目標、限制與成功標準，梳理出初步架構與方向。
 2. 計畫或假設仍有較高風險、分支未明或涉及重大決策時，加開 [grill-me skill](../grill-me/SKILL.md) 逐一提問、壓力測試計畫與假設。`planning` 足以釐清時就直接繼續。
-3. Code task 釐清後依「意圖確認」由 agent 自行執行 `approve-intent` 解凍，不再另外要求使用者確認 intent。純討論或規劃則藉此收斂至具體可行的下一步。
+3. Code task 釐清後先完成 task.md 再 `task-init`，由 runtime 依「意圖確認」記錄 attestation，不再另外要求使用者確認 intent。純討論或規劃則藉此收斂至具體可行的下一步。

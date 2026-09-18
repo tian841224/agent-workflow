@@ -68,7 +68,7 @@ test("stepEvidence rejects analysis evidence carrying a stray execution field", 
 test("the classification downgrade guard lives in the runtime, not in the schema", () => {
   const validate = validatorFor("");
   const state = {
-    schema_version: 5, id: "20260101-000000-parity", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
+    schema_version: 6, id: "20260101-000000-parity", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
     code_change: true, managed_change: false, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
     state_revision: 1, plan_revision: 1,
     lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },

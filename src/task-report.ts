@@ -50,7 +50,7 @@ export function taskReport(value: string, repoRoot = process.cwd()): number {
       "## Classification",
       "",
       "```json",
-      JSON.stringify({ code_change: state.code_change, managed_change: state.managed_change, task_type: state.task_type, impact_scope: state.impact_scope, impact_effect: state.impact_effect, impact_confidence: state.impact_confidence, validation_profile: state.validation_profile, risk_flags: state.risk_flags, workflow_facts: state.workflow_facts }, null, 2),
+      JSON.stringify({ code_change: state.code_change, managed_change: state.managed_change, task_type: state.task_type, impact_scope: state.impact_scope, impact_effect: state.impact_effect, impact_confidence: state.impact_confidence, risk_flags: state.risk_flags, workflow_facts: state.workflow_facts }, null, 2),
       "```",
       "",
       "## Compiled plan",

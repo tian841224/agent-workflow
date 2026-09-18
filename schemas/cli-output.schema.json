@@ -56,11 +56,10 @@
             },
             "classification": {
               "type": "object",
-              "required": ["code_change", "managed_change", "workflow_mode", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts"],
+              "required": ["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts"],
               "properties": {
                 "code_change": { "type": "boolean" },
                 "managed_change": { "type": "boolean" },
-                "workflow_mode": { "type": "string" },
                 "task_type": { "type": "string" },
                 "impact_scope": { "type": "string" },
                 "impact_effect": { "type": "string" },
@@ -185,41 +184,6 @@
         "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
-    },
-    "next": {
-      "description": "The same evaluation task-gate runs, re-presented as the next action: blockers categorized by the kind of work each demands, the still-unsatisfied evidence keys and roles, and one suggested command. An unreadable task falls back to the { valid, errors } shape.",
-      "oneOf": [
-        {
-          "type": "object",
-          "required": ["task", "blocking_reasons", "required_skills", "pending_evidence", "required_roles", "next_action"],
-          "properties": {
-            "task": { "type": "string" },
-            "blocking_reasons": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["category", "detail"],
-                "properties": {
-                  "category": { "enum": ["classification", "evidence", "role", "intent", "lifecycle", "task"] },
-                  "detail": { "type": "string" }
-                },
-                "additionalProperties": false
-              }
-            },
-            "required_skills": { "type": "array", "items": { "type": "string" } },
-            "pending_evidence": { "type": "array", "items": { "type": "string" } },
-            "required_roles": { "type": "array", "items": { "type": "string" } },
-            "next_action": { "type": "string" }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["valid", "errors"],
-          "properties": { "valid": { "const": false }, "errors": { "type": "array", "items": { "type": "string" } } },
-          "additionalProperties": false
-        }
-      ]
     },
     "project-doc-lookup": {
       "type": "object",
@@ -371,7 +335,7 @@
       "additionalProperties": false
     },
     "orchestrate": {
-      "description": "Protocol 3 orchestration responses and the version 2 compatibility phase tracker.",
+      "description": "Protocol 3 orchestration responses, plus the read-only view of a retired protocol 2 state.",
       "type": "object",
       "properties": {
         "protocol": { "type": "integer" },

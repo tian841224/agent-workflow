@@ -21,21 +21,19 @@ export const commandOptions: Record<string, string[]> = {
   reclassify: [...TASK_TARGET_OPTIONS, "confirmed-by-user", "reason", "actor", "state-root", "repo-root"],
   "task-gate": [...TASK_TARGET_OPTIONS, "repo-root"],
   "task-report": [...TASK_TARGET_OPTIONS, "repo-root"],
-  next: [...TASK_TARGET_OPTIONS, "repo-root"],
   "close-task": [...TASK_TARGET_OPTIONS, "actor", "confirmed-by-user", "state-root", "repo-root"],
   pause: ["task", "actor"], block: ["task", "actor"], resume: ["task", "actor"], supersede: ["task", "actor"],
   waive: ["task", "actor", "confirmed-by-user", "requirement-id"],
   "approve-intent": [...TASK_TARGET_OPTIONS, "confirmed-by", "as-user"],
   "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "command", "cwd", "exit-code", "output-digest"],
   "evidence-run": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "cwd"],
-  "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "expected-workspace-sha256", "cause", "cause-evidence", "cause-round", "cause-paths"],
+  "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "expected-workspace-sha256", "cause", "cause-evidence", "cause-round", "cause-paths", "cause-miss-category", "cause-introduced-by", "cause-proposed-change"],
   learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "supersedes", "forget", "id", "reason", "approved-by-user"],
   knowledge: ["action", "state-root", "scope", "project-id", "cwd", "query", "limit", "topic", "content", "approved-by-user"],
   "knowledge-verify": ["state-root", "scope", "project-id", "cwd", "id", "source-path", "approved-by-user"],
   "skill-draft": ["action", "state-root", "name", "status", "project-id", "cwd", "min-occurrences", "description", "content", "cluster-id", "source-entry", "note", "approved-by-user"],
   "memory-review": ["action", "state-root", "decision"],
-  retro: ["action", "state-root", "status", "id", "task-path", "proposed-change"],
-  "review-cause": ["action", "state-root", "cause", "status", "id", "task-path", "evidence", "round", "paths", "min-occurrences"],
+  "review-cause": ["action", "state-root", "cause", "status", "id", "task-path", "evidence", "round", "paths", "min-occurrences", "miss-category", "introduced-by", "proposed-change"],
   "project-resolver": ["path", "state-root"],
   preflight: [...TASK_TARGET_OPTIONS, "repo-root", "state-root"],
   "project-doc": ["action", "paths", "doc", "doc-root", "repo-root", "task-path"],
@@ -43,7 +41,6 @@ export const commandOptions: Record<string, string[]> = {
   orchestrate: ["action", "id", "protocol", "state-root", "plan-path", "repo-root", "parent-task-path", "worker-id", "run-id", "platform", "workspace", "result-path", "reason"],
   "worker-check": ["assignment-path", "cwd"],
   "worker-exec": ["assignment-path", "cwd"],
-  "split-plan": ["plan-path"],
   "worktree-fingerprint": ["path", "base", "paths"],
   "contract-lint": ["root"],
   "policy-matrix": ["policy-path", "mode", "task-type"]
@@ -143,7 +140,7 @@ async function main(): Promise<void> {
   }
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);
-  else if (command === "orchestrate") process.exitCode = (await import("./experimental/orchestration.js")).orchestrate(parsed.values);
+  else if (command === "orchestrate") process.exitCode = (await import("./orchestration/protocol.js")).orchestrate(parsed.values);
   else if (command === "worker-check") process.exitCode = (await import("./orchestration/protocol.js")).workerCheck(parsed.values);
   else if (command === "worker-exec") process.exitCode = (await import("./orchestration/protocol.js")).workerExec(parsed.values, trailing);
   else if (command === "workflow-plan") process.exitCode = (await import("./misc.js")).workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
@@ -154,16 +151,13 @@ async function main(): Promise<void> {
   else if (command === "policy-matrix") process.exitCode = (await import("./policy-matrix.js")).policyMatrixCommand(option(parsed.values, "policy-path") || undefined, option(parsed.values, "mode", "digests"), option(parsed.values, "task-type"));
   else if (command === "contract-lint") process.exitCode = (await import("./contract-lint.js")).contractLint(option(parsed.values, "root", parsed.positionals[0] || process.cwd()), commandOptions);
   else if (command === "pre-review") process.exitCode = (await import("./misc.js")).preReview(option(parsed.values, "path", parsed.positionals[0] || process.cwd()));
-  else if (command === "preflight") process.exitCode = (await import("./misc.js")).preflight(option(parsed.values, "task-path", option(parsed.values, "task", "")), option(parsed.values, "repo-root", process.cwd()), option(parsed.values, "state-root") || undefined);
-  else if (command === "retro") process.exitCode = (await import("./records.js")).retro(parsed.values);
+  else if (command === "preflight") process.exitCode = (await import("./lifecycle/readiness.js")).preflight(option(parsed.values, "task-path", option(parsed.values, "task", "")), option(parsed.values, "repo-root", process.cwd()), option(parsed.values, "state-root") || undefined);
   else if (command === "review-cause") process.exitCode = (await import("./records.js")).reviewCause(parsed.values);
-  else if (command === "split-plan") process.exitCode = (await import("./records.js")).splitPlan(parsed.values);
   else if (command === "learn") process.exitCode = (await import("./learning.js")).learn(parsed.values);
   else if (command === "skill-draft") process.exitCode = (await import("./learning.js")).skillDraft(parsed.values);
   else if (command === "project-doc") process.exitCode = (await import("./project-doc.js")).projectDoc(parsed.values);
   else if (command === "task-init") process.exitCode = (await import("./lifecycle/index.js")).taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
   else if (command === "task-write") process.exitCode = (await import("./lifecycle/index.js")).taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
-  else if (command === "next") process.exitCode = (await import("./lifecycle/index.js")).taskNext(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "task-gate") process.exitCode = (await import("./lifecycle/index.js")).taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "task-report") process.exitCode = (await import("./task-report.js")).taskReport(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "close-task") process.exitCode = (await import("./lifecycle/index.js")).closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
@@ -177,7 +171,10 @@ async function main(): Promise<void> {
   else if (command === "reclassify") process.exitCode = (await import("./lifecycle/index.js")).reclassify(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "confirmed-by-user"), option(parsed.values, "reason"), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()));
   else if (command === "review-record") {
     const cause = option(parsed.values, "cause"); const causeEvidence = option(parsed.values, "cause-evidence"); const causeRound = option(parsed.values, "cause-round"); const causePaths = optionList(parsed.values, "cause-paths");
-    const causeInput = cause || causeEvidence || causeRound || causePaths.length ? { round: Number(causeRound), cause, evidence: causeEvidence, paths: causePaths } : undefined;
+    const causeMissCategory = option(parsed.values, "cause-miss-category"); const causeIntroducedBy = option(parsed.values, "cause-introduced-by"); const causeProposedChange = option(parsed.values, "cause-proposed-change");
+    const causeInput = cause || causeEvidence || causeRound || causePaths.length
+      ? { round: Number(causeRound), cause, evidence: causeEvidence, paths: causePaths, missCategory: causeMissCategory || undefined, introducedBy: causeIntroducedBy || undefined, proposedChange: causeProposedChange || undefined }
+      : undefined;
     process.exitCode = (await import("./lifecycle/index.js")).reviewRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "role"), option(parsed.values, "result"), option(parsed.values, "summary"), option(parsed.values, "repo-root", process.cwd()), causeInput, option(parsed.values, "state-root") || undefined, option(parsed.values, "expected-workspace-sha256"));
   }
   else if (command === "memory-review") process.exitCode = (await import("./memory-review.js")).memoryReview(parsed.values);

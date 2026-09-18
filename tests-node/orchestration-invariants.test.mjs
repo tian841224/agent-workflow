@@ -1,71 +1,38 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 
-const experimental = { ...process.env, AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL: "1" };
-const run = (action, root, extraEnv = experimental) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", "--action", action, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8", env: extraEnv });
+const run = (args, root) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "orchestrate", ...args, "--id", "demo", "--state-root", root], { cwd: process.cwd(), encoding: "utf8" });
 const freshRoot = (suffix) => join(tmpdir(), `agent-workflow-orchestration-${suffix}-${process.pid}-${Date.now()}`);
 
-test("experimental phase tracker supports the full phase path", () => {
-  const root = freshRoot("full-path");
-  for (const action of ["Init", "StartExecution", "Integrate", "Apply", "Cleanup"]) assert.equal(run(action, root).status, 0, action);
-  const state = JSON.parse(run("Status", root).stdout);
-  assert.equal(state.phase, "cleaned");
+test("protocol 3 is the default engine when --protocol is omitted", () => {
+  // A missing batch is reported by the protocol 3 state reader, not by a v2 phase tracker default.
+  const result = run(["--action", "Status"], freshRoot("default"));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /orchestration batch is missing: demo/);
 });
 
-test("executing cannot jump straight to cleaned, skipping integrate", () => {
-  const root = freshRoot("skip-integrate");
-  assert.equal(run("Init", root).status, 0);
-  assert.equal(run("StartExecution", root).status, 0);
-  const skipped = run("Cleanup", root);
-  assert.notEqual(skipped.status, 0);
-  assert.match(skipped.stderr, /invalid OrchestrationEngine transition/);
-});
-
-test("the failed phase can still reach cleaned", () => {
-  const root = freshRoot("failed-cleanup");
-  assert.equal(run("Init", root).status, 0);
-  assert.equal(run("StartExecution", root).status, 0);
-  assert.equal(run("Fail", root).status, 0);
-  const cleaned = run("Cleanup", root);
-  assert.equal(cleaned.status, 0, cleaned.stderr);
-  assert.equal(JSON.parse(cleaned.stdout).phase, "cleaned");
-});
-
-test("cleaned is a dead end: nothing transitions out of it, including re-running cleanup", () => {
-  const root = freshRoot("dead-end");
-  for (const action of ["Init", "StartExecution", "Integrate", "Apply", "Cleanup"]) assert.equal(run(action, root).status, 0, action);
-  for (const action of ["Init", "StartExecution", "Cleanup"]) assert.notEqual(run(action, root).status, 0, `${action} should be refused once cleaned`);
-});
-
-test("an integrated phase cannot be applied a second time", () => {
-  const root = freshRoot("no-double-apply");
-  for (const action of ["Init", "StartExecution", "Integrate", "Apply"]) assert.equal(run(action, root).status, 0, action);
-  assert.notEqual(run("Apply", root).status, 0);
-});
-
-test("every mutating orchestration action requires the experimental flag", () => {
-  const root = freshRoot("experimental-gate");
+test("the retired protocol 2 phase tracker cannot create or advance state", () => {
+  const root = freshRoot("retired");
   for (const action of ["Init", "StartExecution", "Integrate", "Apply", "Fail", "Cleanup"]) {
-    const withoutFlag = run(action, root, process.env);
-    assert.notEqual(withoutFlag.status, 0, action);
-    assert.match(withoutFlag.stderr, /Experimental/);
+    const result = run(["--protocol", "2", "--action", action], root);
+    assert.notEqual(result.status, 0, action);
+    assert.match(result.stderr, /protocol 2 is retired/);
   }
+  // The old v2 action names are not protocol 3 actions either.
+  for (const action of ["Init", "StartExecution"]) assert.notEqual(run(["--action", action], root).status, 0, action);
 });
 
-test("Status, Assess and Read stay available without experimental mutation access", () => {
-  const root = freshRoot("read-only");
-  for (const action of ["Status", "Assess", "Read"]) {
-    const result = run(action, root, process.env);
-    assert.equal(result.status, 0, result.stderr);
-  }
-});
-
-// The retired names described a worker handshake this runtime never implemented; keeping them
-// callable would let a caller believe orchestrate tracks worker completion.
-test("retired worker-protocol action names are rejected", () => {
-  const root = freshRoot("retired-actions");
-  for (const action of ["WorkerReady", "WorkerFailed", "RegisterNative", "Collect"]) assert.notEqual(run(action, root).status, 0, action);
+test("a leftover protocol 2 state file stays readable", () => {
+  const root = freshRoot("legacy-read");
+  mkdirSync(join(root, "orchestration"), { recursive: true });
+  writeFileSync(join(root, "orchestration", "demo.json"), JSON.stringify({ schema_version: 2, id: "demo", phase: "split" }));
+  const result = run(["--protocol", "2", "--action", "Read"], root);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.retired, true);
+  assert.equal(body.state.phase, "split");
 });

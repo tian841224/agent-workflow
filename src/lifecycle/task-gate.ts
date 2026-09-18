@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Json, JsonObject, output, projectIdentity } from "../core.js";
+import { JsonObject, output, projectIdentity } from "../core.js";
 import { intentHash } from "../intent.js";
-import { PROCEDURE_POINTERS } from "../execution/execution-packet.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { deliverySnapshot, evidenceSatisfied, executionFreshnessErrors, latestEvidence, roleFreshnessErrors } from "./evidence.js";
 import { ownershipErrors } from "./ownership.js";
@@ -95,51 +94,3 @@ export function taskGate(value: string, repoRoot = process.cwd()): number {
   } catch (error) { output({ valid: false, errors: [String(error)] }); return 1; }
 }
 
-// The skill a capability's procedure pointer names, if it has one.
-function skillOf(capability: string): string | undefined {
-  // PROCEDURE_POINTERS is the runtime's only capability-to-skill mapping; a capability that falls
-  // back to the policy document contributes nothing rather than an invented skill name.
-  return /^\.agents\/skills\/([^/]+)\//.exec(PROCEDURE_POINTERS[capability] || "")?.[1];
-}
-
-// Re-presents one evaluateTaskGate run as "what do I do now": blockers grouped by the work each
-// demands, plus the command that clears the first of them.
-export function taskNext(value: string, repoRoot = process.cwd()): number {
-  try {
-    const path = taskPath(value); const state = task(path);
-    const gate = evaluateTaskGate(state, path, repoRoot);
-    const strings = (key: string): string[] => (Array.isArray(gate.compiled[key]) ? gate.compiled[key] as Json[] : []).map(String);
-    // A key the gate said anything about is pending, so missing, failed, stale-plan, stale-intent and
-    // stale-review blockers all collapse to one membership test instead of four message parsers.
-    const pending = strings("required_evidence").filter((key) => gate.errors.some((error) => error.includes(key)));
-    const pendingEvidence = pending.filter((key) => !key.startsWith("role."));
-    const requiredRoles = pending.filter((key) => key.startsWith("role.")).map((key) => key.slice("role.".length));
-    const classification = gate.errors.filter((error) => error.startsWith("workflow classification is incomplete") || error.startsWith("workflow step classification is incomplete"));
-    const category = (error: string): string => {
-      if (requiredRoles.some((role) => error.includes(`role.${role}`))) return "role";
-      if (pendingEvidence.some((key) => error.includes(key))) return "evidence";
-      if (classification.includes(error)) return "classification";
-      if (error.includes("intent_approval") || error.includes("task.md")) return "intent";
-      if (/^task is \S+, not in_progress;/.test(error)) return "lifecycle";
-      return "task";
-    };
-    const runtimeRequired = strings("runtime_required_evidence");
-    const missingFields = [...new Set(classification.flatMap((error) => (error.split("until ")[1] || "").replace(" is declared", "").split(", ").filter(Boolean)))];
-    const nextAction = classification.length ? `resolve classification_incomplete for: ${missingFields.join(", ")}`
-      : pendingEvidence.length ? runtimeRequired.includes(pendingEvidence[0])
-        ? `run: agent-workflow evidence-run --task-path ${path} --requirement-id ${pendingEvidence[0]} --summary <conclusion> -- <command>`
-        : `run: agent-workflow evidence-record --task-path ${path} --requirement-id ${pendingEvidence[0]} --summary <conclusion>`
-      : requiredRoles.length ? `run: agent-workflow review-record --task-path ${path} --role ${requiredRoles[0]} --result pass --summary <conclusion>`
-      : gate.errors.length ? `resolve: ${gate.errors[0]}`
-      : "task is ready to close";
-    output({
-      task: path,
-      blocking_reasons: gate.errors.map((detail) => ({ category: category(detail), detail })),
-      required_skills: [...new Set(strings("order").map(skillOf).filter((name): name is string => !!name))].sort(),
-      pending_evidence: pendingEvidence,
-      required_roles: requiredRoles,
-      next_action: nextAction
-    });
-    return gate.valid ? 0 : 1;
-  } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
-}
