@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { isWithin, Json, JsonObject, output, readJson, sha256, stateRoot } from "./core.js";
 
@@ -52,9 +52,25 @@ const TASK_STATE_PATTERN = /\btask\.json\b/i;
 function spliced(command: string): string {
   return command.replace(/["']/g, "").replace(/\\([^\\])/g, "$1");
 }
+// A Windows 8.3 short name opens the same file as its long form — writing through TASK~1.JSO
+// overwrites task.json — so a path carrying one has to be resolved before the filename pattern can
+// clear it. Only paths shaped like a short name pay for the lookup, and a path that does not
+// resolve has no alias to abuse.
+function longNameOf(path: string): string {
+  if (process.platform !== "win32" || !/~\d/.test(path)) return "";
+  try { return realpathSync.native(path); } catch { return ""; }
+}
+// A command names its files positionally, so every short-name-shaped token has to be resolved:
+// checking only redirect targets would miss `sed -i … TASK~1.JSO` and every other shape.
+function aliasedPaths(command: string): string[] {
+  if (process.platform !== "win32" || !/~\d/.test(command)) return [];
+  return command.split(/[\s;|&<>"']+/).filter((token) => /~\d/.test(token)).map(longNameOf).filter(Boolean);
+}
+function mentionsProtected(text: string, pattern: RegExp): boolean {
+  return pattern.test(text) || pattern.test(spliced(text)) || aliasedPaths(text).some((path) => pattern.test(path));
+}
 function touchesProtected(event: CanonicalHookEvent, pattern: RegExp): boolean {
-  const command = event.command || "";
-  return event.paths.some((path) => pattern.test(path)) || pattern.test(command) || pattern.test(spliced(command));
+  return event.paths.some((path) => pattern.test(path) || pattern.test(longNameOf(path))) || mentionsProtected(event.command || "", pattern);
 }
 const READ_ONLY_COMMANDS = new Set([
   "cat", "type", "head", "tail", "more", "less", "nl", "ls", "dir", "tree", "wc", "grep", "rg", "findstr", "select-string",
@@ -181,11 +197,11 @@ function taskCommandAllowed(command: string, root: string): boolean {
   if (hiddenExpansion) return false;
   if (/<<<?/.test(stripped) && !DATA_ARGUMENT_COMMANDS.has(commandHead(stripped))) return false;
   return splitShellSegments(stripped).every((raw) => {
-    if (!TASK_STATE_PATTERN.test(raw) && !TASK_STATE_PATTERN.test(spliced(raw))) return true;
+    if (!mentionsProtected(raw, TASK_STATE_PATTERN)) return true;
     // Both spellings have to be tested: splicing defeats quote evasion (task".json"), but on a
     // Windows path it also glues the directories onto the filename and destroys the \b anchor, so
     // only the raw target still names the file there.
-    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(target) || TASK_STATE_PATTERN.test(spliced(target)))) return false;
+    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(target) || TASK_STATE_PATTERN.test(spliced(target)) || TASK_STATE_PATTERN.test(longNameOf(target)))) return false;
     const segment = stripQuotedData(raw);
     if (SUBSTITUTION.test(segment)) return false;
     const subcommand = verifiedRuntimeSubcommand(raw, root);

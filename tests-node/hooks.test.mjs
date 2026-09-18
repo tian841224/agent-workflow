@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -65,6 +66,34 @@ test("task-guard allows the verified runtime's read-only task inspection but sti
     assert.equal(denied.status, 0, denied.stderr);
     assert.match(denied.stdout, /task-guard/, `${label} redirect must be denied`);
   }
+});
+
+test("task-guard denies a Windows 8.3 short name that aliases task.json", { skip: process.platform !== "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-workflow-shortname-"));
+  writeFileSync(join(dir, "task.json"), "{}");
+  const listing = execFileSync("cmd.exe", ["/c", "dir", "/x", dir], { encoding: "utf8" });
+  const short = listing.match(/\b([A-Z0-9_~]+~\d\.[A-Z0-9]{1,3})\b/);
+  // 8dot3 name creation can be disabled per volume; without an alias there is nothing to deny.
+  if (!short) return;
+  const alias = join(dir, short[1]);
+  const guard = (payload) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify(payload),
+  });
+
+  const write = guard({ tool_name: "Write", tool_input: { file_path: alias } });
+  assert.equal(write.status, 0, write.stderr);
+  assert.match(write.stdout, /task-guard/, "a file tool must not reach task.json through its short name");
+
+  const redirect = guard({ tool_name: "Bash", tool_input: { command: `echo corrupted > ${alias}` } });
+  assert.equal(redirect.status, 0, redirect.stderr);
+  assert.match(redirect.stdout, /task-guard/, "a redirect must not reach task.json through its short name");
+
+  // A short-name-shaped path that resolves to nothing has no alias to abuse and must stay allowed.
+  const absent = guard({ tool_name: "Write", tool_input: { file_path: join(dir, "MISSING~1.TXT") } });
+  assert.equal(absent.status, 0, absent.stderr);
+  assert.doesNotMatch(absent.stdout, /task-guard/);
 });
 
 test("git-guard defers a directly parsed git mutation to the platform's own approval flow", () => {
