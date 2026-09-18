@@ -1,6 +1,7 @@
 {
   "schema_version": 7,
-  "runtime": ["dist/agent-workflow.mjs", "adapters/", "schemas/", "templates/"],
+  "runtime": ["dist/agent-workflow.mjs", "adapters/", "schemas/"],
+  "canonical": ["templates/"],
   "unmanaged_skills": ["doc-coauthoring"],
   "skills": {
     "workflow": {"required": true, "description": "workflow policy、task gate 與執行規則"},

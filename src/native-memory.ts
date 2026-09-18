@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname, join, relative, resolve } from "node:path";
+import { extname, join, relative, resolve } from "node:path";
 import { JsonObject, frontmatterBody, readJson } from "./core.js";
 
 const MAX_FILE_BYTES = 64 * 1024;

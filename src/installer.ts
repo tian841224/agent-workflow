@@ -115,13 +115,14 @@ function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): 
   };
   removeEmptyDirectories(runtime);
 }
-function pruneManagedSkills(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, dryRun: boolean): void {
-  const keep = new Set(records.filter((record) => record.kind === "canonical-skill" || record.kind === "platform-skill").map((record) => resolve(record.path)));
+const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "canonical-template"]);
+function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, dryRun: boolean): void {
+  const keep = new Set(records.filter((record) => MANAGED_ASSET_KINDS.has(record.kind)).map((record) => resolve(record.path)));
   const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map((root) => resolve(root));
   for (const item of Array.isArray(previous.files) ? previous.files : []) {
     if (!item || typeof item !== "object") continue;
     const record = item as JsonObject;
-    if (record.kind !== "canonical-skill" && record.kind !== "platform-skill") continue;
+    if (typeof record.kind !== "string" || !MANAGED_ASSET_KINDS.has(record.kind)) continue;
     if (typeof record.path !== "string" || typeof record.sha256 !== "string") continue;
     const path = resolve(record.path);
     if (keep.has(path) || !managedRoots.some((root) => path === root || path.startsWith(root + sep)) || !existsSync(path)) continue;
@@ -136,9 +137,11 @@ function catalog(root: string): Record<string, JsonObject> {
 function requiredSkills(value: Record<string, JsonObject>): string[] { return Object.entries(value).filter(([, meta]) => meta.required === true).map(([name]) => name); }
 async function selectSkills(value: Record<string, JsonObject>, options: InstallOptions, previous: JsonObject): Promise<string[]> {
   let requested = options.skills;
+  const previousSelection = Array.isArray(previous.selected_skills)
+    ? previous.selected_skills.filter((x): x is string => typeof x === "string" && Boolean(value[x]))
+    : [];
   if (!requested && options.action === "Repair" && Array.isArray(previous.selected_skills)) {
-    const previousSkills = previous.selected_skills.filter((x): x is string => typeof x === "string" && Boolean(value[x]));
-    requested = previousSkills.length ? previousSkills.join(",") : requiredSkills(value).join(",");
+    requested = previousSelection.length ? previousSelection.join(",") : requiredSkills(value).join(",");
   }
   if (!requested && !options.nonInteractive && input.isTTY && outputStream.isTTY) {
     const names = Object.keys(value);
@@ -148,10 +151,12 @@ async function selectSkills(value: Record<string, JsonObject>, options: InstallO
     const answer = (await reader.question("選擇：")).trim(); reader.close();
     requested = answer === "0" ? "all" : answer.split(",").map((item) => names[Number(item.trim()) - 1]).filter(Boolean).join(",");
   }
-  // "all" installs every optional skill; no request at all (fresh non-interactive install with no
-  // --skills and no TTY) installs only what the manifest marks required, matching the manifest's
-  // own required/optional split instead of silently pulling in every optional skill's reference tree.
-  const names = requested === "all" ? Object.keys(value) : !requested ? requiredSkills(value) : requested.split(",").map((item) => item.trim()).filter(Boolean);
+  // "all" installs every optional skill. With no request at all, a re-install keeps whatever the
+  // previous install selected, because dropping to the required set here would silently uninstall
+  // optional skills the user already had. Only a genuinely fresh install falls back to the
+  // manifest's required set, instead of pulling in every optional skill's reference tree.
+  const fallback = previousSelection.length ? previousSelection : requiredSkills(value);
+  const names = requested === "all" ? Object.keys(value) : !requested ? fallback : requested.split(",").map((item) => item.trim()).filter(Boolean);
   const unknown = names.filter((name) => !value[name]);
   if (unknown.length) throw new Error(`unknown skill(s): ${unknown.join(", ")}`);
   return [...new Set([...names, ...requiredSkills(value)])].sort();
@@ -416,11 +421,14 @@ export async function install(options: InstallOptions): Promise<number> {
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(catalog(source), options, previous); const records: FileRecord[] = [];
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
-  for (const folder of ["adapters", "schemas", "templates"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
+  for (const folder of ["adapters", "schemas"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
   pruneRuntime(runtime, records, options.dryRun);
   if (selectedSkills.includes("localization-tw")) writeLocalizationPolicy(source, runtime, records, options.dryRun);
   const cliDirectory = installCliShims(join(source, "dist", "agent-workflow.mjs"), options, records);
   const canonical = join(home(), ".agents");
+  // Templates are agent-facing reference documents, not runtime inputs, so they belong beside the
+  // canonical skills every agent reads rather than in the runtime tree next to the bundle.
+  if (existsSync(join(source, "templates"))) copyTree(join(source, "templates"), join(canonical, "templates"), records, "canonical-template", options.dryRun);
   for (const skill of selectedSkills) { const sourceSkill = join(source, ".agents", "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(canonical, "skills", skill), records, "canonical-skill", options.dryRun); }
   const targetRoots = roots(options); const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
@@ -433,7 +441,7 @@ export async function install(options: InstallOptions): Promise<number> {
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform === "Antigravity", source);
   }
-  pruneManagedSkills(previous, records, canonical, selected, targetRoots, options.dryRun);
+  pruneManagedAssets(previous, records, canonical, selected, targetRoots, options.dryRun);
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
   if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true } : {}) } });
   const integrations = [ ...(options.ponytail ? ["ponytail"] : []), ...(options.designAndRefine ? ["design-and-refine"] : []) ];

@@ -160,3 +160,19 @@ test("a fresh non-interactive install with no --skills selects only required ski
   assert.equal(allInstall.status, 0, allInstall.stderr);
   assert.deepEqual(JSON.parse(allInstall.stdout).selected_skills, catalog);
 });
+
+test("a re-install with no --skills keeps the previous selection instead of dropping to required", () => {
+  const root = join(tmpdir(), `agent-workflow-install-retention-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const catalog = Object.keys(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills).sort();
+
+  const first = run(["install", "--non-interactive", "--skills", "all", "--state-root", state, ...targets]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.deepEqual(JSON.parse(first.stdout).selected_skills, catalog);
+
+  const again = run(["install", "--non-interactive", "--state-root", state, ...targets]);
+  assert.equal(again.status, 0, again.stderr);
+  assert.deepEqual(JSON.parse(again.stdout).selected_skills, catalog);
+});

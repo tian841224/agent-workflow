@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -68,10 +69,16 @@ test("Antigravity locale hook accepts its prompt_response field and emits deny",
   assert.match(parsed.reason, /運行 → 執行/);
 });
 
-test("locale-lint is a no-op with exit 0 when localization-tw was not installed", () => {
+test("locale-lint is a no-op with exit 0 when no localization policy is installed", () => {
   const root = join(tmpdir(), `agent-workflow-locale-none-${process.pid}-${Date.now()}`);
-  const install = spawnSync(process.execPath, [cli, "install", "--non-interactive", "--skills", "workflow", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: process.cwd(), encoding: "utf8" });
+  const state = join(root, "state");
+  const install = spawnSync(process.execPath, [cli, "install", "--non-interactive", "--skills", "workflow", "--state-root", state, "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr);
+  // localization-tw is a required skill, so every install writes the policy and no --skills value
+  // can exclude it; deleting it is the only way to reach the state this degradation path covers.
+  const policy = join(state, "runtime", "localization-tw-policy.json");
+  assert.ok(existsSync(policy), "the installer is expected to write the policy for a required skill");
+  rmSync(policy);
   const lintResult = lint(root, { last_assistant_message: "運行服務器" });
   assert.equal(lintResult.status, 0);
   assert.equal(lintResult.stdout.trim(), "");

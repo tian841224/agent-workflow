@@ -182,11 +182,14 @@ function taskCommandAllowed(command: string, root: string): boolean {
   if (/<<<?/.test(stripped) && !DATA_ARGUMENT_COMMANDS.has(commandHead(stripped))) return false;
   return splitShellSegments(stripped).every((raw) => {
     if (!TASK_STATE_PATTERN.test(raw) && !TASK_STATE_PATTERN.test(spliced(raw))) return true;
-    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(spliced(target)))) return false;
+    // Both spellings have to be tested: splicing defeats quote evasion (task".json"), but on a
+    // Windows path it also glues the directories onto the filename and destroys the \b anchor, so
+    // only the raw target still names the file there.
+    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(target) || TASK_STATE_PATTERN.test(spliced(target)))) return false;
     const segment = stripQuotedData(raw);
     if (SUBSTITUTION.test(segment)) return false;
     const subcommand = verifiedRuntimeSubcommand(raw, root);
-    if (subcommand && TASK_STATE_WRITER_COMMANDS.has(subcommand)) return true;
+    if (subcommand && (TASK_STATE_WRITER_COMMANDS.has(subcommand) || TASK_STATE_READER_COMMANDS.has(subcommand))) return true;
     const head = commandHead(segment);
     if (head === "git") {
       const git = parseGitInvocation(stripInvocationPrefix(raw));
@@ -245,6 +248,9 @@ const TASK_STATE_WRITER_COMMANDS = new Set([
   "task-init", "task-write", "reclassify", "close-task", "pause", "block", "resume", "supersede",
   "waive", "approve-intent", "evidence-record", "review-record", "project-doc"
 ]);
+// Inspecting the task file through the verified runtime is the remediation this guard's own denial
+// message recommends, so the read-only subcommands have to clear the same check the writers do.
+const TASK_STATE_READER_COMMANDS = new Set(["task-report", "task-gate"]);
 // This allowlist applies only when inspecting the runtime-owned task file.
 const TASK_GIT_READS = new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"]);
 // Global options come before the subcommand, so they have to be consumed before it can be read;
