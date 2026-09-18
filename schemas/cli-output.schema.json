@@ -370,6 +370,49 @@
       },
       "additionalProperties": false
     },
+    "orchestrate": {
+      "description": "Protocol 3 orchestration responses and the version 2 compatibility phase tracker.",
+      "type": "object",
+      "properties": {
+        "protocol": { "type": "integer" },
+        "action": { "type": "string" },
+        "batch": { "type": "object" },
+        "valid": { "type": "boolean" },
+        "eligible": { "type": "boolean" },
+        "repo_root": { "type": "string" },
+        "worker_count": { "type": "integer" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "recoverable": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "worker-check": {
+      "type": "object",
+      "required": ["valid", "assignment", "repo_root", "file_ownership"],
+      "properties": {
+        "valid": { "const": true },
+        "assignment": { "type": "string" },
+        "repo_root": { "type": "string" },
+        "file_ownership": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "worker-exec": {
+      "type": "object",
+      "required": ["valid", "assignment", "repo_root", "command", "cwd", "exit_code", "stdout", "stderr", "output_digest"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "assignment": { "type": "string" },
+        "repo_root": { "type": "string" },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" },
+        "exit_code": { "type": "integer" },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "output_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
     "verify": {
       "type": "object",
       "required": ["valid", "runtime_root", "node", "errors"],

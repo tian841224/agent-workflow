@@ -55,7 +55,9 @@ The coordinator chooses the smallest flow that matches the task:
   slice's local feedback passes.
 
 Slices are coordinator working notes. They do not add slice state to `task.json`, change the
-`ExecutionPacket` or evidence authority, add a feedback CLI, or enable automatic orchestration. Do not add a human approval or a second Reviewer to every slice. Each
+`ExecutionPacket` or evidence authority, or add a feedback CLI. Eligible independent ownership
+scopes may use protocol 3 from [orchestration.md](orchestration.md), but that batch still keeps the
+parent task, evidence, Reviewer, and close authority with the coordinator. Do not add a human approval or a second Reviewer to every slice. Each
 slice receives local feedback only. After every slice is complete and the delivery is stable, run the
 affected/regression checks through `evidence-run`, including `delivery_validation.DV1` in the same
 batch when that command covers delivery validation. Then follow the task-level review timing in [review.md](review.md) for one Reviewer and close with `close-task`, which evaluates the gate itself. Read-only review leaves a matching receipt reusable; review findings that change the delivery require fresh

@@ -1,32 +1,134 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-workflow.local/schemas/orchestration.schema.json",
-  "title": "agent-workflow orchestration phase state (experimental)",
-  "description": "Experimental phase-tracker state for agent-workflow orchestrate. It does not define or implement an automatic worker protocol, worktree lifecycle, worker completion aggregation, patch collection, or patch application. The workers and integration arrays are reserved placeholders only. All mutating actions are gated behind AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1; see src/orchestration.ts.",
-  "type": "object",
-  "required": ["schema_version", "id", "experimental", "phase", "workers", "integration", "history"],
-  "properties": {
-    "schema_version": { "const": 2 },
-    "id": { "type": "string", "minLength": 1 },
-    "experimental": { "const": true },
-    "phase": { "enum": ["planned", "split", "executing", "integrating", "integrated", "failed", "cleaned"] },
-    "workers": { "type": "array" },
-    "integration": { "type": "array" },
-    "history": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["at", "from", "to", "action"],
-        "properties": {
-          "at": { "type": "string", "format": "date-time" },
-          "from": { "type": "string", "minLength": 1 },
-          "to": { "type": "string", "minLength": 1 },
-          "action": { "type": "string", "minLength": 1 }
+  "title": "agent-workflow orchestration state",
+  "description": "Versioned orchestration contracts. Version 2 remains the experimental phase tracker; version 3 is the deterministic multi-worker protocol.",
+  "oneOf": [
+    { "$ref": "#/$defs/v2" },
+    { "$ref": "#/$defs/v3" }
+  ],
+  "$defs": {
+    "v2": {
+      "type": "object",
+      "required": ["schema_version", "id", "experimental", "phase", "workers", "integration", "history"],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "id": { "type": "string", "minLength": 1 },
+        "experimental": { "const": true },
+        "phase": { "enum": ["planned", "split", "executing", "integrating", "integrated", "failed", "cleaned"] },
+        "workers": { "type": "array" },
+        "integration": { "type": "array" },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["at", "from", "to", "action"],
+            "properties": {
+              "at": { "type": "string", "format": "date-time" },
+              "from": { "type": "string", "minLength": 1 },
+              "to": { "type": "string", "minLength": 1 },
+              "action": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
         },
-        "additionalProperties": false
-      }
+        "state_revision": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
     },
-    "state_revision": { "type": "integer", "minimum": 1 }
-  },
-  "additionalProperties": false
+    "artifact": {
+      "type": "object",
+      "required": ["path", "kind", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["file", "delete"] },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "size": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "worker": {
+      "type": "object",
+      "required": ["id", "title", "task_id", "task_path", "packet_path", "worktree", "file_ownership", "attempt", "status", "artifact_status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "task_id": { "type": "string", "minLength": 1 },
+        "task_path": { "type": "string", "minLength": 1 },
+        "packet_path": { "type": "string", "minLength": 1 },
+        "worktree": { "type": "string", "minLength": 1 },
+        "file_ownership": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["prepared", "bound", "running", "completed", "blocked", "failed", "cancelled"] },
+        "artifact_status": { "enum": ["uncollected", "collected", "rejected"] },
+        "host": { "type": "object" },
+        "result": { "type": "object" },
+        "artifact_root": { "type": "string" },
+        "artifact": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+        "artifact_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "journal-entry": {
+      "type": "object",
+      "required": ["at", "action"],
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "action": { "type": "string", "minLength": 1 },
+        "status": { "type": "string" },
+        "detail": { "type": "string" },
+        "worker_id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "artifact_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "fingerprint": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "v3": {
+      "type": "object",
+      "required": ["schema_version", "protocol", "id", "experimental", "phase", "state_revision", "created_at", "updated_at", "parent", "workers", "integration", "host_bindings", "journal", "history"],
+      "properties": {
+        "schema_version": { "const": 3 },
+        "protocol": { "const": 3 },
+        "id": { "type": "string", "minLength": 1 },
+        "experimental": { "const": false },
+        "phase": { "enum": ["planned", "prepared", "executing", "collecting", "integrating", "applied", "cleaning", "cleaned", "failed", "cancelled"] },
+        "state_revision": { "type": "integer", "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "parent": {
+          "type": "object",
+          "required": ["task_path", "task_id", "repo_root", "snapshot_commit", "workspace_fingerprint"],
+          "properties": {
+            "task_path": { "type": "string" },
+            "task_id": { "type": "string" },
+            "repo_root": { "type": "string", "minLength": 1 },
+            "snapshot_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+            "snapshot_workspace_fingerprint": { "type": "string", "minLength": 1 },
+            "workspace_fingerprint": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "workers": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/worker" } },
+        "integration": {
+          "type": "object",
+          "required": ["status", "root"],
+          "properties": {
+            "status": { "enum": ["pending", "integrated", "applied"] },
+            "root": { "type": "string", "minLength": 1 },
+            "paths": { "type": "array", "items": { "type": "string" } },
+            "fingerprint": { "type": "string" },
+            "applied_paths": { "type": "array", "items": { "type": "string" } },
+            "applied_fingerprint": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "host_bindings": { "type": "array", "items": { "type": "object" } },
+        "journal": { "type": "array", "items": { "$ref": "#/$defs/journal-entry" } },
+        "history": { "type": "array" }
+      },
+      "additionalProperties": false
+    }
+  }
 }

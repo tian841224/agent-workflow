@@ -67,6 +67,10 @@ agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發�
       close-task 檢查完成條件並結案
 ```
 
+### 多 sub-agent 平行開發
+
+主對話是 coordinator。當至少兩個工作包沒有順序相依、ownership 不重疊且不共寫 persistent state 時，使用 `agent-workflow orchestrate --protocol 3 --action Prepare` 建立 dirty-worktree snapshot、detached worktree、child task 與 ExecutionPacket，再由平台原生 worker 執行。`worker-check` 驗證 cwd 與 ownership，`Collect`／`Integrate`／`Apply` 以 artifact digest、衝突檢查與 parent fingerprint 保護交付；Apply 後仍要跑 parent 的最終驗證、Reviewer、task-gate 與 close-task。完整操作契約見 [parallel orchestration](.agents/skills/workflow/orchestration.md) 與 [multi-agent development plan](docs/decisions/2026-09-18-multi-agent-development-plan.md)。
+
 
 
 ### 記憶如何累積

@@ -72,10 +72,10 @@ function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
   const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated");
   if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated`);
 }
-export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false): number {
+export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, emitOutput = true, runtimeSeed: JsonObject = {}): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
-    if (existsSync(path)) { output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
+    if (existsSync(path)) { if (emitOutput) output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
     try {
       const disallowed = Object.keys(patch).filter((key) => !TASK_INIT_WRITABLE_FIELDS.has(key));
       if (disallowed.length) throw new Error(`task-init: field(s) are not writable via task-init: ${disallowed.join(", ")} (identity/evidence/intent_approval/lifecycle are runtime-managed)`);
@@ -101,7 +101,8 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
           lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
           evidence: [], waivers: [],
           ...(baseCommit ? { base_commit: baseCommit } : {}),
-          ...patch
+          ...patch,
+          ...runtimeSeed
         };
         const errors = schemaErrors(state);
         if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
@@ -111,9 +112,9 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       };
       const created = codeChange ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask) : createTask();
       const plan = compilePlanForTaskPath(created, path);
-      output({ valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created) });
+      if (emitOutput) output({ valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created) });
       return 0;
-    } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
+    } catch (error) { if (emitOutput) output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
 }
 // The two classification moves that quietly shrink what the gate can demand. Each is legitimate

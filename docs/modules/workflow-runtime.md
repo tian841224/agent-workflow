@@ -6,8 +6,11 @@ covers:
   - src/workflow-policy.ts
   - src/project-doc.ts
   - src/task-report.ts
+  - src/orchestration/
+  - src/experimental/orchestration.ts
   - scripts/run-tests.mjs
   - schemas/task.schema.json
+  - schemas/orchestration.schema.json
   - schemas/workflow-policy.json
   - schemas/cli-output.schema.json
 ---
@@ -20,7 +23,7 @@ The runtime owns task classification, lifecycle transitions, compiled workflow p
 
 ## Entrypoints
 
-The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`, `evidence-run`, `evidence-record`, `review-record`, `task-gate`, `close-task`, `project-doc`, `task-report`, and `pre-review`.
+The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`, `evidence-run`, `evidence-record`, `review-record`, `task-gate`, `close-task`, `project-doc`, `task-report`, `pre-review`, `orchestrate --protocol 3`, `worker-check`, and `worker-exec`.
 
 ## Flow
 
@@ -31,11 +34,11 @@ The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`,
 `expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > all slices complete > affected/regression evidence (including DV1 when covered) > task-level Reviewer > close-task (evaluates gate)`
 
 Focused file-local work stays direct. Expanded, cross-module, high-risk, or multi-behavior work uses
-ordered slices; a dependent slice cannot begin until the prior slice's local feedback passes. Slices
-are coordinator working notes, not `task.json`, `ExecutionPacket`, or evidence authority, and they do
-not enable automatic orchestration. Each slice receives local feedback; the task-level Reviewer starts
-only after all slices and the overall affected/regression validation are complete. The timing rule is
-owned by [workflow review procedure](../../.agents/skills/workflow/review.md).
+ordered slices unless the coordinator can prove at least two independent ownership scopes. Eligible
+parallel work uses protocol 3 to snapshot the dirty parent, create detached worktrees, build child
+`ExecutionPacket`s, collect immutable artifacts, integrate, and apply once. The task-level Reviewer
+starts only after all workers and overall affected/regression validation are complete. The timing rule
+is owned by [workflow review procedure](../../.agents/skills/workflow/review.md).
 
 `task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；focused task 只取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 

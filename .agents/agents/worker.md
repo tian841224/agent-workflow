@@ -24,6 +24,8 @@ Before changing any file:
 2. For a worker sub-task with an empty `constraints.file_ownership`, stop and report that no ownership scope was supplied.
 3. Confirm the requested change fits entirely inside the supplied intent and file ownership.
 
+The coordinator may run `agent-workflow worker-check --assignment-path <execution-packet.json> --cwd <worktree>` before dispatch. A mismatch is a hard stop. Local commands can be run through `agent-workflow worker-exec --assignment-path <execution-packet.json> --cwd <worktree> -- <command> [args...]`; this is a no-shell convenience, not a Git or ownership bypass.
+
 ## Boundaries
 
 - Write only inside `constraints.repo_root`, and only in paths covered by the repo-relative prefixes in `constraints.file_ownership` when that list is non-empty.
@@ -50,6 +52,7 @@ Run focused validation for the worker-owned change only. Final cross-worker inte
 Report:
 
 - status: completed | blocked | failed
+- run_id and attempt, when supplied by the coordinator
 - modified paths
 - validation commands and results
 - unresolved issues

@@ -3,6 +3,7 @@ import addFormatsRaw from "ajv-formats";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JsonObject, mutateJsonState, now, option, output, readJson, schemaPath, stateRoot } from "../core.js";
+import { protocol3 } from "../orchestration/protocol.js";
 
 // ajv-formats' CJS default export types as an uncallable namespace under NodeNext; the cast
 // restores the real runtime shape (a plugin function) without a bundler-opaque dynamic require.
@@ -20,7 +21,7 @@ const transitions: Record<Phase, Phase[]> = { planned: ["split", "failed"], spli
 // Phase names only. The retired aliases here named a worker handshake this runtime never
 // implemented; orchestration-invariants.test.mjs keeps them rejected.
 const aliases: Record<string, Phase> = { Init: "split", StartExecution: "executing", Integrate: "integrating", Apply: "integrated", Fail: "failed", Cleanup: "cleaned" };
-const EXPERIMENTAL_NOTICE = "orchestrate: Experimental phase tracker only — automatic worker dispatch, worktree creation, worker completion tracking, patch collection and patch application are not implemented. Set AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1 only when explicitly testing the phase tracker.";
+const EXPERIMENTAL_NOTICE = "orchestrate: protocol 2 is an Experimental phase tracker; use --protocol 3 for the supported multi-worker protocol. Set AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1 only when explicitly testing the phase tracker.";
 
 function initialState(id: string): JsonObject {
   // workers/integration are reserved placeholders for a future worker-level contract; nothing in
@@ -29,6 +30,7 @@ function initialState(id: string): JsonObject {
 }
 
 export function orchestrate(options: Map<string, string | boolean | string[]>): number {
+  if (option(options, "protocol") === "3") return protocol3(options);
   const root = stateRoot(option(options, "state-root") || undefined);
   const id = option(options, "id", "default");
   const action = option(options, "action", "Status");

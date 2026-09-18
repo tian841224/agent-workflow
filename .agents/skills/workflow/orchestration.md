@@ -1,79 +1,93 @@
 # Parallel orchestration
 
-`agent-workflow orchestrate` is Experimental. It is currently a phase-state prototype only.
+`agent-workflow orchestrate --protocol 3` is the supported deterministic control plane for
+independent implementation workers. The version 2 phase tracker remains available only for legacy
+state and is selected when `--protocol` is omitted.
 
-## Current runtime behavior
+## Eligibility
 
-The runtime tracks:
+The coordinator may prepare one batch only when there are at least two workers, every worker has a
+non-empty goal, completion criterion, and `file_ownership`, ownership prefixes do not overlap, no
+worker depends on another worker's unfinished output, and no shared persistent state is written by
+more than one worker. Shared integration files stay with the coordinator. The coordinator rejects
+an ineligible plan before creating worktrees.
 
-```text
-planned -> split -> executing -> integrating -> integrated -> cleaned
+The plan is a JSON object passed with `--plan-path`:
+
+```json
+{
+  "repo_root": "C:/repo",
+  "parent_task_path": "C:/state/projects/p/tasks/parent/task.json",
+  "max_workers": 3,
+  "workers": [
+    {"id":"api","goal":"...","completion_criteria":"...","file_ownership":["src/api"]},
+    {"id":"ui","goal":"...","completion_criteria":"...","file_ownership":["src/ui"]}
+  ]
+}
 ```
 
-Any phase before `integrated` may transition to `failed`, and `failed` transitions to `cleaned`.
+`has_order_dependency: true` and `shared_persistent_state: true` are explicit rejection signals.
+The parent task remains the authority for classification, lifecycle, task-gate, reviewer, and
+closure. A child task inherits the parent's intent text and intent approval when present, adds a
+worker-assignment section, and receives the worker's ownership boundary.
 
-Read-only actions (`Status`, `Assess`, `Read`) work without enabling experimental mutations. Every
-state-mutating action requires `AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL=1` and uses a phase name:
-`Init`, `StartExecution`, `Integrate`, `Apply`, `Fail`, `Cleanup`. These describe phase transitions,
-not a worker protocol.
+## One-shot protocol
 
-## Not implemented
+`Prepare` captures the complete current worktree, including dirty and untracked files, through a
+temporary `GIT_INDEX_FILE` and an internal snapshot commit. It creates one detached worktree per
+worker, one child `task.json` plus `execution-packet.json` per worker, and a version 3 state file
+under `<state-root>/orchestration/v3/<id>`. The parent fingerprint is recorded after setup, so
+creating linked worktrees does not appear as a parent edit.
 
-The runtime implements none of the following, so none of them are part of the supported workflow
-contract: automatic worker dispatch, worker-level lifecycle state, worker completion aggregation,
-detached worktree creation, dirty-worktree snapshots, `GIT_INDEX_FILE` snapshotting, patch
-collection, patch integration, patch application, worker timeout handling, retry scheduling, and
-multi-worker success/failure accounting.
+```text
+orchestrate --protocol 3 --action Assess --id <id> --plan-path <plan> [--repo-root <repo>]
+orchestrate --protocol 3 --action Prepare --id <id> --state-root <root> --plan-path <plan>
+orchestrate --protocol 3 --action Bind --id <id> --worker-id <worker> --run-id <run> --platform <platform> --workspace <worktree>
+worker-check --assignment-path <execution-packet.json> --cwd <worktree>
+worker-exec --assignment-path <execution-packet.json> --cwd <worktree> -- <command> [args...]
+orchestrate --protocol 3 --action Collect --id <id> --worker-id <worker> --result-path <result.json>
+orchestrate --protocol 3 --action Integrate --id <id>
+orchestrate --protocol 3 --action Apply --id <id>
+orchestrate --protocol 3 --action Fail --id <id> --reason <reason>
+orchestrate --protocol 3 --action Cleanup --id <id>
+```
 
-## Normal workflow
+The host platform dispatches the native Claude, Codex, or Antigravity worker after `Prepare` and
+records its stable `run_id` with `Bind`. `worker-check` is fail-closed on the exact assigned cwd
+and non-empty ownership. `worker-exec` runs a command without a shell and returns exit code plus an
+output digest; it does not grant Git-write authority.
 
-Sequential execution is the default. When the host platform provides native isolated sub-agents, the
-main conversation may parallelize manually, but only when there are at least two independent work
-items, file ownership does not overlap, no worker depends on another worker's unfinished change,
-shared integration points remain owned by the coordinator, and each worker executes in its own
-isolated worktree.
+`Collect` accepts only `completed`, `blocked`, `failed`, or `cancelled`. A completed result is
+converted into an immutable path/content artifact and checked against `file_ownership`; a failed
+or blocked result is retained as rejected evidence. A result for a different `run_id` or attempt
+is rejected. `Integrate` applies all collected artifacts to a fresh detached worktree from the
+same snapshot and fails on path conflicts. `Apply` first compares the parent workspace fingerprint
+with the value recorded by `Prepare`; any parent edit blocks the apply. It then copies only the
+verified integrated artifacts into the parent worktree. `Retry` advances one worker attempt after a
+non-completed result. `Recover` reports missing worktrees or invalid persisted statuses. `Cancel`
+and `Cleanup` preserve the state journal and remove only registered protocol worktrees.
 
-Implementation slices are a separate coordinator-level sequence for expanded work: each slice gets
-local feedback before a dependent slice begins. They do not create worker state or new slice-state
-fields, a feedback command, or automatic orchestration. Use workers only when the existing manual
-parallelism rules independently justify them.
+The state machine is:
 
-The coordinator owns: whether to split, creating or selecting isolated worktrees, creating worker
-tasks, assigning file ownership, building each worker's ExecutionPacket, dispatching each worker
-through the host platform, collecting worker results, integrating the changes, final validation,
-the single task-level Reviewer after all slices are complete, task-gate, and closing the task.
-Orchestration lifecycle actions stay with the coordinator.
+```text
+prepared -> executing -> collecting -> integrating -> applied -> cleaned
+    |            |             |             |
+    +------------+-------------+-------------+--> cancelled / failed
+```
 
-Worker handoffs should reference the ExecutionPacket and shared evidence map instead of copying their
-procedure text. A completion message carries changed paths, local validation, blockers, and any new
-impact or test gap; unchanged context is omitted so the coordinator can integrate from one source.
-Before a coordinator takes over a worktree, it checks the lifecycle state, current diff, changed
-paths, and outstanding blockers; only one coordinator writes that worktree at a time.
+All state updates use the runtime JSON lock. `schemas/orchestration.schema.json` is the state
+authority; `schemas/cli-output.schema.json` defines the command output shapes. The parent task's
+normal `task-gate`, reviewer, final validation, and `close-task` still run after `Apply`.
 
-`file_ownership` is a hard boundary, not a review filter: any path changed outside it fails the gate as an
-ownership violation. A delivery that legitimately reaches further needs the owner widened and its impact
-re-confirmed, so assign each worker the scope its sub-task actually needs.
+## Ownership and recovery
 
-## Worker execution
+`file_ownership` is a hard write boundary. A worker that needs another path stops and reports the
+path; the coordinator widens the plan and starts a new attempt. No worker commits, branches,
+rebases, merges, or edits another worktree. If `Integrate` finds a duplicate path, the batch stays
+recoverable and the coordinator must split ownership before retrying. If `Apply` detects parent
+drift, the coordinator preserves the artifacts, reviews the new parent diff, and starts a fresh
+batch rather than overwriting the user's edit.
 
-Each worker receives one ExecutionPacket (`agent-workflow execution-packet`), containing intent
-(Goal, Scope, Completion criteria), classification, selected capabilities and steps, procedure
-pointers, repo root, file ownership, base commit when available, required evidence, and plan hash and
-revision. Worker behavior is defined by [worker.md](../../agents/worker.md).
-
-## Future activation rule
-
-Automatic orchestration becomes a supported workflow only once all of the following exist:
-
-1. worker-level state rather than reusing batch phase as worker state
-2. at-least-two-worker acceptance tests
-3. isolated worktree creation or verified host-native worktree binding
-4. deterministic collect / integrate / apply behavior
-5. worker failure and cleanup handling
-6. concurrent worker completion without lost updates
-7. integration conflict handling
-8. Windows / Linux / macOS integration tests
-9. a schema-defined worker dispatch / result contract
-10. package-smoke verification for the complete orchestration path
-
-Until then, this document describes capability status and safe manual parallelism.
+The protocol provides deterministic local orchestration and cross-platform assignment contracts;
+native platform dispatch and remote/installed runtime verification remain outside this repository's
+local test proof.

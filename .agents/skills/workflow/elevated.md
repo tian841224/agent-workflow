@@ -12,6 +12,7 @@ When expanded work contains several independent behaviors or crosses module boun
 coordinator writes ordered slices before implementation. Every slice names its goal, scope,
 acceptance criteria, local verification command, and dependencies. Implement and give local feedback
 on one slice before starting a dependent slice. Keep slices in the coordinator's working plan; they
-are not new task state, ExecutionPacket authority, or automatic orchestration. Once all slices are
-stable, continue with affected/regression validation, then the task-level Reviewer and DV1 gates
-described in [review.md](review.md).
+are not new task state or ExecutionPacket authority. Independent slices may use protocol 3 when the
+parallel eligibility rules in [orchestration.md](orchestration.md) pass. Once all slices are stable,
+continue with affected/regression validation, then the task-level Reviewer and DV1 gates described
+in [review.md](review.md).

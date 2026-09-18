@@ -40,7 +40,9 @@ export const commandOptions: Record<string, string[]> = {
   preflight: [...TASK_TARGET_OPTIONS, "repo-root", "state-root"],
   "project-doc": ["action", "paths", "doc", "doc-root", "repo-root", "task-path"],
   "pre-review": ["path"],
-  orchestrate: ["action", "id", "state-root"],
+  orchestrate: ["action", "id", "protocol", "state-root", "plan-path", "repo-root", "parent-task-path", "worker-id", "run-id", "platform", "workspace", "result-path", "reason"],
+  "worker-check": ["assignment-path", "cwd"],
+  "worker-exec": ["assignment-path", "cwd"],
   "split-plan": ["plan-path"],
   "worktree-fingerprint": ["path", "base", "paths"],
   "contract-lint": ["root"],
@@ -67,10 +69,7 @@ async function commandHelp(command: string, options: Set<string>): Promise<strin
 }
 
 function usage(): void {
-  // orchestrate stays dispatchable (it refuses unflagged mutating use itself) but is listed only
-  // under the flag, so nothing advertises a prototype phase tracker as a stable command.
-  const listed = commands.filter((command) => command !== "orchestrate" || process.env.AGENT_WORKFLOW_ORCHESTRATION_EXPERIMENTAL === "1");
-  process.stdout.write(`agent-workflow ${PRODUCT_VERSION}\n\nUsage: agent-workflow [command] [options]\n\nCommands:\n${listed.map((command) => `  ${command}`).join("\n")}\n`);
+  process.stdout.write(`agent-workflow ${PRODUCT_VERSION}\n\nUsage: agent-workflow [command] [options]\n\nCommands:\n${commands.map((command) => `  ${command}`).join("\n")}\n`);
 }
 
 async function main(): Promise<void> {
@@ -145,6 +144,8 @@ async function main(): Promise<void> {
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);
   else if (command === "orchestrate") process.exitCode = (await import("./experimental/orchestration.js")).orchestrate(parsed.values);
+  else if (command === "worker-check") process.exitCode = (await import("./orchestration/protocol.js")).workerCheck(parsed.values);
+  else if (command === "worker-exec") process.exitCode = (await import("./orchestration/protocol.js")).workerExec(parsed.values, trailing);
   else if (command === "workflow-plan") process.exitCode = (await import("./misc.js")).workflowPlan(option(parsed.values, "task-path"), option(parsed.values, "policy-path") || undefined);
   else if (command === "execution-packet") process.exitCode = (await import("./execution/index.js")).executionPacketCommand(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "skill") process.exitCode = (await import("./skills.js")).skillCommand(option(parsed.values, "action", "List"), option(parsed.values, "name"), option(parsed.values, "from"), option(parsed.values, "source"), option(parsed.values, "source-type"), option(parsed.values, "skill-path"), option(parsed.values, "root"));
