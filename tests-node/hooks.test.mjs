@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -94,6 +94,47 @@ test("task-guard denies a Windows 8.3 short name that aliases task.json", { skip
   const absent = guard({ tool_name: "Write", tool_input: { file_path: join(dir, "MISSING~1.TXT") } });
   assert.equal(absent.status, 0, absent.stderr);
   assert.doesNotMatch(absent.stdout, /task-guard/);
+});
+
+test("task-guard denies a hardlink to runtime-owned task state but not an unrelated one", (t) => {
+  const state = mkdtempSync(join(tmpdir(), "agent-workflow-hardlink-"));
+  const taskDir = join(state, "projects", "p1", "tasks", "20260101-000000-demo");
+  mkdirSync(taskDir, { recursive: true });
+  const taskState = join(taskDir, "task.json");
+  writeFileSync(taskState, "{}");
+  const unrelated = join(state, "other.txt");
+  writeFileSync(unrelated, "x");
+  const alias = join(state, "notes.txt");
+  const harmless = join(state, "harmless.txt");
+  try { linkSync(taskState, alias); linkSync(unrelated, harmless); }
+  catch (error) { t.skip(`hard links are unavailable here: ${error.code}`); return; }
+  const slash = (path) => path.replaceAll("\\", "/");
+  const guard = (payload) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "git-guard", "--platform", "Claude", "--state-root", state], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: JSON.stringify(payload),
+  });
+  const bash = (command) => guard({ tool_name: "Bash", tool_input: { command } });
+
+  // The alias name says nothing about task.json, so only file identity can give it away.
+  for (const [label, result] of [
+    ["file tool", guard({ tool_name: "Write", tool_input: { file_path: alias } })],
+    ["redirect", bash(`echo corrupted > ${slash(alias)}`)],
+    ["in-place edit", bash(`sed -i s/a/b/ ${slash(alias)}`)],
+  ]) {
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /task-guard/, `${label} through a hardlink must be denied`);
+  }
+
+  // A hardlink to something else, and a path that does not exist, must stay usable.
+  for (const [label, result] of [
+    ["unrelated hardlink", guard({ tool_name: "Write", tool_input: { file_path: harmless } })],
+    ["missing path", guard({ tool_name: "Write", tool_input: { file_path: join(state, "missing.txt") } })],
+    ["read of the alias", bash(`cat ${slash(alias)}`)],
+  ]) {
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /task-guard/, `${label} must not be denied`);
+  }
 });
 
 test("git-guard defers a directly parsed git mutation to the platform's own approval flow", () => {

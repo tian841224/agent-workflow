@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { isWithin, Json, JsonObject, output, readJson, sha256, stateRoot } from "./core.js";
 
@@ -43,8 +43,9 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found };
 }
 export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
-  if (!touchesProtected(event, TASK_STATE_PATTERN)) return { allow: true };
-  const allowed = event.command ? taskCommandAllowed(event.command, root) : isReadOnlyTool(event.tool);
+  const scope: GuardScope = { root, cwd: event.cwd || process.cwd() };
+  if (!touchesProtected(event, TASK_STATE_PATTERN, scope)) return { allow: true };
+  const allowed = event.command ? taskCommandAllowed(event.command, root, scope.cwd) : isReadOnlyTool(event.tool);
   return allowed ? { allow: true } : { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-report` for read-only inspection and the verified agent-workflow task CLI for writes instead of editing it directly." };
 }
 const TASK_STATE_PATTERN = /\btask\.json\b/i;
@@ -66,11 +67,40 @@ function aliasedPaths(command: string): string[] {
   if (process.platform !== "win32" || !/~\d/.test(command)) return [];
   return command.split(/[\s;|&<>"']+/).filter((token) => /~\d/.test(token)).map(longNameOf).filter(Boolean);
 }
-function mentionsProtected(text: string, pattern: RegExp): boolean {
-  return pattern.test(text) || pattern.test(spliced(text)) || aliasedPaths(text).some((path) => pattern.test(path));
+type GuardScope = { root: string; cwd: string };
+// A hardlink needs no privilege, carries no "task.json" in its name, and opens the same file, so
+// the only thing that identifies it is file identity. The enumeration is paid only for a regular
+// file with more than one link, which is rare enough not to slow ordinary calls.
+function taskStateIdentities(root: string): Set<string> {
+  const identities = new Set<string>();
+  const list = (directory: string): string[] => { try { return readdirSync(directory); } catch { return []; } };
+  const record = (file: string): void => {
+    const stat = statSync(file, { bigint: true, throwIfNoEntry: false });
+    if (stat) identities.add(`${stat.dev}:${stat.ino}`);
+  };
+  for (const task of list(join(root, "tasks"))) record(join(root, "tasks", task, "task.json"));
+  for (const project of list(join(root, "projects")))
+    for (const task of list(join(root, "projects", project, "tasks"))) record(join(root, "projects", project, "tasks", task, "task.json"));
+  return identities;
 }
-function touchesProtected(event: CanonicalHookEvent, pattern: RegExp): boolean {
-  return event.paths.some((path) => pattern.test(path) || pattern.test(longNameOf(path))) || mentionsProtected(event.command || "", pattern);
+function isTaskStateLink(path: string, scope: GuardScope): boolean {
+  // A UNC path can stall on the network for far longer than a guard may block.
+  if (!path || /^(?:\\\\|\/\/)/.test(path)) return false;
+  try {
+    const stat = statSync(resolve(scope.cwd, path), { bigint: true, throwIfNoEntry: false });
+    if (!stat || !stat.isFile() || stat.nlink < 2n) return false;
+    return taskStateIdentities(scope.root).has(`${stat.dev}:${stat.ino}`);
+  } catch { return false; }
+}
+function commandTokens(command: string): string[] {
+  return command.split(/[\s;|&<>"']+/).filter(Boolean);
+}
+function mentionsProtected(text: string, pattern: RegExp, scope: GuardScope): boolean {
+  return pattern.test(text) || pattern.test(spliced(text)) || aliasedPaths(text).some((path) => pattern.test(path))
+    || commandTokens(text).some((token) => isTaskStateLink(token, scope));
+}
+function touchesProtected(event: CanonicalHookEvent, pattern: RegExp, scope: GuardScope): boolean {
+  return event.paths.some((path) => pattern.test(path) || pattern.test(longNameOf(path)) || isTaskStateLink(path, scope)) || mentionsProtected(event.command || "", pattern, scope);
 }
 const READ_ONLY_COMMANDS = new Set([
   "cat", "type", "head", "tail", "more", "less", "nl", "ls", "dir", "tree", "wc", "grep", "rg", "findstr", "select-string",
@@ -192,16 +222,17 @@ function stripQuotedData(segment: string): string {
 const SCRIPT_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "busybox"]);
 const PREFIX_WRAPPERS = new Set(["sudo", "doas", "su", "env", "nohup", "timeout", "command", "exec", "time", "xargs", "stdbuf", "nice", "ionice"]);
 // Only segments naming task.json pay for task read/write classification.
-function taskCommandAllowed(command: string, root: string): boolean {
+function taskCommandAllowed(command: string, root: string, cwd: string): boolean {
+  const scope: GuardScope = { root, cwd };
   const { command: stripped, hiddenExpansion } = stripHeredocBodies(command);
   if (hiddenExpansion) return false;
   if (/<<<?/.test(stripped) && !DATA_ARGUMENT_COMMANDS.has(commandHead(stripped))) return false;
   return splitShellSegments(stripped).every((raw) => {
-    if (!mentionsProtected(raw, TASK_STATE_PATTERN)) return true;
+    if (!mentionsProtected(raw, TASK_STATE_PATTERN, scope)) return true;
     // Both spellings have to be tested: splicing defeats quote evasion (task".json"), but on a
     // Windows path it also glues the directories onto the filename and destroys the \b anchor, so
     // only the raw target still names the file there.
-    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(target) || TASK_STATE_PATTERN.test(spliced(target)) || TASK_STATE_PATTERN.test(longNameOf(target)))) return false;
+    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(target) || TASK_STATE_PATTERN.test(spliced(target)) || TASK_STATE_PATTERN.test(longNameOf(target)) || isTaskStateLink(target, scope))) return false;
     const segment = stripQuotedData(raw);
     if (SUBSTITUTION.test(segment)) return false;
     const subcommand = verifiedRuntimeSubcommand(raw, root);
