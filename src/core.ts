@@ -103,17 +103,21 @@ export function isWithin(path: string, parent: string): boolean {
   return delta === "" || (!delta.startsWith(`..${sep}`) && delta !== ".." && !isAbsolute(delta));
 }
 
+// Node's default 1 MiB cap makes spawnSync fail with ENOBUFS (status null → 1) on large repos, e.g. status/ls-files/diff output
+const GIT_MAX_BUFFER = 256 * 1024 * 1024;
+
 export function git(cwd: string, args: string[], options: { input?: Buffer; env?: NodeJS.ProcessEnv } = {}): { status: number; stdout: string; stderr: string } {
   const result = spawnSync("git", ["-C", cwd, ...args], {
     encoding: "utf8",
     input: options.input,
-    env: options.env ? { ...process.env, ...options.env } : process.env
+    env: options.env ? { ...process.env, ...options.env } : process.env,
+    maxBuffer: GIT_MAX_BUFFER
   });
   return { status: result.status ?? 1, stdout: result.stdout || "", stderr: result.stderr || "" };
 }
 
 export function mustGit(cwd: string, args: string[]): string {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", maxBuffer: GIT_MAX_BUFFER });
 }
 
 export function removeIfUnmodified(path: string, digest: string): boolean {
