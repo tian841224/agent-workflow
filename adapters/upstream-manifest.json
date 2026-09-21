@@ -18,6 +18,22 @@
         ]
       }
     },
+    "hallmark": {
+      "source": "https://github.com/nutlope/hallmark",
+      "ref": "main",
+      "executables": {"Claude": "npx", "Codex": "npx", "Antigravity": "npx"},
+      "platforms": {
+        "Claude": [
+          ["-y", "skills", "add", "$checkout", "--global", "--yes", "--agent", "claude-code"]
+        ],
+        "Codex": [
+          ["-y", "skills", "add", "$checkout", "--global", "--yes", "--agent", "codex"]
+        ],
+        "Antigravity": [
+          ["-y", "skills", "add", "$checkout", "--global", "--yes", "--agent", "antigravity"]
+        ]
+      }
+    },
     "design-and-refine": {
       "source": "https://github.com/0xdesign/design-plugin",
       "ref": "main",
@@ -28,10 +44,10 @@
           ["plugin", "install", "design-and-refine@design-plugins"]
         ],
         "Codex": [
-          ["-y", "skills", "add", "$source", "--skill", "design-lab", "--agent", "codex"]
+          ["-y", "skills", "add", "$checkout", "--skill", "design-lab", "--global", "--yes", "--agent", "codex"]
         ],
         "Antigravity": [
-          ["-y", "skills", "add", "$source", "--skill", "design-lab", "--agent", "antigravity"]
+          ["-y", "skills", "add", "$checkout", "--skill", "design-lab", "--global", "--yes", "--agent", "antigravity"]
         ]
       }
     }

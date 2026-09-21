@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as outputStream } from "node:process";
@@ -9,7 +9,7 @@ import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, o
 
 type Platform = "Claude" | "Codex" | "Antigravity";
 type FileRecord = { path: string; sha256: string; kind: string };
-type InstallOptions = { action: "Install" | "Repair" | "Verify" | "Uninstall"; target: string; root: string; skills?: string; ponytail: boolean; designAndRefine: boolean; nonInteractive: boolean; dryRun: boolean; claude: string; codex: string; antigravity: string; };
+type InstallOptions = { action: "Install" | "Repair" | "Verify" | "Uninstall"; target: string; root: string; skills?: string; integrations: string[]; nonInteractive: boolean; dryRun: boolean; claude: string; codex: string; antigravity: string; };
 
 const platforms: Record<Platform, { entrypoint: string; hook: string[]; skills: string[] }> = {
   Claude: { entrypoint: "CLAUDE.md", hook: ["settings.json"], skills: ["skills"] },
@@ -30,6 +30,9 @@ function sourceRoot(): string {
   throw new Error("installed runtime has no valid recorded source; run Repair from a source checkout");
 }
 
+// An integration marked "clone" is fetched into a throwaway directory and installed with the
+// upstream repo's own install command ($checkout is that clone); the clone is removed afterwards,
+// so this repo only records where the upstream lives.
 function installUpstreamIntegration(name: string, source: string, selected: Platform[], options: InstallOptions): JsonObject {
   const manifest = readJson(join(source, "adapters", "upstream-manifest.json"));
   const integration = (manifest.integrations as JsonObject)?.[name] as JsonObject | undefined;
@@ -37,22 +40,48 @@ function installUpstreamIntegration(name: string, source: string, selected: Plat
   const commands = integration.platforms as JsonObject;
   const executables = (integration.executables || {}) as JsonObject;
   const results: Json[] = [];
-  for (const platform of selected) {
-    const executable = typeof executables[platform] === "string" ? executables[platform] as string : platform === "Claude" ? "claude" : platform === "Codex" ? "codex" : "agy";
-    const steps = commands[platform] as Json[] | undefined;
-    if (!Array.isArray(steps)) continue;
-    for (const step of steps) {
-      if (!Array.isArray(step) || !step.every((value) => typeof value === "string")) throw new Error(`invalid Ponytail command for ${platform}`);
-      const args = (step as string[]).map((value) => value.replaceAll("$source", integration.source as string).replaceAll("$ref", integration.ref as string));
-      const command = [executable, ...args].join(" ");
-      if (options.dryRun) { results.push({ platform, command, status: "planned" }); continue; }
-      const result = spawnSync(executable, args, { encoding: "utf8" });
-      results.push({ platform, command, status: result.status === 0 ? "installed" : "failed", exit_code: result.status ?? 1, output: `${result.stdout || ""}${result.stderr || ""}`.trim() });
-      if (result.status !== 0) break;
+  // A step that names $checkout needs the upstream tree; steps that pass $source leave the fetching to the upstream tool.
+  const clone = selected.some((platform) => JSON.stringify(commands[platform] ?? []).includes("$checkout"));
+  const workdir = clone ? (options.dryRun ? join(tmpdir(), `agent-workflow-${name}-XXXXXX`) : mkdtempSync(join(tmpdir(), `agent-workflow-${name}-`))) : "";
+  const checkout = clone ? join(workdir, name) : "";
+  const summary = (): JsonObject => ({ source: integration.source, ref: integration.ref, results });
+  try {
+    if (clone) {
+      const cloneArgs = ["clone", "--depth", "1", "--branch", integration.ref as string, integration.source as string, checkout];
+      const command = ["git", ...cloneArgs].join(" ");
+      if (options.dryRun) results.push({ command, status: "planned" });
+      else {
+        const result = spawnSync("git", cloneArgs, { encoding: "utf8" });
+        results.push({ command, status: result.status === 0 ? "installed" : "failed", exit_code: result.status ?? 1, output: `${result.stdout || ""}${result.stderr || ""}`.trim() });
+        if (result.status !== 0) return summary();
+      }
+    }
+    for (const platform of selected) {
+      const executable = typeof executables[platform] === "string" ? executables[platform] as string : platform === "Claude" ? "claude" : platform === "Codex" ? "codex" : "agy";
+      const steps = commands[platform] as Json[] | undefined;
+      if (!Array.isArray(steps)) continue;
+      for (const step of steps) {
+        if (!Array.isArray(step) || !step.every((value) => typeof value === "string")) throw new Error(`invalid ${name} command for ${platform}`);
+        const args = (step as string[]).map((value) => value.replaceAll("$source", integration.source as string).replaceAll("$ref", integration.ref as string).replaceAll("$checkout", checkout));
+        const command = [executable, ...args].join(" ");
+        if (options.dryRun) { results.push({ platform, command, status: "planned" }); continue; }
+        const cwd = clone ? checkout : undefined;
+        // npx is npx.cmd on Windows, which spawnSync cannot start without a shell; the arguments are manifest constants and the clone path.
+        const shellCommand = [executable, ...args.map((value) => /\s/.test(value) ? `"${value}"` : value)].join(" ");
+        const result = process.platform === "win32" && executable === "npx" ? spawnSync(shellCommand, { encoding: "utf8", shell: true, cwd }) : spawnSync(executable, args, { encoding: "utf8", cwd });
+        results.push({ platform, command, status: result.status === 0 ? "installed" : "failed", exit_code: result.status ?? 1, output: `${result.stdout || ""}${result.stderr || ""}`.trim() });
+        if (result.status !== 0) return summary();
+      }
+    }
+    return summary();
+  } finally {
+    if (clone) {
+      if (!options.dryRun) rmSync(workdir, { recursive: true, force: true });
+      results.push({ command: `remove ${workdir}`, status: options.dryRun ? "planned" : "removed" });
     }
   }
-  return { source: integration.source, ref: integration.ref, results };
 }
+
 
 function home(): string { return homedir(); }
 function targetPlatforms(value: string): Platform[] {
@@ -417,6 +446,12 @@ export async function install(options: InstallOptions): Promise<number> {
   for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) {
     if (!existsSync(join(source, "dist", bundle))) throw new Error(`distribution bundle ${bundle} is missing; run npm run build before installing from a clone`);
   }
+  if (options.integrations.length) {
+    const known = (readJson(join(source, "adapters", "upstream-manifest.json")).integrations || {}) as JsonObject;
+    const unknown = options.integrations.filter((name) => !known[name]);
+    // Fail before anything is written, so a typo does not leave a half-finished install.
+    if (unknown.length) throw new Error(`unknown integration: ${unknown.join(", ")} (known: ${Object.keys(known).join(", ")})`);
+  }
   const migration = migrateState(state, options.dryRun);
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(catalog(source), options, previous); const records: FileRecord[] = [];
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
@@ -444,7 +479,7 @@ export async function install(options: InstallOptions): Promise<number> {
   pruneManagedAssets(previous, records, canonical, selected, targetRoots, options.dryRun);
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
   if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true } : {}) } });
-  const integrations = [ ...(options.ponytail ? ["ponytail"] : []), ...(options.designAndRefine ? ["design-and-refine"] : []) ];
+  const integrations = options.integrations;
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;
   output({ ok: !failed, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, native, migration }); return failed ? 1 : 0;

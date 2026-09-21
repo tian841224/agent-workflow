@@ -151,7 +151,7 @@ const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_typ
 const CLASSIFICATION_KEYS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
 export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }, emitOutput = true, allowProjectDocEvidence = false): number {
   const path = taskPath(value);
-  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
+  if (!existsSync(path)) { if (emitOutput) output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
     if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / resume / supersede / waive / close-task instead)`);

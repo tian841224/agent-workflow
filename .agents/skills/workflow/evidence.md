@@ -13,10 +13,15 @@ search or rewrite the same finding for each step.
 
 ## Recording
 
-Use one `evidence-record` or `evidence-run` command with repeated or comma-separated
-`--requirement-id` values when one conclusion or command satisfies multiple selected evidence steps.
-The runtime writes one evidence entry per id and one state revision for the batch. Every id must be a
-selected evidence step; role results use `review-record`.
+The work list is the plan's `required_evidence` (the ids the gate checks). Use one `evidence-record`
+or `evidence-run` command with repeated or comma-separated `--requirement-id` values when one
+conclusion or command satisfies multiple selected evidence steps. The runtime writes one evidence
+entry per id and one state revision for the batch. Every id must be a selected evidence step; role
+results use `review-record`.
+
+Write the attested steps of a capability (or of the whole task) in one `evidence-record` batch from
+the shared map, with a summary that names the concrete finding. One call per step repeats the same
+round trip and state write for no extra evidence.
 
 ## Classification before evidence
 
@@ -38,11 +43,9 @@ to a worktree at a time, and the incoming coordinator checks those items before 
 Runtime execution evidence must come from `evidence-run`. Its freshness is currently delivery-wide:
 reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
 relevant environment remain the same. A change anywhere in the delivered worktree invalidates the
-receipt. Use the implementation flow below for local feedback, then run the final regression and
-delivery receipt once after source, tests, and documents are stable, then follow the review flow below. If anything in the
-delivery changes afterward, rerun each distinct required final command once, batching the requirement
-ids it actually covers; do not infer path-scoped reuse without
-a separately verified dependency map.
+receipt; do not infer path-scoped reuse without a separately verified dependency map. Ticking a
+Completion criteria checkbox does not change the intent hash. The final sequence is in
+[Finalization](#finalization).
 
 ## Implementation slices and local feedback
 
@@ -58,11 +61,21 @@ Slices are coordinator working notes. They do not add slice state to `task.json`
 `ExecutionPacket` or evidence authority, or add a feedback CLI. Eligible independent ownership
 scopes may use protocol 3 from [orchestration.md](orchestration.md), but that batch still keeps the
 parent task, evidence, Reviewer, and close authority with the coordinator. Do not add a human approval or a second Reviewer to every slice. Each
-slice receives local feedback only. After every slice is complete and the delivery is stable, run the
-affected/regression checks through `evidence-run`, including `delivery_validation.DV1` in the same
-batch when that command covers delivery validation. Then follow the task-level review timing in [review.md](review.md) for one Reviewer and close with `close-task`, which evaluates the gate itself. Read-only review leaves a matching receipt reusable; review findings that change the delivery require fresh
-validation. A separate DV1 command is needed only when the existing command does not cover delivery
-validation. Use `task-gate` only to diagnose a failed `close-task`, never as a step before it.
+slice receives local feedback only; when every slice is complete and the delivery is stable, continue
+with [Finalization](#finalization).
+
+## Finalization
+
+Runs once, after source, tests, and documents are stable:
+
+1. `evidence-run` the affected/regression checks, batching every requirement id that command covers,
+   including `delivery_validation.DV1` when it covers delivery validation. A separate DV1 command is
+   needed only when the existing command does not cover it.
+2. When the plan selects a Reviewer, run it once per the timing in [review.md](review.md). Read-only
+   review leaves the receipt reusable; findings that change the delivery require fresh validation,
+   rerunning each distinct final command once.
+3. `close-task`, which evaluates the gate itself. Use `task-gate` only to diagnose a failed
+   `close-task`, never before it.
 
 ## Scope
 

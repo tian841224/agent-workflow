@@ -1,6 +1,6 @@
 ---
 name: adhd-comms
-description: Keep responses action-first, easy to scan, and proportionate to the task.
+description: Use when the user asks for action-first, easy-to-scan replies or a lower reading load.
 ---
 
 # adhd-comms

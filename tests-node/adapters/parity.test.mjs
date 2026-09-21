@@ -61,7 +61,11 @@ test("platform adapters do not start a separate clean-comments Stop agent", () =
   const stop = JSON.stringify(claudeHooks.Stop || []);
   const preToolUse = JSON.stringify(claudeHooks.PreToolUse || []);
   assert.doesNotMatch(stop, /clean-comments|"type":"agent"/);
-  assert.doesNotMatch(preToolUse, /clean-comments|Edit\|Write/);
+  assert.doesNotMatch(preToolUse, /clean-comments/);
+  // The matcher skips read-only tools but must keep every tool that can write, MCP file tools included.
+  const matcher = new RegExp(claudeHooks.PreToolUse[0].matcher);
+  for (const tool of ["Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit", "mcp__filesystem__write_file"]) assert.match(tool, matcher, tool);
+  for (const tool of ["Read", "Grep", "Glob"]) assert.doesNotMatch(tool, matcher, tool);
   for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), /clean-comments/, path);
   }
@@ -75,6 +79,10 @@ test("required localization skill and Claude lexical Stop check are the locale e
   const antigravityHooks = JSON.parse(readFileSync("adapters/antigravity/hooks.json", "utf8"));
   assert.equal((JSON.stringify(codexHooks.Stop).match(/locale-lint --platform Codex/g) || []).length, 1);
   assert.equal((JSON.stringify(antigravityHooks["agent-workflow-locale-lint"]).match(/locale-lint --platform Antigravity/g) || []).length, 1);
+  // The vocabulary is injected once per session on every platform so the terms are in context up front.
+  assert.equal((JSON.stringify(claudeHooks.SessionStart).match(/locale-context --platform Claude/g) || []).length, 1);
+  assert.equal((JSON.stringify(codexHooks.SessionStart).match(/locale-context --platform Codex/g) || []).length, 1);
+  assert.equal((JSON.stringify(antigravityHooks["agent-workflow-locale-context"].PreInvocation).match(/locale-context --platform Antigravity/g) || []).length, 1);
 });
 
 test("the Antigravity adapter declares only lifecycle events the platform still supports", () => {
@@ -88,6 +96,18 @@ test("the Antigravity adapter declares only lifecycle events the platform still 
     assert.equal(handler.type, "command", "PreInvocation handlers are declared directly, not wrapped in matcher/hooks");
     assert.match(handler.command, /memory-context --platform Antigravity --state-root ".*" --auto/);
   }
+});
+
+test("UserPromptSubmit memory injects a session's excerpts once, and a new session gets them again", () => {
+  const state = join(tmpdir(), `agent-workflow-memory-dedupe-${process.pid}-${Date.now()}`);
+  const entries = join(state, "knowledge", "global", "entries");
+  mkdirSync(entries, { recursive: true });
+  writeFileSync(join(entries, "demo.md"), "---\nid: demo\ntopic: demo-memory\nscope: global\nstatus: verified\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nremembered detail\n");
+  const prompt = (sessionId) => run(["memory-context", "--platform", "Claude", "--state-root", state, "--auto", "--event", "UserPromptSubmit"], { session_id: sessionId, prompt: "please recall the demo memory", cwd: state }).stdout.trim();
+  const sessionA = `dedupe-a-${process.pid}-${Date.now()}`;
+  assert.match(prompt(sessionA), /demo-memory/);
+  assert.equal(prompt(sessionA), "", "the same session must not receive the same excerpt twice");
+  assert.match(prompt(`dedupe-b-${process.pid}-${Date.now()}`), /demo-memory/);
 });
 
 test("automatic memory context requires relevance and Antigravity still injects only on the first invocation", () => {

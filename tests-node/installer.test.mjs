@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -27,14 +27,93 @@ test("Ponytail native install is opt-in and dry-run only plans upstream commands
   assert.match(native[0].results.map((item) => item.command).join("\n"), /codex plugin add ponytail@ponytail/);
 });
 
-test("Design Lab native install uses the upstream skill installer", () => {
+test("Design Lab installs Claude through the marketplace and Codex/Antigravity from a temporary clone", () => {
   const root = join(tmpdir(), `agent-workflow-design-lab-${process.pid}-${Date.now()}`);
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
   const result = run(["install", "--non-interactive", "--skills", "workflow", "--design-and-refine", "--dry-run", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")]);
   assert.equal(result.status, 0, result.stderr);
   const native = JSON.parse(result.stdout).native;
   assert.equal(native.length, 1);
-  assert.match(native[0].results.map((item) => item.command).join("\n"), /npx -y skills add https:\/\/github\.com\/0xdesign\/design-plugin --skill design-lab/);
+  const commands = native[0].results.map((item) => item.command);
+  assert.ok(commands.some((command) => command === "claude plugin marketplace add https://github.com/0xdesign/design-plugin"), "a marketplace install hands the URL to the tool, which keeps its own copy");
+  assert.match(commands.find((command) => command.startsWith("git clone")), /https:\/\/github\.com\/0xdesign\/design-plugin /);
+  for (const agent of ["codex", "antigravity"]) assert.ok(commands.some((command) => /^npx -y skills add \S*design-and-refine --skill design-lab --global --yes --agent /.test(command) && command.endsWith(agent)), commands.join("\n"));
+  assert.match(commands.at(-1), /^remove /);
+});
+
+test("--integration installs any manifest entry, and an unknown name fails before anything is written", () => {
+  const root = join(tmpdir(), `agent-workflow-integration-${process.pid}-${Date.now()}`);
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const targets = ["--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const known = run(["install", "--non-interactive", "--skills", "workflow", "--integration", "hallmark,ponytail", "--dry-run", ...targets]);
+  assert.equal(known.status, 0, known.stderr);
+  assert.deepEqual(JSON.parse(known.stdout).native.map((item) => item.source), ["https://github.com/nutlope/hallmark", "https://github.com/DietrichGebert/ponytail"]);
+  const unknown = run(["install", "--non-interactive", "--skills", "workflow", "--integration", "nope", ...targets]);
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /unknown integration: nope \(known: ponytail, hallmark, design-and-refine\)/);
+  assert.equal(existsSync(join(root, "state", "runtime")), false, "nothing is installed when a name is unknown");
+});
+
+test("Hallmark install is opt-in and plans a temporary clone, the upstream install command, and its removal", () => {
+  const root = join(tmpdir(), `agent-workflow-hallmark-${process.pid}-${Date.now()}`);
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const targets = ["--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const plain = JSON.parse(run(["install", "--non-interactive", "--skills", "workflow", "--dry-run", ...targets]).stdout);
+  assert.equal(plain.native, null, "no native install without the flag");
+  const result = run(["install", "--non-interactive", "--skills", "workflow", "--hallmark", "--dry-run", ...targets]);
+  assert.equal(result.status, 0, result.stderr);
+  const native = JSON.parse(result.stdout).native;
+  assert.equal(native.length, 1);
+  const commands = native[0].results.map((item) => item.command);
+  assert.match(commands[0], /^git clone --depth 1 --branch main https:\/\/github\.com\/nutlope\/hallmark /);
+  for (const agent of ["claude-code", "codex", "antigravity"]) assert.ok(commands.some((command) => /^npx -y skills add \S*hallmark --global --yes --agent /.test(command) && command.endsWith(`--agent ${agent}`)), commands.join("\n"));
+  assert.match(commands.at(-1), /^remove /);
+  assert.equal(existsSync(join(root, "state", "upstream")), false, "nothing is kept in the state root");
+});
+
+test("a cloned upstream is installed with its own command and the clone is removed afterwards, also on failure", () => {
+  const root = join(tmpdir(), `agent-workflow-hallmark-clone-${process.pid}-${Date.now()}`);
+  const home = join(root, "home"); const state = join(root, "state"); const upstream = join(root, "upstream-repo"); const sandbox = join(root, "sandbox");
+  const git = (cwd, args) => { const result = spawnSync("git", ["-c", "user.email=t@e.com", "-c", "user.name=t", ...args], { cwd, encoding: "utf8" }); assert.equal(result.status, 0, result.stderr); };
+  mkdirSync(join(upstream, "skills", "hallmark"), { recursive: true });
+  mkdirSync(join(upstream, "docs"), { recursive: true });
+  writeFileSync(join(upstream, "skills", "hallmark", "SKILL.md"), "---\nname: hallmark\ndescription: fake\n---\n");
+  writeFileSync(join(upstream, "docs", "recipes.md"), "recipes");
+  git(root, ["init", "-q", "-b", "main", upstream]); git(upstream, ["add", "."]); git(upstream, ["commit", "-q", "-m", "init"]);
+
+  // Run the bundle from a scratch package root so the manifest can point at the local upstream repo
+  // and stand in for the upstream's install command with a script that only needs the clone.
+  mkdirSync(join(sandbox, "dist"), { recursive: true });
+  for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) copyFileSync(join("dist", bundle), join(sandbox, "dist", bundle));
+  for (const folder of ["adapters", "schemas", ".agents"]) cpSync(folder, join(sandbox, folder), { recursive: true });
+  const manifestPath = join(sandbox, "adapters", "upstream-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const installScript = "const fs=require('fs'),path=require('path');const [checkout,dest]=process.argv.slice(1);fs.cpSync(path.join(checkout,'skills','hallmark'),dest,{recursive:true});fs.writeFileSync(path.join(dest,'saw-docs'),String(fs.existsSync(path.join(checkout,'docs','recipes.md'))));";
+  const agentSkill = (agent) => join(root, "installed", agent);
+  manifest.integrations.hallmark = {
+    source: upstream, ref: "main",
+    executables: { Claude: "node", Codex: "node", Antigravity: "node" },
+    platforms: Object.fromEntries(["Claude", "Codex", "Antigravity"].map((platform) => [platform, [["-e", installScript, "$checkout", agentSkill(platform)]]]))
+  };
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+
+  const install = () => spawnSync(process.execPath, [join(sandbox, "dist", "agent-workflow.mjs"), "install", "--non-interactive", "--skills", "workflow", "--hallmark", "--state-root", state, "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: sandbox, encoding: "utf8", env: { ...process.env, HOME: home, USERPROFILE: home } });
+  const workdirOf = (stdout) => JSON.parse(stdout).native[0].results.find((item) => item.command.startsWith("remove ")).command.slice("remove ".length);
+
+  const first = install();
+  assert.equal(first.status, 0, first.stdout + first.stderr);
+  for (const platform of ["Claude", "Codex", "Antigravity"]) {
+    assert.ok(existsSync(join(agentSkill(platform), "SKILL.md")), `${platform} gets the skill through the install command`);
+    assert.equal(readFileSync(join(agentSkill(platform), "saw-docs"), "utf8"), "true", "the install command ran against the full clone");
+  }
+  assert.equal(existsSync(workdirOf(first.stdout)), false, "the clone is removed after a successful install");
+  assert.equal(existsSync(join(state, "upstream")), false);
+
+  manifest.integrations.hallmark.platforms.Claude = [["-e", "process.exit(3)"]];
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  const failed = install();
+  assert.notEqual(failed.status, 0, "a failing upstream install fails the install");
+  assert.equal(existsSync(workdirOf(failed.stdout)), false, "the clone is removed even when the install command fails");
 });
 
 test("a global CLI shim resolves its recorded source from the managed state root", () => {
@@ -96,6 +175,7 @@ test("install keeps clean-comments out of runtime hooks while retaining locale l
   const stop = JSON.stringify(hooks.Stop || []);
   const preToolUse = JSON.stringify(hooks.PreToolUse || []);
   assert.equal((stop.match(/locale-lint --platform Claude/g) || []).length, 1, "locale-lint Stop hook must not duplicate across repairs");
+  assert.equal((JSON.stringify(hooks.SessionStart || []).match(/locale-context --platform Claude/g) || []).length, 1, "locale-context SessionStart hook must not duplicate across repairs");
   assert.doesNotMatch(stop, /\[agent-workflow managed: clean-comments\]|clean-comments\/SKILL\.md|\"type\":\"agent\"/);
   assert.doesNotMatch(preToolUse, /\[agent-workflow managed: clean-comments\]|clean-comments\/SKILL\.md|Edit\|Write/, "clean-comments must not run on every Edit/Write");
 });

@@ -14,5 +14,4 @@ acceptance criteria, local verification command, and dependencies. Implement and
 on one slice before starting a dependent slice. Keep slices in the coordinator's working plan; they
 are not new task state or ExecutionPacket authority. Independent slices may use protocol 3 when the
 parallel eligibility rules in [orchestration.md](orchestration.md) pass. Once all slices are stable,
-continue with affected/regression validation, then the task-level Reviewer and DV1 gates described
-in [review.md](review.md).
+follow [Finalization](evidence.md#finalization).

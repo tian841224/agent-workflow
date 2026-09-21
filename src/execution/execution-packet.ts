@@ -148,7 +148,7 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
     intent: { goal: section("goal"), scope: section("scope"), completion_criteria: section("completion criteria") },
     classification: {
       code_change: task.code_change === true,
-      managed_change: task.managed_change === true,
+      managed_change: task.managed_change !== false,
       task_type: String(task.task_type || ""),
       impact_scope: String(task.impact_scope || ""),
       impact_effect: String(task.impact_effect || ""),

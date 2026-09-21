@@ -31,11 +31,12 @@ test("workflow documents preserve focused work and the ordered slice loop", () =
   assert.match(evidence, /Before the first formal evidence batch, reuse the compiled plan/);
   assert.match(evidence, /classification_incomplete/);
   assert.match(evidence, /dependent slice waits until the previous\s+slice's local feedback passes/);
-  assert.match(evidence, /affected\/regression checks through `evidence-run`, including `delivery_validation\.DV1` in the same\s+batch/);
-  assert.match(evidence, /Read-only review leaves a matching receipt reusable/);
+  assert.match(evidence, /`evidence-run` the affected\/regression checks, batching every requirement id that command covers,\s+including `delivery_validation\.DV1`/);
+  assert.match(evidence, /Read-only\s+review leaves the receipt reusable/);
   assert.match(evidence, /Do\s+not add a human approval or a second Reviewer to every slice/);
   assert.match(evidence, /Each\s+slice receives local feedback only/);
-  assert.match(evidence, /task-level review timing in \[review\.md\]\(review\.md\)/);
+  assert.match(evidence, /timing in \[review\.md\]\(review\.md\)/);
+  assert.equal((evidence.match(/^## Finalization$/gm) || []).length, 1, "the final sequence has one owner section");
   assert.match(review, /正式 Reviewer 以整個 task 的穩定交付為單位執行/);
   assert.match(review, /第一輪 `pre-review` 快照/);
   assert.match(review, /需要獨立發布、不可逆外部操作或不可回溯前提的範圍，建立獨立 task/);

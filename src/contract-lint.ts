@@ -33,6 +33,7 @@ const SCANNED = [".agents", "templates", "adapters", "docs", "README.md", "AGENT
 const FRAMEWORK_OWNED = [
   ".agents/agents/", ".agents/skills/workflow/", ".agents/skills/distill/", ".agents/skills/learn/",
   ".agents/skills/project-docs/", ".agents/skills/codebase-design/", ".agents/skills/tdd/",
+  ".agents/skills/diagnosing-bugs/", ".agents/skills/operational-verification/",
   "templates/", "adapters/", "docs/", "README.md", "AGENTS.md"
 ];
 const SKIPPED = ["docs/history", "node_modules", "dist", "bench", ".git"];

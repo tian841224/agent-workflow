@@ -88,9 +88,8 @@ authority; `schemas/cli-output.schema.json` defines the command output shapes.
 
 ## After Apply
 
-The protocol's responsibility ends at `Apply` (then `Cleanup`). The parent returns to its one
-finalization flow in [evidence.md](evidence.md): final evidence, the Reviewer when selected, then
-`close-task`, which evaluates the gate itself. Worker receipts never replace parent evidence.
+The protocol's responsibility ends at `Apply` (then `Cleanup`). The parent returns to
+[Finalization](evidence.md#finalization). Worker receipts never replace parent evidence.
 
 ## Ownership and recovery
 

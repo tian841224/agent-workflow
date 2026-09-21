@@ -17,8 +17,8 @@ export function fingerprint(path: string, base = "", paths: string[] = []): numb
 }
 export function workflowPlan(taskPath = "", policyPath = schemaPath("workflow-policy.json")): number {
   const resolvedTaskPath = taskPath ? (taskPath.endsWith(".json") || !existsSync(join(taskPath, "task.json")) ? taskPath : join(taskPath, "task.json")) : "";
-  const task: JsonObject = resolvedTaskPath ? readJson(resolvedTaskPath) : stdinJson();
   try {
+    const task: JsonObject = resolvedTaskPath ? readJson(resolvedTaskPath) : stdinJson();
     const plan = resolvedTaskPath && existsSync(resolvedTaskPath) ? compilePlanForTaskPath(task, resolvedTaskPath, policyPath) : compileWorkflowPlan(task, loadPolicy(policyPath));
     output(planOutput(plan));
     return 0;

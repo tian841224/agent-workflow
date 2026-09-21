@@ -2,10 +2,10 @@
 // CLI made each run pay for loading installer, lifecycle, knowledge and policy code it never calls.
 import { option, parseArgs, stateRoot, stdinJson } from "./core.js";
 import { runGuard } from "./hooks.js";
-import { runLocaleLint } from "./locale-hooks.js";
+import { runLocaleContext, runLocaleLint } from "./locale-hooks.js";
 
 const [command, ...rest] = process.argv.slice(2);
-const HOOK_COMMANDS = new Set(["git-guard", "locale-lint"]);
+const HOOK_COMMANDS = new Set(["git-guard", "locale-lint", "locale-context"]);
 if (!HOOK_COMMANDS.has(command)) {
   process.stderr.write(`Unknown command: ${command}\n`);
   process.exitCode = 2;
@@ -22,6 +22,7 @@ if (!HOOK_COMMANDS.has(command)) {
     // empty event rather than an exception the platform would read as "no opinion".
     let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
     if (command === "locale-lint") runLocaleLint(payload, root, option(parsed.values, "platform", "Claude"));
+    else if (command === "locale-context") runLocaleContext(payload, root, option(parsed.values, "platform", "Claude"));
     else runGuard(option(parsed.values, "platform", "Codex"), option(parsed.values, "event", "PreToolUse"), payload, root);
   }
 }

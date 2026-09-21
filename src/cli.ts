@@ -5,13 +5,16 @@ import { join } from "node:path";
 // The option each command accepts, declared here rather than discovered by reading every module's
 // inline reads. This is the registry contract-lint validates documented invocations against, so a
 // documented flag that no command reads is a finding instead of a silently ignored argument.
-const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "ponytail", "design-and-refine", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
+// Shorthand for --integration <name>; any other entry of adapters/upstream-manifest.json is reached through --integration.
+const INTEGRATION_FLAGS = ["ponytail", "design-and-refine", "hallmark"];
+const INSTALL_OPTIONS = ["target-agent", "agent", "state-root", "skills", "integration", "ponytail", "design-and-refine", "hallmark", "non-interactive", "dry-run", "claude-target", "codex-target", "antigravity-target"];
 const TASK_TARGET_OPTIONS = ["task-path", "task"];
 export const commandOptions: Record<string, string[]> = {
   install: INSTALL_OPTIONS, repair: INSTALL_OPTIONS, verify: INSTALL_OPTIONS, uninstall: INSTALL_OPTIONS,
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
   "locale-lint": ["platform", "state-root"],
+  "locale-context": ["platform", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd", "auto", "event"],
   "workflow-plan": ["task-path", "policy-path"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
@@ -103,8 +106,7 @@ async function main(): Promise<void> {
     target: option(parsed.values, "target-agent", option(parsed.values, "agent", "All")),
     root: option(parsed.values, "state-root", stateRoot()),
     skills: option(parsed.values, "skills") || undefined,
-    ponytail: flag(parsed.values, "ponytail"),
-    designAndRefine: flag(parsed.values, "design-and-refine"),
+    integrations: [...new Set([...INTEGRATION_FLAGS.filter((name) => flag(parsed.values, name)), ...option(parsed.values, "integration", "").split(",").map((name) => name.trim()).filter(Boolean)])],
     nonInteractive: flag(parsed.values, "non-interactive"),
     dryRun: flag(parsed.values, "dry-run"),
     claude: option(parsed.values, "claude-target", join(homedir(), ".claude")),
@@ -124,7 +126,11 @@ async function main(): Promise<void> {
   }
   else if (command === "locale-lint") {
     let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
-    (await import("./locale-hooks.js")).runLocaleLint(payload, option(parsed.values, "state-root", stateRoot()));
+    (await import("./locale-hooks.js")).runLocaleLint(payload, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "platform", "Claude"));
+  }
+  else if (command === "locale-context") {
+    let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
+    (await import("./locale-hooks.js")).runLocaleContext(payload, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "platform", "Claude"));
   }
   else if (command === "memory-context") {
     const platform = option(parsed.values, "platform", "Codex");
@@ -136,7 +142,7 @@ async function main(): Promise<void> {
     let invocationNum: number | undefined;
     if (platform.toLowerCase() === "antigravity") invocationNum = typeof payload.invocationNum === "number" ? payload.invocationNum : undefined;
     if (platform.toLowerCase() === "antigravity" && invocationNum !== 0) { process.stdout.write(`${JSON.stringify({ injectSteps: [] })}\n`); return; }
-    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", typeof payload.cwd === "string" ? payload.cwd : process.cwd()), invocationNum, flag(parsed.values, "auto"), event ? { event, prompt: typeof payload.prompt === "string" ? payload.prompt : undefined } : undefined);
+    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", typeof payload.cwd === "string" ? payload.cwd : process.cwd()), invocationNum, flag(parsed.values, "auto"), event ? { event, prompt: typeof payload.prompt === "string" ? payload.prompt : undefined, sessionId: typeof payload.session_id === "string" ? payload.session_id : undefined } : undefined);
   }
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);

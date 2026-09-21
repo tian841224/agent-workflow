@@ -73,8 +73,18 @@ export type ProjectIdentity = { projectId: string; worktreeId: string; root: str
 
 // Matches the pre-Node project_id formula exactly (git-common-dir + remote + root-commit
 // fingerprint) so existing ~/.agent-workflow/projects/<id> directories keep resolving.
+// The CLI is a short-lived process and one command asks for the same path several times (plan,
+// gate and evidence each resolve it), so the three git calls below run once per path.
+const identityCache = new Map<string, ProjectIdentity>();
 export function projectIdentity(path: string): ProjectIdentity {
   const resolvedPath = resolve(path);
+  const cached = identityCache.get(resolvedPath);
+  if (cached) return cached;
+  const identity = resolveProjectIdentity(resolvedPath);
+  identityCache.set(resolvedPath, identity);
+  return identity;
+}
+function resolveProjectIdentity(resolvedPath: string): ProjectIdentity {
   const probe = git(resolvedPath, ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--git-common-dir"]);
   const lines = probe.stdout.split(/\r?\n/);
   if (probe.status !== 0 || (lines[0] || "").trim().toLowerCase() !== "true") {

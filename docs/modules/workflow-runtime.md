@@ -7,7 +7,6 @@ covers:
   - src/project-doc.ts
   - src/task-report.ts
   - src/orchestration/
-  - src/experimental/orchestration.ts
   - scripts/run-tests.mjs
   - schemas/task.schema.json
   - schemas/orchestration.schema.json
@@ -27,7 +26,7 @@ The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`,
 
 ## Flow
 
-`task-init (returns compiled plan) > preflight once > selected procedures`
+`task-init (returns compiled plan and readiness) > selected procedures`
 
 `focused: implementation > focused feedback`
 
@@ -58,12 +57,12 @@ on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint ever
 
 ## Shared state
 
-`task.json` is the machine authority for lifecycle, classification, validation profile, project document bookkeeping, evidence, plan revisions, waivers, and approvals. The sibling `task.md` is the human intent authority for Goal, Scope, and Completion criteria. `schemas/workflow-policy.json` selects capabilities and steps; `schemas/task.schema.json` validates persisted state.
+`task.json` is the machine authority for lifecycle, classification, project document bookkeeping, evidence, plan revisions, waivers, and approvals. The sibling `task.md` is the human intent authority for Goal, Scope, and Completion criteria. `schemas/workflow-policy.json` selects capabilities and steps; `schemas/task.schema.json` validates persisted state.
 
 ## Invariants and gotchas
 
 - `delivery_validation.DV1` is the minimum runtime receipt for every managed delivery; it does not replace high-risk evidence.
-- `preflight` runs once after task creation; it does not replace activation, project-doc checks, review, or runtime evidence.
+- `task-init` already returns the `preflight` checks as `readiness`; the standalone command is for manual diagnosis and does not replace activation, project-doc checks, review, or runtime evidence.
 - Runtime evidence without a delivery fingerprint is stale and cannot satisfy a gate.
 - A non-zero command is recorded as a failed observation, not a passing receipt.
 - `task-report` never writes task state and never changes gate results.

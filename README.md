@@ -117,6 +117,8 @@ agent-workflow 是共用於 **Claude Code、Codex、Antigravity** 的 AI 開發�
    npm run setup -- --target-agent Codex
    ```
 
+   選用的原生整合（由各自的上游 repo 安裝，不收進本 repo 的 skills）：`--ponytail`、`--design-and-refine`、`--hallmark`，或用 `--integration <名稱>` 安裝 `adapters/upstream-manifest.json` 內的任一條目。上游位置與各平台的安裝指令只記在該 manifest；需要本機目錄的指令會臨時 clone 到系統暫存目錄，跑完（含失敗時）就刪除，不在本機保留。重跑同一指令即更新，加 `--dry-run` 只列出步驟。新增框架的方法見 [upstream integrations](docs/modules/upstream-integrations.md)。
+
 ## Skills 一覽
 
 Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，不代表每次任務都讀取全文。** 安裝分類以 [managed manifest](adapters/managed-manifest.json) 為準。
@@ -132,7 +134,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [tdd](.agents/skills/tdd/SKILL.md) | 計畫選取 TDD 時，執行 red → green → refactor |
 | [learn](.agents/skills/learn/SKILL.md) | 保存使用者要求或確認的可重用結論 |
 | [clean-comments](.agents/skills/clean-comments/SKILL.md) | 撰寫多行、公開合約或需要解釋判斷依據的註解 |
-| [localization-tw](.agents/skills/localization-tw/SKILL.md) | 所有中文回覆的臺灣繁體中文規則；翻譯與術語按需查閱 references |
+| [localization-tw](.agents/skills/localization-tw/SKILL.md) | 翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 `AGENTS.md` 常駐規則與 Stop hook 檢查 |
 | [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) | 編寫 `.agents/` 角色或 skill 指引，維持清楚的入口與分層揭露 |
 
 ### 依需求選用
@@ -145,9 +147,8 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、部署、migration 與外部整合的實際環境驗證 |
 | [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的結論或 review 原因提煉改善；草稿核准後才生效 |
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
-| [adhd-comms](.agents/skills/adhd-comms/SKILL.md) | 讓回覆重點先行、易掃讀，同時保留必要證據 |
+| [adhd-comms](.agents/skills/adhd-comms/SKILL.md) | 使用者要求回覆重點先行、易掃讀，同時保留必要證據 |
 | [humanizer](.agents/skills/humanizer/SKILL.md) | 依要求重寫文字，或修正明確的 AI 腔調 |
-| [hallmark](.agents/skills/hallmark/SKILL.md) | 明確要求更有辨識度的 UI 設計、設計稽核或重設計 |
 
 另有 repository 內的 [doc-coauthoring](.agents/skills/doc-coauthoring/SKILL.md)，用於規格、提案與較大型文件；它列在 manifest 的 unmanaged_skills 清單，不屬於 installer 的 managed skill catalog。
 

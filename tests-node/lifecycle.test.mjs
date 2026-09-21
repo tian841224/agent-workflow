@@ -570,6 +570,23 @@ test("one evidence-run can satisfy multiple selected steps in one command", () =
   assert.equal(state.evidence[0].at, state.evidence[1].at);
 });
 
+test("ticking a Completion criteria checkbox keeps recorded evidence fresh, but rewording the criterion does not", () => {
+  const root = join(tmpdir(), `agent-workflow-intent-checkbox-${process.pid}-${Date.now()}`);
+  const task = join(root, "task"); mkdirSync(task, { recursive: true });
+  const taskMd = (box, criterion) => `# Tick\n\n## Goal\n\nVerify checkbox handling.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [${box}] ${criterion}\n`;
+  writeFileSync(join(task, "task.md"), taskMd(" ", "the check passes"));
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "ran", "--", process.execPath, "-e", "0"]).status, 0);
+  const gateErrors = () => JSON.parse(run(["task-gate", "--task-path", path]).stdout).errors.join("\n");
+  const before = gateErrors();
+  writeFileSync(join(task, "task.md"), taskMd("x", "the check passes"));
+  assert.equal(gateErrors(), before, "ticking the box must not change what the gate reports");
+  writeFileSync(join(task, "task.md"), taskMd("x", "a different check passes"));
+  assert.notEqual(gateErrors(), before, "changing the criterion text must still invalidate evidence");
+});
+
 // evidence-run's plan/intent freshness must be checked against the freshest on-disk state inside the
 // file lock at write time, not only just before the (potentially slow) command spawns: a task
 // reclassified while the command is still running must be rejected once the command finishes, not

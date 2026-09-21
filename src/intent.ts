@@ -35,14 +35,15 @@ export function intentValidationErrors(markdown: string): string[] {
 
 // Covers only Goal/Scope/Completion criteria, not the whole task.md — a typo fix, an added Evidence
 // section, or a heading-format change elsewhere in the file must never invalidate an existing
-// intent_approval. Whitespace is fully normalized so reflowing a paragraph doesn't either; only the
-// visible content of these three sections can change this hash.
+// intent_approval. Whitespace is fully normalized so reflowing a paragraph doesn't either, and a
+// checkbox tick ("- [ ]" to "- [x]") is progress rather than an intent change; only the visible
+// content of these three sections can change this hash.
 export function intentHash(taskMd: string): string {
   const errors = intentValidationErrors(taskMd);
   // Hashing a missing section digests an empty string, which downstream reads as an approved intent.
   if (errors.length) throw new Error(`task.md intent is invalid: ${errors.join("; ")}`);
   const map = sections(taskMd);
-  const picked = Object.fromEntries(TRACKED_SECTIONS.map((name) => [name, (map.get(name) || "").replace(/\s+/g, " ").trim()]));
+  const picked = Object.fromEntries(TRACKED_SECTIONS.map((name) => [name, (map.get(name) || "").replace(/^(\s*[-*] )\[[xX]\]/gm, "$1[ ]").replace(/\s+/g, " ").trim()]));
   return sha256(canonicalJson(picked));
 }
 

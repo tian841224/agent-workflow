@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-const run = (args) => spawnSync(process.execPath, [join(process.cwd(), "dist", "agent-workflow.mjs"), ...args], { cwd: process.cwd(), encoding: "utf8" });
+const run = (args) => spawnSync(process.execPath, [join(process.cwd(), "dist", "agent-workflow.mjs"), ...args], { cwd: process.cwd(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 const fixturePath = join(process.cwd(), "tests-node", "fixtures", "policy-matrix.json");
 
 // The dangerous workflow-policy regression is not a crash, it is a gate that quietly stops being

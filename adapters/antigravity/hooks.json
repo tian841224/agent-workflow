@@ -8,6 +8,15 @@
       }
     ]
   },
+  "agent-workflow-locale-context": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-context --platform Antigravity --state-root \"{{STATE_ROOT}}\"",
+        "timeout": 15
+      }
+    ]
+  },
   "agent-workflow-git-guard": {
     "PreToolUse": [
       {

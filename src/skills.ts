@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { Json, JsonObject, output, readJson, sha256, writeJson } from "./core.js";
+import { Json, JsonObject, output, readJson, writeJson } from "./core.js";
 
 function packageRoot(rootValue?: string): string { return resolve(rootValue || process.cwd()); }
 
@@ -25,9 +26,14 @@ function filesUnder(directory: string): string[] {
 }
 // A skill is a directory tree; its identity hash covers every file's relative path and content so a
 // rename or a single-line edit anywhere under it is detectable, not just changes to SKILL.md.
+// Must stay byte-compatible with the `skills` CLI's computedHash, because skills-lock.json is shared
+// with `npx skills add/update` (localeCompare ordering, path then content, no separators).
 function treeHash(directory: string): string {
-  const parts = filesUnder(directory).map((file) => `${relative(directory, file).replaceAll("\\", "/")}:${sha256(readFileSync(file))}`);
-  return sha256(parts.join("\n"));
+  const files = filesUnder(directory).map((file) => ({ path: relative(directory, file).replaceAll("\\", "/"), file }));
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  const hash = createHash("sha256");
+  for (const { path, file } of files) hash.update(path).update(readFileSync(file));
+  return hash.digest("hex");
 }
 function copyDirectory(source: string, destination: string): void {
   for (const file of filesUnder(source)) {

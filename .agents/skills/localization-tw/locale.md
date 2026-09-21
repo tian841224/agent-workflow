@@ -1,6 +1,6 @@
 # zh-TW Locale
 
-所有中文回覆均適用本檔；首次讀取後重用規則，回覆前檢查整份輸出。
+用詞、語氣或標點有疑義時讀本檔；一般中文回覆的常駐規則在 `AGENTS.md`。
 
 ## Core rules
 
@@ -12,6 +12,6 @@
 
 ## 高頻用詞
 
-唯一來源在 [references/vocabulary.md](references/vocabulary.md) 的 `<!-- lint:start -->` block（同時也是 Claude Stop hook 自動檢查用的清單），不在此重複維護第二份對照表。
+唯一來源在 [references/vocabulary.md](references/vocabulary.md) 的 `<!-- lint:start -->` block（同時是 session 開頭注入與 Stop hook 檢查用的清單），不在此重複維護第二份對照表。
 
 如果特定詞彙仍不確定，搜尋 `references/vocabulary.md` 或 `references/linguipedia-cross-strait.md` 的該詞；不要為一個詞載入整份大型 reference。

@@ -44,6 +44,8 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
 }
 export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
   const scope: GuardScope = { root, cwd: event.cwd || process.cwd() };
+  // A command-less read tool is allowed whatever it names, so it needs none of the path probing below.
+  if (!event.command && isReadOnlyTool(event.tool)) return { allow: true };
   if (!touchesProtected(event, TASK_STATE_PATTERN, scope)) return { allow: true };
   const allowed = event.command ? taskCommandAllowed(event.command, root, scope.cwd) : isReadOnlyTool(event.tool);
   return allowed ? { allow: true } : { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-report` for read-only inspection and the verified agent-workflow task CLI for writes instead of editing it directly." };

@@ -6,10 +6,10 @@ import { compileWorkflowPlan, loadPolicy } from "./workflow-policy.js";
 // Sampling is deliberate — the point is a stable tripwire, not a proof.
 const TASK_TYPES = ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"];
 const IMPACT_SCOPES = ["file", "module", "multi_module", "cross_project"];
-const IMPACT_EFFECTS = ["none", "local_behavior", "shared_behavior", "data", "contract", "destructive"];
-const IMPACT_CONFIDENCES = ["high", "low"];
+const IMPACT_EFFECTS = ["none", "local_behavior", "shared_behavior", "data", "schema", "contract", "destructive"];
+const IMPACT_CONFIDENCES = ["high", "medium", "low"];
 const RISK_SETS: string[][] = [[], ["behavior_change"], ["schema", "migration"], ["financial", "data_write", "contract"], ["security", "authorization", "operational"]];
-const BOOLEAN_FACTS = ["has_consumer", "schema_constraint_change", "data_transform", "destructive_operation", "changes_module_interface", "improves_testability", "introduces_adapter", "testable_behavior_change", "debug_requested", "flaky_failure", "performance_anomaly"];
+const BOOLEAN_FACTS = ["has_consumer", "schema_constraint_change", "data_transform", "destructive_operation", "changes_module_interface", "improves_testability", "introduces_adapter", "testable_behavior_change", "debug_requested", "flaky_failure", "performance_anomaly", "test_deleted", "test_skipped", "assertion_weakened", "snapshot_mass_change"];
 // Three fact sets, because tri-state makes them three different questions: undeclared (unknown, the
 // step is kept), declared true, and declared false. Only the all-false set isolates what the other
 // classification fields contribute, since nothing is left unknown to keep a step alive.

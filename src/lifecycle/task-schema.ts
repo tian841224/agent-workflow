@@ -44,5 +44,6 @@ const ajv = new Ajv2020({ allErrors: true, strict: false }); // task.schema.json
 addFormats(ajv);
 const validateTask = ajv.compile(taskSchema);
 export function schemaErrors(state: JsonObject): string[] {
-  return validateTask(state) ? [] : (validateTask.errors || []).map((error) => formatValidationError(error as ValidationError));
+  // oneOf branches repeat the same message per evidence entry; one copy is enough to act on.
+  return validateTask(state) ? [] : [...new Set((validateTask.errors || []).map((error) => formatValidationError(error as ValidationError)))];
 }

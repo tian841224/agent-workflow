@@ -13,18 +13,13 @@ test("skill list merges managed-manifest.json's core/optional catalog with optio
   const workflow = rows.find((row) => row.name === "workflow");
   assert.equal(workflow.required, true);
   assert.equal(workflow.present, true);
-  const hallmark = rows.find((row) => row.name === "hallmark");
-  assert.equal(hallmark.required, false);
-  assert.equal(hallmark.source, undefined, "locally customized Hallmark must not claim upstream lock parity");
+  assert.equal(rows.some((row) => row.name === "hallmark"), false, "Hallmark is installed natively, not vendored into this catalog");
 });
 
-test("skill verify reports no-op for unlocked framework and locally customized skills", () => {
+test("skill verify is a no-op for unlocked framework skills", () => {
   const workflow = JSON.parse(run(["skill", "--action", "Verify", "--name", "workflow"]).stdout);
   assert.equal(workflow.valid, true);
   assert.match(workflow.note, /no skills-lock\.json entry/);
-  const hallmark = JSON.parse(run(["skill", "--action", "Verify", "--name", "hallmark"]).stdout);
-  assert.equal(hallmark.valid, true);
-  assert.match(hallmark.note, /no skills-lock\.json entry/);
 });
 
 test("skill install/verify/remove round-trips a locally vendored skill through skills-lock.json", () => {
