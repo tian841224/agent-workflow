@@ -1,6 +1,6 @@
 # Techniques for Building a Feedback Loop
 
-Only read this list when you're stuck in Phase 1 and can't think of a command that would turn red. Techniques are roughly ordered "try this first" — you don't need to work through all of them every time:
+Use this list when the straightforward repro path can't produce a signal that turns red. Techniques are roughly ordered "try this first" — you don't need to work through all of them every time:
 
 1. **Failing test**: write it at whichever seam actually touches this bug — unit, integration, or e2e are all fine.
 2. **Curl/HTTP script**: hit a running dev server directly.
@@ -23,4 +23,4 @@ The goal isn't a clean repro — it's a **higher reproduction rate**. Loop the t
 
 ## When You Truly Can't Build a Loop
 
-Say so plainly and list what you tried. Ask the user for one of: (a) access to an environment that reproduces the issue, (b) redacted captured artifacts (HAR files, log dumps, core dumps, timestamped screen recordings), or (c) permission to add temporary production instrumentation. **Do not** start guessing without a loop — that's exactly the failure mode this skill exists to prevent.
+Say so plainly and list what you tried. Ask the user for one of: (a) access to an environment that reproduces the issue, (b) redacted captured artifacts (HAR files, log dumps, core dumps, timestamped screen recordings), or (c) permission to add temporary production instrumentation. Until one of these exists, report candidate causes as unconfirmed hypotheses rather than shipping a speculative fix.

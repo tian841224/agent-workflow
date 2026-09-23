@@ -20,7 +20,7 @@ The coordinator may select `tdd` for:
 
 Whether a change enters the managed workflow is decided by the [workflow skill](../workflow/SKILL.md): normal test-only additions, assertion strengthening, and safe test refactors may bypass it, while deleting tests, skipping tests, weakening assertions, or mass-changing snapshots/fixtures is handled by the `test_integrity` capability, and config, script, deployment and schema changes are classified there by their actual impact.
 
-Before starting, read the project instructions, relevant project docs, and any `CONTEXT.md` or ADRs, following the project's existing domain vocabulary, public interfaces, and test conventions.
+Follow the project's existing domain vocabulary, public interfaces, and test conventions.
 
 ## Test boundary (Seam)
 

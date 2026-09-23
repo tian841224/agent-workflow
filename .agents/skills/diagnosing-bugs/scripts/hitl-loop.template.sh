@@ -1,12 +1,12 @@
 #!/bin/sh
 # Human-in-the-loop feedback loop template.
 #
-# Last resort when Phase 1 genuinely cannot build an agent-runnable loop
+# Last resort when no agent-runnable feedback loop can be built
 # (a physical device, a UI interaction with no headless equivalent, a manual
 # approval step). This script does not remove the human -- it structures
 # around them: prompt exactly what to do, capture exactly what happened,
 # write it somewhere the agent can read back. Copy this file, fill in the
-# three marked sections, and treat its output file as the Phase 1 command.
+# three marked sections, and treat its output file as the reproduction signal.
 set -eu
 
 OUTPUT_FILE="${HITL_OUTPUT_FILE:-hitl-loop-result.txt}"

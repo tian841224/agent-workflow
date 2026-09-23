@@ -12,7 +12,6 @@ Use this skill when a memory should affect a later task. Capture only a conclusi
 - Capture immediately when the user explicitly says remember, save, or learn.
 - Capture a correction, settled decision, confirmed fix, or durable preference when it changes future work.
 - Do not capture one-off choices, transient context, secrets, credentials, personal data, or an unconfirmed guess.
-- Do not announce a skipped capture unless the user asked what was saved.
 
 ## Capture
 

@@ -13,18 +13,6 @@ This skill starts where `planning` ends: `planning` turns vague requirements int
 
 Pressure-test the plan until the decision tree is clear and the next move is defensible.
 
-## Workflow
+## How to question
 
-1. Identify the current plan, decision, or assumption being tested (usually formulated after or alongside `planning`).
-2. Pick the highest-risk unresolved branch first.
-3. Ask exactly one question at a time.
-4. For each question, include your recommended answer and the reason.
-5. If the answer can be found in the codebase or docs, inspect them instead of asking.
-6. Continue until the main tradeoffs, dependencies, risks, and success criteria are resolved.
-
-## Question Style
-
-- Be direct and specific.
-- Prefer questions about constraints, ownership, failure modes, rollout, verification, and reversibility.
-- Keep it a focused conversation, not a long checklist.
-- Only ask about real unresolved uncertainty; stop once the remaining uncertainty is low enough to act.
+Start from the highest-risk unresolved branch. Ask exactly one question at a time, and give your recommended answer and its reason with each question. When the codebase or docs can answer it, inspect them instead of asking. Prefer questions about constraints, ownership, failure modes, rollout, verification, and reversibility, and stop once the main trade-offs, dependencies, risks, and success criteria are resolved well enough to act.

@@ -364,13 +364,7 @@ This document provides a curated list of dictionaries, corpora, grammar referenc
 - Good for Korean-Japanese-Chinese-English
 - Free
 
-**Important Note on Machine Translation**:
-
-- NEVER use machine translation as your final output
-- Can be used for rough understanding only
-- Always verify with human expertise
-- Quality varies wildly depending on context
-- Idioms, cultural references, and nuance often mistranslated
+**Machine translation output**: use it only to check rough meaning. Idioms, cultural references, and nuance are often mistranslated, so the deliverable is your own translation, checked against Taiwan usage.
 
 ## Specialized Tools
 
