@@ -19,7 +19,7 @@
 ## 進入 workflow 前的 pointers
 
 - 修改 `.agents/` 底下 agent 或 skill 文件 → `writing-for-agents`；新增 skill 的 manifest 分類也依該 skill 處理。
-- 修改 agents、skills、hooks 或 workflow contract → 先讀 [docs/architecture.md](docs/architecture.md)。
+- 修改 agents、skills、hooks 或 workflow contract → 先讀 [docs/architecture.md](docs/architecture.md) 的「架構設計方向」與「Framework 變更政策」；改 hook 另讀「Hook trust boundary」。
 - 中文翻譯、長篇在地化或臺灣用語不確定 → `localization-tw`；一般中文回覆依上方硬護欄自我檢查。
-- 每次新任務先使用當前任務的相關記憶；自動 hook 沒命中不代表要另外補查，只有使用者提及先前脈絡、prompt 太短、任務中後段影響面已變，或平台沒有 prompt hook 時才明確以 `agent-workflow memory-context --auto --query '<task keywords>'` 查詢（見 [memory.md](.agents/skills/workflow/memory.md)）。任務改變時重新查詢，同一任務重用結果；沒有命中不以近期記憶補足。
+- 使用者提及先前脈絡、prompt 太短、影響面中途改變或平台沒有 prompt hook → 依 [memory.md](.agents/skills/workflow/memory.md) 明確查詢記憶；其餘情況直接使用 hook 注入的記憶。
 - 查看或分析前端頁面 → 優先讀 DOM，無法解析時才用截圖。

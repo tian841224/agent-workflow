@@ -4,7 +4,7 @@
 
 `behavior_change`、`ui`、`data_write`、`contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements`、`test_integrity`、`security`、`operational`
 
-flag 會讓 runtime 強制對應的 capability，實際結果以 `agent-workflow workflow-plan` 為準；觸發集合的 authority 是 `schemas/workflow-policy.json` 的 `require_when`，freeze 觸發集合是 `schemas/task.schema.json` 的 `x_agent_workflow`。
+flag 會讓 runtime 強制對應的 capability，實際結果以 `task-init`／`task-write` 回傳的 compiled plan 為準；觸發集合的 authority 是 `schemas/workflow-policy.json` 的 `require_when`，freeze 觸發集合是 `schemas/task.schema.json` 的 `x_agent_workflow`。
 
 ## 什麼情況標記
 
@@ -34,7 +34,7 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 命中 `contract`、`schema`、`financial`、`authorization`、`cross_feature`、`migration`、`irreversible`、`unclear_requirements` 任一值時：
 
 - 只在 `## Scope` 下補 `### Non-goals and compatibility`，在 `## Completion criteria` 下補 `### Acceptance cases`。這兩段位於 `intent_hash` 涵蓋的區域，使用者批准的非目標與驗收案例才不會在批准後被改掉而雜湊不變；影響面、方案與證據留在 task.json 的分類、plan 與 evidence。
-- gate 比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、修錯字不受影響。這三段內容在 attestation 後再變動，就必須重新 `approve-intent`。
+- gate 比對 `intent_approval` 的 `intent_hash` 是否等於當下 task.md 的 Goal／Scope（含 Non-goals and compatibility）／Completion criteria（含 Acceptance cases）三段內容的雜湊；補證據、勾選 `-`／`*` 項目的 checkbox、只改空白或換行，以及修改其他段落都不受影響。這三段內任何非空白的內容修改（包括錯字）都會讓 attestation 與既有 evidence 過期，必須重新 `approve-intent` 並重新記錄 evidence，所以在記錄 evidence 前先把這三段定稿。
 - 通過雜湊比對前，目標、非目標與完成條件維持不動；需求變更時 supersede 舊 task 並建立新 task。唯一例外（coordinator 編排中只縮減交付範圍）定義在 [orchestration.md](orchestration.md)。
 
 ### 意圖確認

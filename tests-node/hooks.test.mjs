@@ -49,7 +49,7 @@ test("task-guard allows the verified runtime's read-only task inspection but sti
     input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
   });
 
-  for (const subcommand of ["task-report", "task-gate"]) {
+  for (const subcommand of ["task-report", "task-gate", "pre-review", "execution-packet", "workflow-plan", "preflight"]) {
     const allowed = guard(`node ${runtime} ${subcommand} --task-path ${target}`);
     assert.equal(allowed.status, 0, allowed.stderr);
     assert.doesNotMatch(allowed.stdout, /task-guard/, `${subcommand} must not be denied`);

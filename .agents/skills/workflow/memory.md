@@ -2,7 +2,7 @@
 
 ## 每次任務前的記憶讀取
 
-1. Claude／Codex 只有 UserPromptSubmit：用 payload 的 prompt 與 cwd 依當前任務自動篩選 curated verified 記憶（最多 6 筆、800 字元）。自然語句用英文／中文斷詞後匹配內容；不將 prompt 插入 shell。每次提交都重新篩選，沒有命中就不注入，也不因為沒命中另外補查。Antigravity 沒有等價的 prompt-submit 事件，才在首次 PreInvocation 提供主題導航作為替代入口。
+1. Claude／Codex 只有 UserPromptSubmit：用 payload 的 prompt 與 cwd 依當前任務自動篩選 curated verified 記憶（最多 6 筆、800 字元）。自然語句用英文／中文斷詞後匹配內容；不將 prompt 插入 shell。每次提交都重新篩選，同一 session 已注入的條目不再重複；沒有命中就不注入，也不因為沒命中另外補查。Antigravity 沒有等價的 prompt-submit 事件，才在首次 PreInvocation 提供主題導航作為替代入口。
 2. 每次新任務先讀相關記憶；自動 hook 的結果就是預設證據。只有下列情況才由 agent 依完整任務脈絡明確執行 `agent-workflow memory-context --auto --query '<task keywords>' --cwd '<repo>'`：使用者明確說「之前、上次、記得、延續」；prompt 太短或不足以檢索；任務進行到中後段、影響面已改變；或平台沒有 prompt hook（Antigravity）。沒有命中不因此另外補查。Explicit query 維持所有有效關鍵字都要命中的語意；用 2–5 個精準的 topic／symbol 關鍵字，不把整段需求貼成 query。
 3. 自動 hook（UserPromptSubmit 與 Antigravity PreInvocation 導航）只掃 curated verified 記憶；只有 explicit query 才唯讀掃描平台原生記憶（Claude 的 `~/.claude/memory`／project memory、Codex 的 `~/.codex/memories`／`memory`、Antigravity 的 `~/.gemini/antigravity/brain`）。這些候選一律標成 `needs_verification`，不能取代 curated verification。`~/.agent-workflow` 是跨平台共用的可寫 curated store；安裝時把同一個絕對 state root 寫入三平台 hooks。記憶只作參考，使用前核對現況；沒有相關結果不以最近更新補足。同一任務重用查詢結果，任務或影響面改變才補查。
 4. 摘要不足以判斷時，用 `agent-workflow knowledge --action Search --scope Project --query '<keywords>' --limit 5` 取得 path 並讀全文；查全域偏好時明列 `--scope Global`。未 verified 結果僅作線索。詞彙匹配不是語意搜尋，同義詞／跨語言未命中時改用記憶 topic 的詞彙查詢。

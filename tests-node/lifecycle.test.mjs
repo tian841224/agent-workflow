@@ -540,11 +540,12 @@ test("evidence-run records runtime-trusted execution evidence, and a failing com
   assert.equal(first.evidence_kind, "execution");
   assert.equal(first.exit_code, 0);
   assert.match(first.output_digest, /^[a-f0-9]{64}$/);
-  // BV2 declares runtime_execution, so an evidence-record claim can never satisfy it.
-  const attested = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "I ran it, honest"]);
-  assert.equal(attested.status, 0, attested.stdout);
-  const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
-  assert.ok(gated.errors.some((error) => /baseline_validation\.BV2/.test(error)), gated.errors.join("; "));
+  // BV2 declares runtime_execution, so an evidence-record claim is refused at write time and points
+  // at evidence-run instead of failing later at close-task.
+  const attested = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1,baseline_validation.BV2", "--summary", "I ran it, honest"]);
+  assert.equal(attested.status, 1, attested.stdout);
+  assert.match(attested.stdout, /baseline_validation\.BV2' require runtime evidence; record them with evidence-run/);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).evidence.length, 1, "a refused batch writes nothing");
   // A recorded non-zero exit is a failure that was written down, not a pass.
   assert.equal(record(process.execPath, "-e", "process.exit(3)").status, 0);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).exit_code, 3);

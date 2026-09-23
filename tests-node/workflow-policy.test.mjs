@@ -128,7 +128,6 @@ test("managed_change: false bypasses every capability/role even with a stale wor
     task_type: "fix", workflow_facts: { schema_constraint_change: true }
   });
   assert.deepEqual(stale.selected, []);
-  assert.deepEqual(stale.order, []);
   assert.deepEqual(stale.required_evidence, []);
   assert.deepEqual(stale.classification_incomplete, []);
   assert.deepEqual(stale.step_classification_incomplete, []);
@@ -142,4 +141,13 @@ test("managed_change: false bypasses every capability/role even with a stale wor
   });
   assert.ok(managed.selected.length > 0, JSON.stringify(managed));
   assert.ok(managed.required_evidence.includes("role.reviewer"), JSON.stringify(managed.required_evidence));
+});
+
+test("a high-confidence file-local financial fix explores focused but keeps its evidence; wider financial scope still expands", () => {
+  const base = { workflow_request: [], task_type: "fix", impact_effect: "local_behavior", impact_confidence: "high", managed_change: true, risk_flags: ["financial"] };
+  const local = JSON.parse(runPlan({ ...base, impact_scope: "file" }).stdout);
+  assert.equal(local.exploration_profile, "focused");
+  for (const name of ["mutation_validation", "data_impact", "reviewer"]) assert.ok(local.required.includes(name), name);
+  const module = JSON.parse(runPlan({ ...base, impact_scope: "module" }).stdout);
+  assert.equal(module.exploration_profile, "expanded");
 });

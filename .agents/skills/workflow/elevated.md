@@ -10,8 +10,9 @@ Read this when the compiled plan reports `exploration_profile: expanded`. It own
 
 When expanded work contains several independent behaviors or crosses module boundaries, the
 coordinator writes ordered slices before implementation. Every slice names its goal, scope,
-acceptance criteria, local verification command, and dependencies. Implement and give local feedback
-on one slice before starting a dependent slice. Keep slices in the coordinator's working plan; they
+acceptance criteria, local verification command, and dependencies. A dependent slice waits until the
+previous slice's local feedback passes. Each slice receives local feedback only; the whole task gets
+one Reviewer after every slice is stable. Keep slices in the coordinator's working plan; they
 are not new task state or ExecutionPacket authority. Independent slices may use protocol 3 when the
 parallel eligibility rules in [orchestration.md](orchestration.md) pass. Once all slices are stable,
 follow [Finalization](evidence.md#finalization).

@@ -211,8 +211,11 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const suggested = (!managedChange ? [] : capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match")).map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
   // A local behavior flag does not by itself justify expanded repository exploration. Scope,
   // confidence, effect and cross-boundary risks already identify the cases that need the deeper map.
-  const expandedRisk = ["contract", "schema", "data_write", "financial", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity", "security", "operational"];
-  const exploration_profile = !managedChange ? "focused" : (ctx.impact_scope === "multi_module" || ctx.impact_scope === "cross_project" || ["medium", "low"].includes(ctx.impact_confidence) || ["schema", "data", "contract", "destructive"].includes(ctx.impact_effect) || ctx.risk_flags.some((flag) => expandedRisk.includes(flag)) ? "expanded" : "focused");
+  const expandedRisk = ["contract", "schema", "data_write", "authorization", "cross_feature", "migration", "irreversible", "unclear_requirements", "test_integrity", "security", "operational"];
+  // A high-confidence, file-local financial fix already carries mutation evidence and a Reviewer;
+  // exploring the whole repository adds reading, not verification. Wider financial scope still expands.
+  const expandedFlag = (flag: string) => expandedRisk.includes(flag) || (flag === "financial" && ctx.impact_scope !== "file");
+  const exploration_profile = !managedChange ? "focused" : (ctx.impact_scope === "multi_module" || ctx.impact_scope === "cross_project" || ["medium", "low"].includes(ctx.impact_confidence) || ["schema", "data", "contract", "destructive"].includes(ctx.impact_effect) || ctx.risk_flags.some(expandedFlag) ? "expanded" : "focused");
   const policy_version = Number(policy.version || 0);
   const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => `${String(capability.name)}.${String(step.id)}`)))].sort();
   // plan_hash covers policy + classification only — not task.md's prose, which is intent_hash's job
@@ -236,7 +239,6 @@ export function planOutput(plan: CompiledWorkflowPlan): JsonObject {
     requested: plan.requested,
     selected: plan.selected.map((capability) => capability.name),
     exploration_profile: plan.exploration_profile,
-    order: plan.order,
     steps: plan.selected,
     required_evidence: plan.required_evidence,
     plan_hash: plan.plan_hash,

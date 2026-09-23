@@ -22,19 +22,21 @@ const cli = join(root, "dist", "agent-workflow.mjs");
 test("workflow documents preserve focused work and the ordered slice loop", () => {
   const evidence = read(".agents/skills/workflow/evidence.md");
   const review = read(".agents/skills/workflow/review.md");
+  // Ordered slices have one owner (elevated.md); evidence.md only points to it.
+  const elevated = read(".agents/skills/workflow/elevated.md");
   const runtime = read("docs/modules/workflow-runtime.md");
   const readme = read("README.md");
   assert.match(evidence, /`focused` file-local work follows `implementation -> focused feedback` directly/);
   assert.match(readme, /直接走 `implementation -> focused feedback`/);
   assert.match(runtime, /expanded: ordered slice .*local feedback > next dependent slice > all slices complete/);
-  assert.match(evidence, /goal, scope, acceptance\s+criteria, local verification command, and dependencies/);
+  assert.match(elevated, /goal, scope,\s+acceptance criteria, local verification command, and dependencies/);
+  assert.match(evidence, /elevated\.md#ordered-implementation-slices/);
   assert.match(evidence, /Before the first formal evidence batch, reuse the compiled plan/);
   assert.match(evidence, /classification_incomplete/);
-  assert.match(evidence, /dependent slice waits until the previous\s+slice's local feedback passes/);
+  assert.match(elevated, /dependent slice waits until the\s+previous slice's local feedback passes/);
   assert.match(evidence, /`evidence-run` the affected\/regression checks, batching every requirement id that command covers,\s+including `delivery_validation\.DV1`/);
   assert.match(evidence, /Read-only\s+review leaves the receipt reusable/);
-  assert.match(evidence, /Do\s+not add a human approval or a second Reviewer to every slice/);
-  assert.match(evidence, /Each\s+slice receives local feedback only/);
+  assert.match(elevated, /Each slice receives local feedback only; the whole task gets\s+one Reviewer after every slice is stable/);
   assert.match(evidence, /timing in \[review\.md\]\(review\.md\)/);
   assert.equal((evidence.match(/^## Finalization$/gm) || []).length, 1, "the final sequence has one owner section");
   assert.match(review, /正式 Reviewer 以整個 task 的穩定交付為單位執行/);
@@ -113,5 +115,5 @@ test("lifecycle finalization stays a single authority: only transitions.ts close
   assert.deepEqual(closers, [], "only lifecycle/transitions.ts may drive the close transition");
 
   const protocol = read("src/orchestration/protocol.ts");
-  assert.doesNotMatch(protocol, /lifecycle\/task-gate/, "orchestration must not re-evaluate the gate itself; the parent coordinator runs task-gate after Apply");
+  assert.doesNotMatch(protocol, /lifecycle\/task-gate/, "orchestration must not re-evaluate the gate itself; the parent coordinator closes the task after Apply");
 });

@@ -35,7 +35,9 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
   let compiled: JsonObject = {};
   try {
     const plan = compilePlanForTaskPath(state, path);
-    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, required: plan.required, classification_incomplete: plan.classification_incomplete as unknown as JsonObject[], step_classification_incomplete: plan.step_classification_incomplete as unknown as JsonObject[], order: plan.order, required_evidence: plan.required_evidence, runtime_required_evidence: plan.runtime_required_evidence, exploration_profile: plan.exploration_profile };
+    // Only what identifies the plan: the id lists already came back from task-init, and every
+    // missing id is named in errors, so echoing them again only repeats kilobytes per gate run.
+    compiled = { policy_version: plan.policy_version, plan_hash: plan.plan_hash, exploration_profile: plan.exploration_profile };
     // Only a managed-change task owes an impact classification: an unmanaged (docs/read-only/etc.)
     // task never reaches the capabilities these fields gate, so demanding them would leave it with
     // no way to close. code_change no longer decides this — see managed_change in task.schema.json.

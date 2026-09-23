@@ -30,23 +30,21 @@ reviewer 這一趟派一般 subagent（`general-purpose`），只讀已穩定的
 
 coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。已由 shared map 證實的搜尋與測試結果直接引用，不重新建立相同脈絡。
 
-交給 reviewer 的訊息只帶四項：穩定 diff 的路徑與 base、shared evidence map 的位置、這一輪新增的 impact／validation delta，以及需要主動推翻的風險假設。完整背景與已確認的 PASS 不重複貼上；reviewer 只回報 finding、blocker、FAIL 或未驗證限制，通過時回傳單行 `PASS`。
+交給 reviewer 的訊息只帶四項：穩定 diff 的路徑與 base、shared evidence map 的位置、這一輪新增的 impact／validation delta，以及需要主動推翻的風險假設。完整背景與已確認的 PASS 不重複貼上；reviewer 只回報 finding、blocker、FAIL 或未驗證限制，各附依據、影響與可重現位置；全部通過時回傳單行 `PASS`。
 
 ## Review 範圍與工作樹綁定
 
 每輪 review 前主對話跑一次 `agent-workflow pre-review`，它同時回傳 `git diff --check` 結果與 `workspace_sha256`；把該 sha256 傳給 `review-record --expected-workspace-sha256 <sha256>`，工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。快照到 `review-record` 之間工作樹保持不動（含 stash/pop）；與本任務無關的既有異動在 `task-init` 前處理。
 
-`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 對 role evidence fail-closed，下列任一情況都使既有 review 失效並要求重新複審：已 review 範圍內的內容改變、交付新增原 `reviewed_paths` 未涵蓋的 changed path、分類異動使 `plan_revision` 前進，或 `reviewed_base` 已無法解析而算不出 freshness。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。重跑時沿用下方的 delta-first 規則，不必重新探索未受影響的脈絡。第一輪快照只在全部 slices 完成並通過整體驗證後建立。
+`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 對 role evidence fail-closed，下列任一情況都使既有 review 失效並要求重新複審：已 review 範圍內的內容改變、交付新增原 `reviewed_paths` 未涵蓋的 changed path、分類異動使 `plan_revision` 前進，或 `reviewed_base` 已無法解析而算不出 freshness。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。重跑時沿用下方的 delta-first 規則，不必重新探索未受影響的脈絡。
 
 ## 結果回填
 
 Reviewer 結果只透過 `review-record` 寫入 task.json；summary 保留 blocker、path、symbol／hunk、可觸發情境、影響與最小修正方向。`agent-workflow task-report` 會把 role evidence 呈現給人閱讀，task.md 不再保存第二份 Reviewer ledger。
 
-- Review 指出未列入的呼叫端、入口或共用狀態時：先回填 `Impact surface` 與 `Execution path`，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
+- Review 指出未列入的呼叫端、入口或共用狀態時：先把這些節點補進 shared evidence map，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
 - 回填後的 task 路徑即為唯一版本，後續複審與 knowledge 回寫都以它為準。
 - 有 blocker 時主對話修正、重新執行相關驗證，再重跑上述各趟。
-
-subagent 回報只保留錯誤：有 finding、blocker、FAIL 或未驗證限制時，輸出具體錯誤、依據、影響與可重現位置，省略所有 PASS 項目；全部通過時只輸出單行 `PASS`。輸出不設固定 token 截斷。
 
 ## Review round 與增量錨定
 

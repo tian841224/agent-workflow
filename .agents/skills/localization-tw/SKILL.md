@@ -1,6 +1,6 @@
 ---
 name: localization-tw
-description: 所有中文回覆的臺灣繁體中文規則；翻譯與術語判斷時再讀取相關 references。
+description: 翻譯、長篇在地化或臺灣用語有疑義時載入；一般中文回覆依 AGENTS.md 常駐規則與 session 注入的用語表。
 ---
 
 # 正體中文（臺灣）在地化

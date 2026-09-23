@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { Json, JsonObject, output, readJson } from "../core.js";
 import { intentHash, sections } from "../intent.js";
 import { freezeRequired, schemaErrors } from "../lifecycle/task-schema.js";
+import { taskPath } from "../lifecycle/task-store.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 
 // Named references only — pointers to real documents this repo already ships, never invented ones.
@@ -167,7 +168,7 @@ export function buildExecutionPacket(task: JsonObject, taskJsonPath: string, rep
 }
 
 export function executionPacketCommand(value: string, repoRoot = process.cwd()): number {
-  const path = value.endsWith(".json") ? resolve(value) : join(resolve(value), "task.json");
+  const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     output(buildExecutionPacket(readJson(path) as JsonObject, path, repoRoot) as unknown as Json);
