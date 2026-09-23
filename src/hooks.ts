@@ -299,7 +299,8 @@ const TASK_STATE_WRITER_COMMANDS = new Set([
 ]);
 // Inspecting the task file through the verified runtime is the remediation this guard's own denial
 // message recommends, so the read-only subcommands have to clear the same check the writers do.
-const TASK_STATE_READER_COMMANDS = new Set(["task-report", "task-gate"]);
+// None of these write task state; denying them only turned a task-path argument into a retry.
+const TASK_STATE_READER_COMMANDS = new Set(["task-report", "task-gate", "pre-review", "execution-packet", "workflow-plan", "preflight"]);
 // This allowlist applies only when inspecting the runtime-owned task file.
 const TASK_GIT_READS = new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"]);
 // Global options come before the subcommand, so they have to be consumed before it can be read;

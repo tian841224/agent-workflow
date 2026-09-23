@@ -93,6 +93,6 @@ test("the security and ui risk flags each require an independent reviewer, order
     assert.ok(result.required.includes("reviewer"), `${flag} did not require reviewer: ${JSON.stringify(result.required)}`);
     // A review that runs before the evidence it is supposed to read back proves nothing, so the
     // reviewer has to sort last among everything selected.
-    assert.equal(result.order.at(-1), "reviewer", `${flag}: ${JSON.stringify(result.order)}`);
+    assert.equal(result.selected.at(-1), "reviewer", `${flag}: ${JSON.stringify(result.selected)}`);
   }
 });

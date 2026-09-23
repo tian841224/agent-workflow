@@ -288,3 +288,47 @@ test("a waiver without a requirement id is refused", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /requirement-id/);
 });
+
+// A command that writes into the delivery fails the same way on every retry, so the refusal has to
+// name what moved instead of only saying "re-run required".
+test("evidence-run names the delivered paths its own command added or modified", () => {
+  const root = join(tmpdir(), `agent-workflow-delivery-change-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  vcs(repo, ["init", "-q"]); vcs(repo, ["config", "user.email", "t@e.com"]); vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "a.txt"), "one");
+  vcs(repo, ["add", "."]); vcs(repo, ["commit", "-q", "-m", "init"]);
+  const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
+  const task = join(root, "state", "task");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Delivery\n\n## Goal\n\nVerify the delivery change message.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  writeFileSync(path, JSON.stringify(validTask({ workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", base_commit: head })));
+  writeFileSync(join(repo, "a.txt"), "two");
+  const evidenceRun = (script) => JSON.parse(run(["evidence-run", "--task-path", join(task, "task.md"), "--requirement-id", "baseline_validation.BV2", "--summary", "s", "--cwd", repo, "--", process.execPath, "-e", script]).stdout);
+  const added = evidenceRun("require('fs').writeFileSync('out.txt', 'x')");
+  assert.equal(added.valid, false);
+  assert.match(added.errors[0], /paths added: out\.txt; removed: \(none\)/);
+  const modified = evidenceRun("require('fs').writeFileSync('a.txt', 'three')");
+  assert.match(modified.errors[0], /the command modified delivered files/);
+});
+
+test("task-path accepts task.md, gate output carries only the plan identity, and transitions print a compact status", () => {
+  const root = join(tmpdir(), `agent-workflow-compact-output-${process.pid}-${Date.now()}`);
+  const task = join(root, "task");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Compact\n\n## Goal\n\nVerify compact outputs.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  writeFileSync(join(task, "task.json"), JSON.stringify(validTask({ workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", code_change: false })));
+  const gate = JSON.parse(run(["task-gate", "--task-path", join(task, "task.md")]).stdout);
+  assert.equal(gate.valid, false);
+  assert.ok(gate.errors.some((error) => /baseline_validation\.BV1/.test(error)), gate.errors.join("; "));
+  assert.deepEqual(Object.keys(gate.compiled).sort(), ["exploration_profile", "plan_hash", "policy_version"]);
+  const superseded = JSON.parse(run(["supersede", "--task", task]).stdout);
+  assert.deepEqual(superseded, { valid: true, task: "20260101-000000-evidence-test", status: "superseded", state_revision: 2 });
+});
+
+test("an unknown option lists the options the command accepts", () => {
+  const result = run(["pre-review", "--task-path", "x"]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Unknown option\(s\) for pre-review: --task-path; allowed: --path/);
+});

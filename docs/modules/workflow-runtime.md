@@ -22,7 +22,7 @@ The runtime owns task classification, lifecycle transitions, compiled workflow p
 
 ## Entrypoints
 
-The Node CLI dispatches `task-init`, `task-write`, `preflight`, `workflow-plan`, `evidence-run`, `evidence-record`, `review-record`, `task-gate`, `close-task`, `project-doc`, `task-report`, `pre-review`, `orchestrate --protocol 3`, `worker-check`, and `worker-exec`.
+The command registry is `commandOptions` in `src/cli.ts`; the managed lifecycle uses the commands in the workflow skill's command card.
 
 ## Flow
 
@@ -66,7 +66,7 @@ on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint ever
 - Runtime evidence without a delivery fingerprint is stale and cannot satisfy a gate.
 - A non-zero command is recorded as a failed observation, not a passing receipt.
 - `task-report` never writes task state and never changes gate results.
-- Explicit test paths are validated; a missing path fails instead of silently running zero tests. `scripts/run-tests.mjs` makes the validation profile explicit: focused and affected require selected paths, regression accepts a selected subsystem or all tests, and full runs the complete suite.
+- Explicit test paths are validated; a missing path fails instead of silently running zero tests. `scripts/run-tests.mjs` makes the validation scope explicit: focused and affected require selected paths, regression accepts a selected subsystem or all tests, and full runs the complete suite.
 - `project-doc Remember` records only documents that were actually checked and read; Lookup reports `reusable` only when both the path and current `content_sha256` are present in task state.
 - `review-record` never accepts persisted review scope or digest fields from the caller; `--expected-workspace-sha256` is only a pre-review freshness guard and is not stored as role evidence.
 - Role evidence is fail-closed on scope: a changed path that `reviewed_paths` does not cover invalidates the review, so a delivery that grows after a PASS needs another review round.

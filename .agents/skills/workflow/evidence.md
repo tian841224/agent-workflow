@@ -1,8 +1,8 @@
 # Evidence procedure
 
-Read this when an ExecutionPacket contains evidence capabilities. The packet's selected capability
-and step titles are already decided; use them as the work list and record only the conclusions that
-belong to those steps.
+Read this when the procedures returned by task-init (or an ExecutionPacket) include it. The selected
+capabilities and step titles are already decided; use them as the work list and record only the
+conclusions that belong to those steps. Command syntax is in the workflow skill's command card.
 
 ## Shared analysis
 
@@ -27,7 +27,7 @@ round trip and state write for no extra evidence.
 
 Before the first formal evidence batch, reuse the compiled plan and resolve every known
 `classification_incomplete` and `step_classification_incomplete` entry. Declare the missing task
-classification or `workflow_facts` in one classification update, then record evidence against the
+classification or `workflow_facts` in one `task-write`, then record evidence against the
 resulting plan. New risk discovered during exploration still triggers the normal reclassification and
 freshness rules; this ordering only prevents known omissions from invalidating an earlier evidence
 batch.
@@ -35,10 +35,8 @@ batch.
 
 `task-init` returns `readiness` with fixed environment failures grouped before exploration,
 implementation, or validation starts; `preflight` repeats the same checks only for manual diagnosis.
-During implementation, keep one shared map of entrypoints, callers, boundaries, validation commands, and
-unknowns; pass that map by reference and add only new conclusions to each evidence step. A handoff
-names the current task state, worktree diff, changed paths, and blockers; one coordinator owns writes
-to a worktree at a time, and the incoming coordinator checks those items before continuing.
+A handoff names the current task state, worktree diff, changed paths, and blockers; one coordinator
+owns writes to a worktree at a time, and the incoming coordinator checks those items before continuing.
 
 Runtime execution evidence must come from `evidence-run`. Its freshness is currently delivery-wide:
 reuse a result only while the task plan, intent, command scope, complete delivery fingerprint, and
@@ -49,20 +47,10 @@ Completion criteria checkbox does not change the intent hash. The final sequence
 
 ## Implementation slices and local feedback
 
-The coordinator chooses the smallest flow that matches the task:
-
-- `focused` file-local work follows `implementation -> focused feedback` directly.
-- `expanded` work that crosses modules, carries higher risk, or contains multiple independent
-  behaviors uses ordered implementation slices. Each slice states its goal, scope, acceptance
-  criteria, local verification command, and dependencies. A dependent slice waits until the previous
-  slice's local feedback passes.
-
-Slices are coordinator working notes. They do not add slice state to `task.json`, change the
-`ExecutionPacket` or evidence authority, or add a feedback CLI. Eligible independent ownership
-scopes may use protocol 3 from [orchestration.md](orchestration.md), but that batch still keeps the
-parent task, evidence, Reviewer, and close authority with the coordinator. Do not add a human approval or a second Reviewer to every slice. Each
-slice receives local feedback only; when every slice is complete and the delivery is stable, continue
-with [Finalization](#finalization).
+`focused` file-local work follows `implementation -> focused feedback` directly. `expanded` work that needs
+ordered slices follows [elevated.md](elevated.md#ordered-implementation-slices). Each slice gets local
+feedback only, with one Reviewer for the whole task; once the delivery is stable, continue with
+[Finalization](#finalization).
 
 ## Finalization
 

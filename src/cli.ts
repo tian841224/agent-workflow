@@ -28,7 +28,7 @@ export const commandOptions: Record<string, string[]> = {
   pause: ["task", "actor"], block: ["task", "actor"], resume: ["task", "actor"], supersede: ["task", "actor"],
   waive: ["task", "actor", "confirmed-by-user", "requirement-id"],
   "approve-intent": [...TASK_TARGET_OPTIONS, "confirmed-by", "as-user"],
-  "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "command", "cwd", "exit-code", "output-digest"],
+  "evidence-record": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor"],
   "evidence-run": [...TASK_TARGET_OPTIONS, "requirement-id", "summary", "actor", "cwd"],
   "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "expected-workspace-sha256", "cause", "cause-evidence", "cause-round", "cause-paths", "cause-miss-category", "cause-introduced-by", "cause-proposed-change"],
   learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "supersedes", "forget", "id", "reason", "approved-by-user"],
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   }
   const unknown = [...parsed.values.keys()].filter((key) => !allowedOptions.has(key));
   if (unknown.length) {
-    process.stderr.write(`Unknown option(s) for ${command}: ${unknown.map((key) => `--${key}`).join(", ")}\n`);
+    process.stderr.write(`Unknown option(s) for ${command}: ${unknown.map((key) => `--${key}`).join(", ")}; allowed: ${[...allowedOptions].map((key) => `--${key}`).join(", ") || "(none)"}\n`);
     process.exitCode = 2;
     return;
   }
@@ -168,11 +168,7 @@ async function main(): Promise<void> {
   else if (command === "task-report") process.exitCode = (await import("./task-report.js")).taskReport(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "close-task") process.exitCode = (await import("./lifecycle/index.js")).closeTask(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "state-root"), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "approve-intent") process.exitCode = (await import("./lifecycle/index.js")).approveIntent(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "confirmed-by"), flag(parsed.values, "as-user"));
-  else if (command === "evidence-record") {
-    const execCommand = option(parsed.values, "command");
-    const execution = execCommand ? { command: execCommand, cwd: option(parsed.values, "cwd", process.cwd()), exitCode: Number(option(parsed.values, "exit-code")), outputDigest: option(parsed.values, "output-digest") } : undefined;
-    process.exitCode = (await import("./lifecycle/index.js")).evidenceRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), execution);
-  }
+  else if (command === "evidence-record") process.exitCode = (await import("./lifecycle/index.js")).evidenceRecord(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"));
   else if (command === "evidence-run") process.exitCode = (await import("./lifecycle/index.js")).evidenceRun(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), optionList(parsed.values, "requirement-id"), option(parsed.values, "summary"), option(parsed.values, "actor", "agent"), trailing, option(parsed.values, "cwd", process.cwd()));
   else if (command === "reclassify") process.exitCode = (await import("./lifecycle/index.js")).reclassify(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "confirmed-by-user"), option(parsed.values, "reason"), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()));
   else if (command === "review-record") {
@@ -186,7 +182,8 @@ async function main(): Promise<void> {
   else if (command === "memory-review") process.exitCode = (await import("./memory-review.js")).memoryReview(parsed.values);
   else if (["pause", "block", "resume", "supersede", "waive"].includes(command)) {
     const state = (await import("./lifecycle/index.js")).transitionTask(option(parsed.values, "task", parsed.positionals[0] || "."), command as "pause" | "block" | "resume" | "supersede" | "waive", option(parsed.values, "actor", "cli"), option(parsed.values, "confirmed-by-user"), option(parsed.values, "requirement-id"));
-    process.stdout.write(`${JSON.stringify(state)}\n`);
+    const lifecycle = state.lifecycle as JsonObject | undefined;
+    process.stdout.write(`${JSON.stringify({ valid: true, task: state.id, status: lifecycle?.status, state_revision: state.state_revision })}\n`);
   }
   else {
     process.stderr.write(`Node runtime command is not implemented yet: ${command}\n`);

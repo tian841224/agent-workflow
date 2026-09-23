@@ -7,7 +7,7 @@
   "$defs": {
     "workflow-plan": {
       "type": "object",
-      "required": ["required", "classification_incomplete", "step_classification_incomplete", "suggested", "requested", "selected", "order", "steps", "required_evidence", "exploration_profile", "plan_hash", "roles"],
+      "required": ["required", "classification_incomplete", "step_classification_incomplete", "suggested", "requested", "selected", "steps", "required_evidence", "exploration_profile", "plan_hash", "roles"],
       "properties": {
         "required": { "type": "array", "items": { "type": "string" } },
         "classification_incomplete": {
@@ -32,7 +32,6 @@
         "suggested": { "type": "array", "items": { "type": "object" } },
         "requested": { "type": "array", "items": { "type": "string" } },
         "selected": { "type": "array", "items": { "type": "string" } },
-        "order": { "type": "array", "items": { "type": "string" } },
         "steps": { "type": "array", "items": { "type": "object" } },
         "required_evidence": { "type": "array", "items": { "type": "string" } },
         "exploration_profile": { "enum": ["focused", "expanded"] },

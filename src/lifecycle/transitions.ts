@@ -225,7 +225,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
 
 // The only path allowed to drop managed_change or remove an existing risk flag.
 export function reclassify(value: string, patch: JsonObject, confirmedByUser: string, reason: string, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd()): number {
-  if (!confirmedByUser || !reason) { output({ valid: false, errors: ["reclassify requires both --confirmed-by-user and --reason"] }); return 1; }
+  if (!confirmedByUser || !reason) { output({ valid: false, errors: ["reclassify requires both --confirmed-by-user and --reason; to only add workflow_facts, add a risk flag or raise impact_confidence, pipe the patch to task-write instead"] }); return 1; }
   return taskWrite(value, patch, stateRootValue, repoRootValue, false, { confirmedByUser, reason, actor });
 }
 

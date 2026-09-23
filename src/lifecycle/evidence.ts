@@ -113,8 +113,8 @@ export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): bo
   return false;
 }
 
-// A step is "analysis" (summary only) unless the caller reports it actually ran a command — command
-// and exit_code distinguish the claim from execution proof, which also records output and freshness.
+// A step is "analysis" (summary only) unless evidence-run observed the command — command and
+// exit_code distinguish the claim from execution proof, which also records output and freshness.
 export type ExecutionProof = { command: string; cwd: string; exitCode: number; outputDigest: string };
 
 function requirementIds(value: string | string[]): string[] {
@@ -128,15 +128,24 @@ function selectedEvidenceIds(plan: ReturnType<typeof compilePlanForTaskPath>): S
 
 // Records that the agent completed one evidence-capability step. plan_hash/at are computed here, not
 // accepted from the caller — an agent can no longer backdate a step or attach it to a plan it wasn't
-// actually run against. `execution`, when given, upgrades the record from an analysis claim to proof
-// that a specific command actually ran (test/build/lint/migration-dry-run/operational-verification).
-export function evidenceRecord(value: string, requirementId: string | string[], summary: string, actor = "agent", execution?: ExecutionProof): number {
+// actually run against. Execution proof comes only from evidence-run, which observes the process.
+export function evidenceRecord(value: string, requirementId: string | string[], summary: string, actor = "agent"): number {
   const path = taskPath(value);
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   const ids = requirementIds(requirementId);
   if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
-  if (execution && (!execution.cwd || !execution.outputDigest || !Number.isInteger(execution.exitCode))) { output({ valid: false, errors: ["evidence-record --command requires --cwd, --exit-code, and --output-digest together"] }); return 1; }
-  return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested", execution, undefined, execution?.cwd || process.cwd());
+  return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested");
+}
+
+// Without the cause an agent re-runs the same command blind; a command that writes build or test
+// output into the delivery fails the same way every time.
+function deliveryChange(before: DeliverySnapshot, after?: DeliverySnapshot): string {
+  if (!after) return "delivery could not be recomputed";
+  if (String(before.base || "") !== String(after.base || "")) return `base moved from ${before.base || "(none)"} to ${after.base || "(none)"}`;
+  const added = after.paths.filter((item) => !before.paths.includes(item));
+  const removed = before.paths.filter((item) => !after.paths.includes(item));
+  if (added.length || removed.length) return `paths added: ${added.join(", ") || "(none)"}; removed: ${removed.join(", ") || "(none)"}`;
+  return "the command modified delivered files; gitignore its build/test output or run it outside the repository";
 }
 
 // The one write path both evidence commands funnel through, so the plan/intent stamping, the
@@ -154,11 +163,14 @@ function appendStepEvidence(command: string, path: string, ids: string[], summar
       const selectedStepIds = selectedEvidenceIds(plan);
       const invalid = ids.filter((id) => !selectedStepIds.has(id));
       if (invalid.length) throw new Error(`${command}: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+      // The gate never accepts an attested record for these, so failing here saves a close-task round trip.
+      const needsRun = trustLevel === "attested" ? ids.filter((id) => plan.runtime_required_evidence.includes(id)) : [];
+      if (needsRun.length) throw new Error(`${command}: '${needsRun.join(", ")}' require runtime evidence; record them with evidence-run --requirement-id <ids> --summary <text> -- <command>`);
       const intent_hash = currentIntentHash(path);
       const repoRoot = projectIdentity(repoRootValue).root;
       const delivery = execution ? deliverySnapshot(repoRoot, current) : undefined;
       if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
-      if (expected && (!delivery || expected.delivery.mode !== delivery.mode || String(expected.delivery.base || "") !== String(delivery.base || "") || expected.delivery.fingerprint !== delivery.fingerprint || JSON.stringify(expected.delivery.paths) !== JSON.stringify(delivery.paths))) throw new Error(`${command}: delivered worktree changed during evidence-run, re-run required`);
+      if (expected && (!delivery || expected.delivery.mode !== delivery.mode || String(expected.delivery.base || "") !== String(delivery.base || "") || expected.delivery.fingerprint !== delivery.fingerprint || JSON.stringify(expected.delivery.paths) !== JSON.stringify(delivery.paths))) throw new Error(`${command}: delivered worktree changed during evidence-run, re-run required; ${deliveryChange(expected.delivery, delivery)}`);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       const at = now();
       for (const id of ids) evidence.push({

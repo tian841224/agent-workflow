@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { git, JsonObject, output, projectIdentity, readJson, stateRoot } from "../core.js";
 import { intentValidationErrors } from "../intent.js";
 import { schemaErrors } from "./task-schema.js";
+import { taskPath as resolveTaskPath } from "./task-store.js";
 import { activeLeaseConflict } from "./worktree-lease.js";
 
 type ReadinessStatus = "pass" | "warn" | "fail";
@@ -82,7 +83,7 @@ export function readinessSummary(checks: ReadinessCheck[]): JsonObject {
 }
 
 export function preflight(taskValue = "", repoRootValue = process.cwd(), stateRootValue?: string): number {
-  const taskPath = taskValue ? (taskValue.endsWith(".json") ? resolve(taskValue) : join(resolve(taskValue), "task.json")) : "";
+  const taskPath = taskValue ? resolveTaskPath(taskValue) : "";
   const checks = readinessChecks(taskPath, repoRootValue, stateRootValue);
   const errors = checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail}`);
   output({ valid: errors.length === 0, repo_root: resolve(repoRootValue), task: taskPath, checks, errors });

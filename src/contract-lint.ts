@@ -154,7 +154,7 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
         const named = span.match(insideFence ? /^\s*(?:[$>]\s+)?(?:node\s+)?(?:\S*[\\/])?agent-workflow(?:\.mjs)?\s+([a-z][a-z-]*)/ : /agent-workflow(?:\.mjs)?\s+([a-z][a-z-]*)/);
         const accepted = named && commandOptions[named[1]];
         if (!accepted) continue;
-        for (const flag of span.matchAll(/(?<=\s)--([a-z][a-z-]*)/g)) if (!accepted.includes(flag[1])) findings.push({ file: relativePath, line, rule: "unknown-option", detail: `'agent-workflow ${named[1]}' does not accept --${flag[1]}` });
+        for (const flag of span.matchAll(/(?<=\s)--([a-z][a-z0-9-]*)/g)) if (!accepted.includes(flag[1])) findings.push({ file: relativePath, line, rule: "unknown-option", detail: `'agent-workflow ${named[1]}' does not accept --${flag[1]}` });
       }
       // Relative Markdown links are contract pointers too: a moved or never-committed target is drift
       // nothing else reports. Code spans are stripped so documented syntax is not read as a link;
