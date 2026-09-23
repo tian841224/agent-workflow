@@ -11,6 +11,7 @@
     "diagnosing-bugs": {"required": false, "description": "原因不明、間歇性或效能型問題的證據導向診斷"},
     "planning": {"required": true, "description": "高影響方向、技術取捨與真正模糊需求的規劃"},
     "learn": {"required": true, "description": "只保存使用者明確要求或確認的可重複使用結論"},
+    "root-cause": {"required": true, "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
     "clean-comments": {"required": true, "description": "遇到多行、公開合約或有疑義的程式碼註解時查閱"},

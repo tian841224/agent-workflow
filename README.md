@@ -133,6 +133,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組介面、責任邊界、seam 與 adapter |
 | [tdd](.agents/skills/tdd/SKILL.md) | 計畫選取 TDD 時，執行 red → green → refactor |
 | [learn](.agents/skills/learn/SKILL.md) | 保存使用者要求或確認的可重用結論 |
+| [root-cause](.agents/skills/root-cause/SKILL.md) | bug 修好或 review 確認問題後，追查起因並補上防止再發生的測試、機制、文件或規則 |
 | [clean-comments](.agents/skills/clean-comments/SKILL.md) | 撰寫多行、公開合約或需要解釋判斷依據的註解 |
 | [localization-tw](.agents/skills/localization-tw/SKILL.md) | 翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 `AGENTS.md` 常駐規則與 Stop hook 檢查 |
 | [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) | 編寫 `.agents/` 角色或 skill 指引，維持清楚的入口與分層揭露 |
