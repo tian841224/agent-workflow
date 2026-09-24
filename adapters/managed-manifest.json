@@ -14,7 +14,7 @@
     "root-cause": {"required": true, "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
-    "clean-comments": {"required": true, "description": "遇到多行、公開合約或有疑義的程式碼註解時查閱"},
+    "clean-comments": {"required": true, "description": "新增或修改任何程式碼註解時查閱"},
     "project-docs": {"required": false, "description": "module/shared behavior、contract、data/schema 或 expanded exploration 才載入的專案文件查詢與更新規範"},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
     "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
