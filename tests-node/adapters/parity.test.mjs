@@ -62,26 +62,28 @@ test("platform adapters do not start a separate clean-comments Stop agent", () =
   const preToolUse = JSON.stringify(claudeHooks.PreToolUse || []);
   assert.doesNotMatch(stop, /clean-comments|"type":"agent"/);
   assert.doesNotMatch(preToolUse, /clean-comments/);
-  // The matcher skips read-only tools but must keep every tool that can write, MCP file tools included.
-  const matcher = new RegExp(claudeHooks.PreToolUse[0].matcher);
-  for (const tool of ["Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit", "mcp__filesystem__write_file"]) assert.match(tool, matcher, tool);
-  for (const tool of ["Read", "Grep", "Glob"]) assert.doesNotMatch(tool, matcher, tool);
+  // The guard only does Git safety, and Git runs only through a shell or an MCP tool, so the matcher
+  // keeps those and skips every file tool instead of spawning a no-op hook on each edit.
+  const matcher = new RegExp(`^(?:${claudeHooks.PreToolUse[0].matcher})$`);
+  for (const tool of ["Bash", "PowerShell", "mcp__git__git_commit", "mcp__filesystem__write_file"]) assert.match(tool, matcher, tool);
+  for (const tool of ["Read", "Grep", "Glob", "Write", "Edit", "MultiEdit", "NotebookEdit"]) assert.doesNotMatch(tool, matcher, tool);
   for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), /clean-comments/, path);
   }
 });
 
-test("required localization skill and Claude lexical Stop check are the locale enforcement", () => {
+test("required localization skill and the before-reply vocabulary are the locale enforcement", () => {
   const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
   assert.equal(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills["localization-tw"].required, true);
-  assert.equal((JSON.stringify(claudeHooks.Stop).match(/locale-lint --platform Claude/g) || []).length, 1);
   const codexHooks = JSON.parse(readFileSync("adapters/codex/hooks.json", "utf8")).hooks;
   const antigravityHooks = JSON.parse(readFileSync("adapters/antigravity/hooks.json", "utf8"));
-  assert.equal((JSON.stringify(codexHooks.Stop).match(/locale-lint --platform Codex/g) || []).length, 1);
-  assert.equal((JSON.stringify(antigravityHooks["agent-workflow-locale-lint"]).match(/locale-lint --platform Antigravity/g) || []).length, 1);
-  // The vocabulary is injected once per session on every platform so the terms are in context up front.
-  assert.equal((JSON.stringify(claudeHooks.SessionStart).match(/locale-context --platform Claude/g) || []).length, 1);
-  assert.equal((JSON.stringify(codexHooks.SessionStart).match(/locale-context --platform Codex/g) || []).length, 1);
+  // A reply is already on screen when it ends, so no platform checks or rewrites it afterwards.
+  for (const adapter of [claudeHooks, codexHooks, antigravityHooks]) assert.doesNotMatch(JSON.stringify(adapter), /locale-lint/);
+  // Claude/Codex inject the vocabulary with every submitted prompt so it sits right before the reply.
+  assert.equal((JSON.stringify(claudeHooks.UserPromptSubmit).match(/locale-context --platform Claude/g) || []).length, 1);
+  assert.equal((JSON.stringify(codexHooks.UserPromptSubmit).match(/locale-context --platform Codex/g) || []).length, 1);
+  assert.equal(claudeHooks.SessionStart, undefined);
+  assert.equal(codexHooks.SessionStart, undefined);
   assert.equal((JSON.stringify(antigravityHooks["agent-workflow-locale-context"].PreInvocation).match(/locale-context --platform Antigravity/g) || []).length, 1);
 });
 

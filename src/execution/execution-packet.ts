@@ -20,27 +20,14 @@ export const DEFAULT_PROCEDURE = ".agents/skills/workflow/evidence.md";
 export const PROFILE_PROCEDURES = {
   expanded: ".agents/skills/workflow/elevated.md",
   coordinator: ".agents/skills/workflow/orchestration.md",
-  worker: ".agents/agents/worker.md",
   projectDocs: ".agents/skills/project-docs/SKILL.md"
 } as const;
 
 type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };
 
-const PROJECT_DOC_EFFECTS = new Set(["shared_behavior", "schema", "data", "contract", "destructive"]);
-const PROJECT_DOC_RISKS = new Set(["contract", "schema", "data_write", "cross_feature", "migration", "authorization", "security", "operational"]);
-function needsProjectDocs(plan: Pick<import("../workflow-policy.js").CompiledWorkflowPlan, "exploration_profile">, task: JsonObject): boolean {
-  if (task.code_change !== true) return false;
-  if (plan.exploration_profile === "expanded") return true;
-  const scope = String(task.impact_scope || "");
-  if (scope === "module" || scope === "multi_module" || scope === "cross_project") return true;
-  if (PROJECT_DOC_EFFECTS.has(String(task.impact_effect || ""))) return true;
-  const risks = Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [];
-  return risks.some((flag) => PROJECT_DOC_RISKS.has(flag));
-}
-
 // Resolve every agent-facing procedure from the same compiled plan. Profile and role documents
 // are added only when their context is present, so focused tasks do not pay for expanded guidance.
-export function resolveProcedures(plan: Pick<import("../workflow-policy.js").CompiledWorkflowPlan, "order" | "exploration_profile">, task: JsonObject = {}): string[] {
+export function resolveProcedures(plan: Pick<import("../workflow-policy.js").CompiledWorkflowPlan, "order" | "exploration_profile">, task: JsonObject = {}, docGap = false): string[] {
   // managed_change:false is the explicit workflow bypass. Keep the packet free of workflow
   // procedures even if a caller supplies stale role/code metadata alongside that classification.
   if (task.managed_change === false) return [];
@@ -50,11 +37,9 @@ export function resolveProcedures(plan: Pick<import("../workflow-policy.js").Com
   // role document, so a focused coordinator or worker never needs this one.
   if (plan.exploration_profile === "expanded") procedures.push(PROFILE_PROCEDURES.expanded);
   if (role === "coordinator") procedures.push(PROFILE_PROCEDURES.coordinator);
-  if (role === "worker") procedures.push(PROFILE_PROCEDURES.worker);
-  // Project docs are useful when the change can affect a module contract, shared behavior/state, or
-  // a risk boundary. A focused high-confidence file-local behavior change should not pay a docs
-  // lookup/read/remember round trip merely because code_change is true.
-  if (needsProjectDocs(plan, task)) procedures.push(PROFILE_PROCEDURES.projectDocs);
+  // task-init's context already lists the docs covering the touched paths; the project-docs procedure
+  // is only needed when that lookup found an area no doc covers yet.
+  if (docGap) procedures.push(PROFILE_PROCEDURES.projectDocs);
   return [...new Set(procedures)].sort();
 }
 
@@ -108,7 +93,6 @@ function readinessErrors(task: JsonObject, taskJsonPath: string, taskMdContent: 
     // to ever produce a packet.
     if (task.managed_change === true) {
       for (const entry of plan.classification_incomplete) errors.push(`workflow classification is incomplete: ${String(entry.name)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
-      for (const entry of plan.step_classification_incomplete) errors.push(`workflow step classification is incomplete: ${String(entry.capability)}.${String(entry.id)} cannot be decided until ${(entry.missing as string[]).join(", ")} is declared`);
     }
   } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
   const riskFlags = Array.isArray(task.risk_flags) ? task.risk_flags.map(String) : [];

@@ -5,41 +5,6 @@
   "description": "The stdout object each contract-bearing command emits. Agent documents quote these field names, so they need a definition to be checked against — without one, a renamed output field drifts silently. $defs are keyed by command name.",
   "type": "object",
   "$defs": {
-    "workflow-plan": {
-      "type": "object",
-      "required": ["required", "classification_incomplete", "step_classification_incomplete", "suggested", "requested", "selected", "steps", "required_evidence", "exploration_profile", "plan_hash", "roles"],
-      "properties": {
-        "required": { "type": "array", "items": { "type": "string" } },
-        "classification_incomplete": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "missing"],
-            "properties": { "name": { "type": "string" }, "missing": { "type": "array", "items": { "type": "string" } } },
-            "additionalProperties": false
-          }
-        },
-        "step_classification_incomplete": {
-          "description": "Steps of a selected capability whose `when` could not be decided from the declared facts. They are neither selected nor dropped; a managed_change task fails the gate until the fields named in `missing` are declared.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["capability", "id", "missing"],
-            "properties": { "capability": { "type": "string" }, "id": { "type": "string" }, "missing": { "type": "array", "items": { "type": "string" } } },
-            "additionalProperties": false
-          }
-        },
-        "suggested": { "type": "array", "items": { "type": "object" } },
-        "requested": { "type": "array", "items": { "type": "string" } },
-        "selected": { "type": "array", "items": { "type": "string" } },
-        "steps": { "type": "array", "items": { "type": "object" } },
-        "required_evidence": { "type": "array", "items": { "type": "string" } },
-        "exploration_profile": { "enum": ["focused", "expanded"] },
-        "plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "roles": { "type": "array", "items": { "type": "string" } }
-      },
-      "additionalProperties": false
-    },
     "execution-packet": {
       "oneOf": [
         {
@@ -136,11 +101,13 @@
         "task": { "type": "string" },
         "intent_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "intent_approval": { "type": "object" },
+        "next": { "$ref": "#/$defs/nextActions" },
         "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
-    "evidence-record": {
+    "evidence-run": {
+      "description": "valid is true only when the command exited 0; a failing run is still recorded, and the gate treats it as not passed.",
       "type": "object",
       "required": ["valid"],
       "properties": {
@@ -148,13 +115,12 @@
         "task": { "type": "string" },
         "id": { "type": "string" },
         "ids": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string" } },
+        "exit_code": { "type": "integer" },
         "state_revision": { "type": "integer" },
+        "next": { "$ref": "#/$defs/nextActions" },
         "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
-    },
-    "evidence-run": {
-      "$ref": "#/$defs/evidence-record"
     },
     "review-record": {
       "type": "object",
@@ -168,6 +134,8 @@
         "reviewed_paths": { "type": "array", "items": { "type": "string" } },
         "delivery_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "state_revision": { "type": "integer" },
+        "review_cause": { "type": "object" },
+        "next": { "$ref": "#/$defs/nextActions" },
         "errors": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
@@ -180,7 +148,8 @@
         "task": { "type": "string" },
         "status": { "type": "string" },
         "compiled": { "type": "object" },
-        "errors": { "type": "array", "items": { "type": "string" } }
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "next": { "$ref": "#/$defs/nextActions" }
       },
       "additionalProperties": false
     },
@@ -283,39 +252,15 @@
       }
     },
     "pre-review": {
-      "description": "Opens a review round: the diff check plus the workspace fingerprint review-record binds the resulting PASS to.",
+      "description": "Opens a review round: the diff check, the workspace fingerprint review-record binds the resulting PASS to and, with --task-path, the round's review brief.",
       "type": "object",
       "required": ["valid", "check", "errors", "workspace_sha256"],
       "properties": {
         "valid": { "type": "boolean" },
         "check": { "type": "string" },
-        "errors": { "type": "string" },
-        "workspace_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
-      },
-      "additionalProperties": false
-    },
-    "preflight": {
-      "description": "Read-only setup checks for the repository, task intent, worktree lease, runtime, dependencies, and platform command launcher.",
-      "type": "object",
-      "required": ["valid", "repo_root", "task", "checks", "errors"],
-      "properties": {
-        "valid": { "type": "boolean" },
-        "repo_root": { "type": "string" },
-        "task": { "type": "string" },
-        "checks": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["id", "status", "detail"],
-            "properties": {
-              "id": { "enum": ["node", "repository", "task", "lease", "worktree", "dependencies", "shell"] },
-              "status": { "enum": ["pass", "warn", "fail"] },
-              "detail": { "type": "string" }
-            },
-            "additionalProperties": false
-          }
-        },
-        "errors": { "type": "array", "items": { "type": "string" } }
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "workspace_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "review": { "$ref": "#/$defs/reviewBrief" }
       },
       "additionalProperties": false
     },
@@ -334,7 +279,7 @@
       "additionalProperties": false
     },
     "orchestrate": {
-      "description": "Protocol 3 orchestration responses, plus the read-only view of a retired protocol 2 state.",
+      "description": "Protocol 3 orchestration responses, plus the read-only view of a retired protocol 2 state. Assess adds worthwhile, recommendation and reasons; Prepare adds dispatch; every protocol 3 action returns next.",
       "type": "object",
       "properties": {
         "protocol": { "type": "integer" },
@@ -342,10 +287,18 @@
         "batch": { "type": "object" },
         "valid": { "type": "boolean" },
         "eligible": { "type": "boolean" },
+        "worthwhile": { "type": "boolean" },
+        "recommendation": { "enum": ["parallel", "sequential"] },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "dispatch": { "type": "array", "items": { "type": "object", "properties": { "worker_id": { "type": "string" }, "packet_path": { "type": "string" }, "worktree": { "type": "string" }, "result_path": { "type": "string" } }, "additionalProperties": false } },
+        "worker_id": { "type": "string" },
+        "artifact_hash": { "type": "string" },
+        "rejected_reason": { "type": "string" },
         "repo_root": { "type": "string" },
         "worker_count": { "type": "integer" },
         "errors": { "type": "array", "items": { "type": "string" } },
-        "recoverable": { "type": "boolean" }
+        "recoverable": { "type": "boolean" },
+        "next": { "$ref": "#/$defs/nextActions" }
       },
       "additionalProperties": true
     },
@@ -370,6 +323,7 @@
         "command": { "type": "array", "items": { "type": "string" } },
         "cwd": { "type": "string" },
         "exit_code": { "type": "integer" },
+        "acceptance": { "description": "Assigned acceptance cases this run verifies; recorded as a receipt Collect reads.", "type": "array", "items": { "type": "string" } },
         "stdout": { "type": "string" },
         "stderr": { "type": "string" },
         "output_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
@@ -412,6 +366,107 @@
       "properties": {
         "rows": { "type": "integer" },
         "digests": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+      },
+      "additionalProperties": false
+    },
+    "reviewBrief": {
+      "description": "One review round's scope. scope is full on the first round and delta afterwards, covering only paths whose content changed since the previous review.",
+      "type": "object",
+      "required": ["round", "scope", "paths"],
+      "properties": {
+        "round": { "type": "integer", "minimum": 1 },
+        "scope": { "enum": ["full", "delta"] },
+        "base": { "type": "string" },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "previous": { "type": "object", "properties": { "result": { "type": "string" }, "summary": { "type": "string" } }, "additionalProperties": false },
+        "acceptance": { "type": "array", "items": { "type": "object" } },
+        "checklist": { "type": "array", "items": { "$ref": "#/$defs/planStep" } },
+        "risk_flags": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "task-init": {
+      "description": "Creates the task and returns what development needs up front: the compiled plan, readiness, the --paths context, whether a parallel split is worth considering, and next.",
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "task": { "type": "string" },
+        "plan": { "$ref": "#/$defs/plan" },
+        "procedures": { "type": "array", "items": { "type": "string" } },
+        "readiness": { "type": "object" },
+        "parallel_hint": { "$ref": "#/$defs/parallelHint" },
+        "context": { "$ref": "#/$defs/taskContext" },
+        "next": { "$ref": "#/$defs/nextActions" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "array", "items": { "type": "string" } },
+        "classification_incomplete": { "type": "array", "items": { "type": "object" } },
+        "suggested": { "type": "array", "items": { "type": "object" } },
+        "requested": { "type": "array", "items": { "type": "string" } },
+        "selected": { "type": "array", "items": { "type": "string" } },
+        "exploration_profile": { "enum": ["focused", "expanded"] },
+        "required_evidence": { "type": "array", "items": { "type": "string" } },
+        "proofs": { "description": "Runtime proofs the gate demands; record each with evidence-run.", "type": "array", "items": { "$ref": "#/$defs/planStep" } },
+        "checklist": { "description": "Analysis steps that steer the work and the reviewer brief; never gate items.", "type": "array", "items": { "$ref": "#/$defs/planStep" } },
+        "plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "roles": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "taskContext": {
+      "description": "Project docs, memory entries and closed tasks related to the paths given to task-init --paths; doc_gap names paths no project doc covers.",
+      "type": "object",
+      "properties": {
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "docs": { "type": "object" },
+        "memory": { "type": "array", "items": { "type": "object" } },
+        "history": { "type": "array", "items": { "type": "object" } },
+        "doc_gap": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "close-task": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "closed": { "type": "string" },
+        "task": { "type": "string" },
+        "status": { "type": "string" },
+        "compiled": { "type": "object" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "next": { "$ref": "#/$defs/nextActions" }
+      },
+      "additionalProperties": false
+    },
+    "nextActions": {
+      "description": "The commands that close the task's remaining gate items, in workflow order.",
+      "type": "array",
+      "items": { "type": "object", "required": ["command", "why"], "properties": { "command": { "type": "string" }, "why": { "type": "string" } }, "additionalProperties": false }
+    },
+    "planStep": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "undecided_by": { "description": "Classification fields still undeclared; declaring them with task-write settles whether this step applies.", "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "parallelHint": {
+      "description": "First filter for a parallel split, returned for managed code-change tasks. candidate false comes with the reasons; the split plan itself is judged by orchestrate Assess.",
+      "type": "object",
+      "required": ["candidate", "reasons"],
+      "properties": {
+        "candidate": { "type": "boolean" },
+        "reasons": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     }

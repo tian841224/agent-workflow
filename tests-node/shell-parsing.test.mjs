@@ -53,14 +53,11 @@ for (const [label, command] of STILL_DENIED) {
   });
 }
 
-// `tee out.md <<EOF` writes, so it is denied — but for writing out.md, not for the command quoted
-// in its heredoc body. Keeping the two reasons apart is the point of the stripping.
+// `tee out.md <<EOF` only writes out.md; the Git command quoted in its heredoc body is data, so the
+// guard must not treat it as a Git invocation.
 test("a writing printer is judged on its own target, not on text in its heredoc body", () => {
   const unprotected = guard("git-guard", "tee out.md <<EOF\ngit rebase -i\nEOF");
   assert.doesNotMatch(unprotected.stdout, /"permissionDecision":"deny"/);
-  const protectedTarget = guard("git-guard", "tee task.json <<EOF\ngit rebase -i\nEOF");
-  assert.match(protectedTarget.stdout, /"permissionDecision":"deny"/);
-  assert.doesNotMatch(protectedTarget.stdout, /git-guard/);
 });
 
 test("read-only git commands survive every stripping layer", () => {

@@ -144,7 +144,52 @@ function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): 
   };
   removeEmptyDirectories(runtime);
 }
-const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "canonical-template"]);
+const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "canonical-template", "platform-agent"]);
+type AgentPlatformConfig = { tools?: string; model?: string; sandbox_mode?: string; orchestration_writable?: boolean };
+// Native subagent definitions generated from the canonical `.agents/agents/*.md` bodies. Each platform
+// discovers them from its own directory (Claude `agents/*.md`, Codex `agents/*.toml`); Antigravity has
+// no native subagent to register, so its tasks stay sequential.
+function installAgents(source: string, platform: Platform, platformRoot: string, state: string, records: FileRecord[], dryRun: boolean): void {
+  if (platform === "Antigravity") return;
+  const agents = (readJson(join(source, "adapters", "managed-manifest.json")).agents || {}) as Record<string, JsonObject>;
+  const directory = join(platformRoot, "agents");
+  // Temp files a previous generator left behind would otherwise sit next to the real definitions forever.
+  if (!dryRun && existsSync(directory)) for (const name of readdirSync(directory)) if (/^\.agent-workflow-.*\.tmp$/.test(name)) rmSync(join(directory, name), { force: true });
+  for (const [name, settings] of Object.entries(agents)) {
+    const sourcePath = join(source, ".agents", "agents", `${name}.md`);
+    if (!existsSync(sourcePath)) continue;
+    const raw = readFileSync(sourcePath, "utf8");
+    const description = String(parseFrontmatter(raw).description || name);
+    const body = frontmatterBody(raw).trim();
+    const id = `agent-workflow-${name}`;
+    const config = (settings[platform.toLowerCase()] || {}) as AgentPlatformConfig;
+    let destination: string; let content: string;
+    if (platform === "Claude") {
+      destination = join(directory, `${id}.md`);
+      content = `---\nname: ${id}\ndescription: ${description}\n${config.tools ? `tools: ${config.tools}\n` : ""}${config.model ? `model: ${config.model}\n` : ""}---\n\n${body}\n`;
+    } else {
+      if (body.includes("'''")) throw new Error(`${sourcePath} contains ''' and cannot be embedded in a TOML literal string`);
+      destination = join(directory, `${id}.toml`);
+      // Workers write into batch worktrees under the state root, outside the parent's workspace, so
+      // that directory has to be an explicit writable root of the sandbox.
+      const writable = config.orchestration_writable ? `\n[sandbox_workspace_write]\nwritable_roots = [${JSON.stringify(join(state, "orchestration"))}]\n` : "";
+      content = `# agent-workflow managed agent\nname = ${JSON.stringify(id)}\ndescription = ${JSON.stringify(description)}\n${config.sandbox_mode ? `sandbox_mode = ${JSON.stringify(config.sandbox_mode)}\n` : ""}developer_instructions = '''\n${body}\n'''\n${writable}`;
+    }
+    if (!dryRun) writeAtomic(destination, content);
+    records.push({ path: destination, sha256: sha256(content), kind: "platform-agent" });
+  }
+}
+// Claude subagents may only touch the project and its additional directories; the batch worktrees
+// live under the state root, so that directory is added once and removed again by uninstall.
+function ensureClaudeOrchestrationDirectory(settingsPath: string, state: string, dryRun: boolean): string | undefined {
+  const directory = join(state, "orchestration");
+  const current = existsSync(settingsPath) ? readJson(settingsPath) : {};
+  const permissions = current.permissions && typeof current.permissions === "object" && !Array.isArray(current.permissions) ? current.permissions as JsonObject : {};
+  const listed = Array.isArray(permissions.additionalDirectories) ? permissions.additionalDirectories.map(String) : [];
+  if (listed.some((item) => resolve(item) === resolve(directory))) return directory;
+  if (!dryRun) writeJson(settingsPath, { ...current, permissions: { ...permissions, additionalDirectories: [...listed, directory] } });
+  return directory;
+}
 function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, dryRun: boolean): void {
   const keep = new Set(records.filter((record) => MANAGED_ASSET_KINDS.has(record.kind)).map((record) => resolve(record.path)));
   const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map((root) => resolve(root));
@@ -217,7 +262,7 @@ function removeOwnHooks(value: Json, marker: string): Json {
   return result;
 }
 type LocaleTerm = { avoid: string; use: string; exceptions: string[] };
-// Only the <!-- lint:start/end --> block feeds the Stop-hook lint; the rest of vocabulary.md is human reference.
+// Only the <!-- lint:start/end --> block feeds the injected locale context; the rest of vocabulary.md is human reference.
 function localeLintTerms(source: string): LocaleTerm[] {
   const path = join(source, ".agents", "skills", "localization-tw", "references", "vocabulary.md");
   if (!existsSync(path)) throw new Error(`locale lint source missing: ${path}`);
@@ -235,8 +280,17 @@ function localeLintTerms(source: string): LocaleTerm[] {
   // Longer terms must be checked first so a shorter substring (數據 inside 數據庫) doesn't fire twice.
   return terms.sort((a, b) => b.avoid.length - a.avoid.length);
 }
+// The skill's own core rules travel with the vocabulary, so the per-prompt injection is the skill
+// itself rather than a lookup table; locale.md stays their single source.
+function localeCoreRules(source: string): string[] {
+  const path = join(source, ".agents", "skills", "localization-tw", "locale.md");
+  if (!existsSync(path)) throw new Error(`locale rules source missing: ${path}`);
+  const section = readFileSync(path, "utf8").match(/^## Core rules\s*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m);
+  if (!section) throw new Error("localization-tw locale.md has no '## Core rules' section");
+  return section[1].split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("- ")).map((line) => line.slice(2).trim());
+}
 function writeLocalizationPolicy(source: string, runtime: string, records: FileRecord[], dryRun: boolean): void {
-  const content = `${JSON.stringify({ terms: localeLintTerms(source) }, null, 2)}\n`;
+  const content = `${JSON.stringify({ rules: localeCoreRules(source), terms: localeLintTerms(source) }, null, 2)}\n`;
   const destination = join(runtime, "localization-tw-policy.json");
   if (!dryRun) writeAtomic(destination, content);
   records.push({ path: destination, sha256: sha256(content), kind: "runtime" });
@@ -363,7 +417,7 @@ function taskSchemaV3toV4Migration(root: string): number {
     const state = readJson(taskJson);
     if (state.schema_version !== 3) continue;
     const carried = (Array.isArray(state.evidence) ? state.evidence : []).length;
-    state.evidence = carried ? [{ kind: "legacy-unverified", status: "needs_reverification", note: `Imported from schema v3; ${carried} evidence record(s) predate the v4 hash model and need re-verification via evidence-record/review-record.` }] : [];
+    state.evidence = carried ? [{ kind: "legacy-unverified", status: "needs_reverification", note: `Imported from schema v3; ${carried} evidence record(s) predate the v4 hash model and need re-verification via evidence-run/review-record.` }] : [];
     state.waivers = [];
     if (state.intent_approval !== null && state.intent_approval !== undefined) state.intent_approval = null;
     if (state.managed_change === undefined) state.managed_change = true;
@@ -475,6 +529,8 @@ export async function install(options: InstallOptions): Promise<number> {
     for (const skill of selectedSkills) { const sourceSkill = join(canonical, "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(skillRoot, skill), records, "platform-skill", options.dryRun); }
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform === "Antigravity", source);
+    installAgents(source, platform, root, state, records, options.dryRun);
+    if (platform === "Claude") ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
   }
   pruneManagedAssets(previous, records, canonical, selected, targetRoots, options.dryRun);
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
@@ -493,6 +549,16 @@ export function uninstall(options: InstallOptions): number {
   const state = stateRoot(options.root); const managedPath = join(state, "managed-runtime.json"); if (!existsSync(managedPath)) { output({ ok: true, removed: 0 }); return 0; }
   const managed = readJson(managedPath); let removed = 0;
   for (const item of Array.isArray(managed.files) ? managed.files : []) { if (!item || typeof item !== "object") continue; const record = item as JsonObject; if (typeof record.path === "string" && typeof record.sha256 === "string" && existsSync(record.path) && sha256(readFileSync(record.path)) === record.sha256) { if (!options.dryRun) rmSync(record.path); removed += 1; } }
+  const claudeRoot = managed.targets && typeof managed.targets === "object" && !Array.isArray(managed.targets) ? (managed.targets as JsonObject).Claude : undefined;
+  const claudeSettings = typeof claudeRoot === "string" ? join(claudeRoot, ...platforms.Claude.hook) : "";
+  if (!options.dryRun && claudeSettings && existsSync(claudeSettings)) {
+    const settings = readJson(claudeSettings); const permissions = settings.permissions as JsonObject | undefined;
+    if (permissions && Array.isArray(permissions.additionalDirectories)) {
+      const orchestration = resolve(join(state, "orchestration"));
+      permissions.additionalDirectories = permissions.additionalDirectories.filter((item) => resolve(String(item)) !== orchestration);
+      writeJson(claudeSettings, settings);
+    }
+  }
   if (!options.dryRun && existsSync(join(state, "runtime"))) rmSync(join(state, "runtime"), { recursive: true, force: true });
   output({ ok: true, removed, preserved: ["projects", "knowledge", "skills", "migrations"] }); return 0;
 }

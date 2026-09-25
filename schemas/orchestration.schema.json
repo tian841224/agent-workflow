@@ -7,6 +7,61 @@
     { "$ref": "#/$defs/v3" }
   ],
   "$defs": {
+    "split-plan": {
+      "description": "The split plan a coordinator passes to orchestrate --plan-path (Assess, Prepare, Retry).",
+      "type": "object",
+      "required": ["workers"],
+      "properties": {
+        "parent_task_path": { "type": "string" },
+        "repo_root": { "type": "string" },
+        "max_workers": { "type": "integer", "minimum": 2, "default": 3 },
+        "min_files_per_worker": { "type": "integer", "minimum": 1, "default": 3 },
+        "shared_files": { "type": "array", "items": { "type": "string" } },
+        "coordinator_acceptance": { "type": "array", "items": { "type": "string" } },
+        "has_order_dependency": { "type": "boolean" },
+        "shared_persistent_state": { "type": "boolean" },
+        "workers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "goal", "file_ownership"],
+            "properties": {
+              "id": { "type": "string" }, "title": { "type": "string" }, "goal": { "type": "string" }, "scope": { "type": "string" },
+              "completion_criteria": { "type": "string" },
+              "acceptance": { "type": "array", "items": { "type": "string" } },
+              "file_ownership": { "type": "array", "items": { "type": "string" } },
+              "planned_files": { "type": "array", "items": { "type": "string" } },
+              "task_path": { "type": "string" },
+              "classification": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "assignment": {
+      "description": "The assignment Prepare/Retry writes into each worker's execution-packet.json.",
+      "type": "object",
+      "properties": {
+        "worker_id": { "type": "string" }, "attempt": { "type": "integer" }, "goal": { "type": "string" }, "completion_criteria": { "type": "string" },
+        "acceptance": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "given": { "type": "string" }, "when": { "type": "string" }, "then": { "type": "string" }, "command": { "type": "string" }, "verify": { "type": "string" } } } },
+        "worktree": { "type": "string" }, "file_ownership": { "type": "array", "items": { "type": "string" } }, "planned_files": { "type": "array", "items": { "type": "string" } },
+        "shared_files_read_only": { "type": "array", "items": { "type": "string" } },
+        "result_path": { "type": "string" }, "run_command": { "type": "string" }
+      }
+    },
+    "worker-result": {
+      "description": "The result file a worker writes at assignment.result_path; Collect reads it.",
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["completed", "blocked", "failed", "cancelled"] },
+        "run_id": { "type": "string" }, "attempt": { "type": "integer" },
+        "modified_paths": { "type": "array", "items": { "type": "string" } },
+        "acceptance": { "type": "array", "items": { "type": "object" } },
+        "unresolved": { "type": "array", "items": { "type": "string" } },
+        "ownership_request": { "type": "object", "properties": { "path": { "type": "string" }, "reason": { "type": "string" }, "blocks": { "type": "string" } } }
+      }
+    },
     "artifact": {
       "type": "object",
       "required": ["path", "kind", "sha256"],
@@ -36,7 +91,12 @@
         "result": { "type": "object" },
         "artifact_root": { "type": "string" },
         "artifact": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
-        "artifact_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "artifact_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "goal": { "type": "string" },
+        "acceptance": { "description": "Parent acceptance case ids this worker must make pass.", "type": "array", "items": { "type": "string", "pattern": "^AC\\d+$" } },
+        "planned_files": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "acceptance_results": { "description": "Latest worker-exec receipt per assigned acceptance case, copied at Collect. Feedback for the coordinator only; the parent re-runs every case after Apply.", "type": "object", "additionalProperties": { "type": "object" } },
+        "rejected_reason": { "type": "string" }
       },
       "additionalProperties": false
     },
@@ -82,6 +142,14 @@
           "additionalProperties": false
         },
         "workers": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/worker" } },
+        "plan": {
+          "type": "object",
+          "properties": {
+            "shared_files": { "description": "Coordinator-owned files every worker reads but none may write.", "type": "array", "items": { "type": "string" } },
+            "coordinator_acceptance": { "description": "Cross-worker acceptance cases the parent runs after Apply.", "type": "array", "items": { "type": "string", "pattern": "^AC\\d+$" } }
+          },
+          "additionalProperties": false
+        },
         "integration": {
           "type": "object",
           "required": ["status", "root"],

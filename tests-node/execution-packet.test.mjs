@@ -54,8 +54,10 @@ test("execution-packet is the complete worker execution contract", () => {
   assert.ok(packet.procedures.includes(".agents/skills/workflow/review.md"));
   assert.ok(packet.procedures.includes(".agents/skills/workflow/evidence.md"));
   assert.ok(packet.procedures.includes(".agents/skills/workflow/elevated.md"));
-  assert.ok(packet.procedures.includes(".agents/agents/worker.md"));
-  assert.ok(packet.procedures.includes(".agents/skills/project-docs/SKILL.md"));
+  // A worker already runs from its own agent definition, so the packet no longer points back at it.
+  assert.ok(!packet.procedures.includes(".agents/agents/worker.md"));
+  // Project-doc gaps are found by task-init's --paths context, which a worker packet does not carry.
+  assert.ok(!packet.procedures.includes(".agents/skills/project-docs/SKILL.md"));
   assert.ok(packet.required_evidence.includes("role.reviewer"));
   assert.match(packet.plan_hash, /^[a-f0-9]{64}$/);
   assert.equal(packet.plan_revision, 1);
@@ -77,6 +79,35 @@ test("execution-packet skips project docs for focused file-local behavior change
   const packet = JSON.parse(result.stdout);
   assert.equal(packet.workflow.exploration_profile, "focused");
   assert.ok(!packet.procedures.includes(".agents/skills/project-docs/SKILL.md"), JSON.stringify(packet.procedures));
+});
+
+test("project-docs procedure is added by task-init only when its --paths context reports a doc_gap", () => {
+  const root = join(tmpdir(), `agent-workflow-project-docs-gap-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, "docs", "modules"), { recursive: true });
+  mkdirSync(join(repo, "src", "covered"), { recursive: true });
+  mkdirSync(join(repo, "src", "bare"), { recursive: true });
+  vcs(repo, ["init", "-q"]); vcs(repo, ["config", "user.email", "t@e.com"]); vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "docs", "modules", "covered.md"), "---\ndoc_type: module\ncovers:\n  - src/covered/\n---\n\n# Covered\n\nOwns src/covered.\n");
+  writeFileSync(join(repo, "src", "covered", "a.ts"), "export const a = 1;\n");
+  writeFileSync(join(repo, "src", "bare", "b.ts"), "export const b = 1;\n");
+  vcs(repo, ["add", "."]); vcs(repo, ["commit", "-q", "-m", "init"]);
+  // Two tasks share one worktree here, so they are non-code tasks to stay clear of the code-task lease.
+  const init = (name, paths) => {
+    const task = join(root, name); mkdirSync(task, { recursive: true });
+    writeFileSync(join(task, "task.md"), "# Test\n\n## Goal\n\nDo the thing.\n\n## Scope\n\nJust this.\n\n## Completion criteria\n\n- [ ] done\n");
+    const result = run(["task-init", "--task-path", task, "--repo-root", repo, "--paths", paths], {
+      input: JSON.stringify({ code_change: false, managed_change: true, task_type: "config", impact_scope: "module", impact_effect: "shared_behavior", impact_confidence: "high", risk_flags: [], workflow_request: [] })
+    });
+    assert.equal(result.status, 0, result.stdout);
+    return JSON.parse(result.stdout);
+  };
+  const covered = init("20260101-000000-covered", "src/covered/a.ts");
+  assert.equal(covered.context.doc_gap, undefined, JSON.stringify(covered.context));
+  assert.ok(!covered.procedures.includes(".agents/skills/project-docs/SKILL.md"), JSON.stringify(covered.procedures));
+  const bare = init("20260101-000001-bare", "src/bare/b.ts");
+  assert.match(bare.context.doc_gap, /src\/bare\/b\.ts/);
+  assert.ok(bare.procedures.includes(".agents/skills/project-docs/SKILL.md"), JSON.stringify(bare.procedures));
 });
 
 test("execution-packet keeps the explicit managed_change bypass procedure-free", () => {
@@ -147,7 +178,7 @@ test("execution-packet rejects a task with incomplete classification", () => {
     input: JSON.stringify({ code_change: true, managed_change: true, task_type: "fix", impact_scope: "cross_project", impact_confidence: "high", risk_flags: [], workflow_request: [] })
   });
   assert.equal(init.status, 0, init.stdout);
-  const plan = JSON.parse(run(["workflow-plan", "--task-path", task]).stdout);
+  const plan = JSON.parse(init.stdout).plan;
   assert.ok(plan.classification_incomplete.some((entry) => entry.name === "data_impact"), JSON.stringify(plan.classification_incomplete));
   const result = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
   assert.notEqual(result.status, 0);

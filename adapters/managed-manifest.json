@@ -3,6 +3,10 @@
   "runtime": ["dist/agent-workflow.mjs", "adapters/", "schemas/"],
   "canonical": ["templates/"],
   "unmanaged_skills": ["doc-coauthoring"],
+  "agents": {
+    "worker": {"codex": {"sandbox_mode": "workspace-write", "orchestration_writable": true}},
+    "reader": {"claude": {"tools": "Read, Glob, Grep", "model": "haiku"}, "codex": {"sandbox_mode": "read-only"}}
+  },
   "skills": {
     "workflow": {"required": true, "description": "workflow policy、task gate 與執行規則"},
     "writing-for-agents": {"required": true, "description": "撰寫或修改 .agents/ 底下文件的 pointer 與分層揭露規則"},
@@ -15,10 +19,10 @@
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
     "clean-comments": {"required": true, "description": "遇到多行、公開合約或有疑義的程式碼註解時查閱"},
-    "project-docs": {"required": false, "description": "module/shared behavior、contract、data/schema 或 expanded exploration 才載入的專案文件查詢與更新規範"},
+    "project-docs": {"required": true, "description": "task-init 回報 doc_gap、改動讓文件失準或需要記錄專案決策時載入的文件規範"},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
     "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
-    "localization-tw": {"required": true, "description": "翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 AGENTS.md 常駐規則與 Stop hook 檢查"},
+    "localization-tw": {"required": true, "description": "翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 AGENTS.md 常駐規則與每次提交訊息時注入的 skill 規則處理"},
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證"},
     "adhd-comms": {"required": false, "description": "使用者要求重點先行、易掃讀的回覆格式時使用"},
     "humanizer": {"required": false, "description": "使用者要求或草稿出現明確 AI 腔調時重寫，預設只交付最終稿"}

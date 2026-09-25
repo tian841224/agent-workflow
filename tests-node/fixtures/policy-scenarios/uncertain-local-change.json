@@ -7,24 +7,12 @@
     "impact_effect": "local_behavior",
     "impact_confidence": "medium",
     "managed_change": true,
+    "code_change": true,
     "risk_flags": []
   },
   "expected": {
-    "required": [
-      "delivery_validation",
-      "baseline_validation",
-      "impact_discovery"
-    ],
-    "required_evidence": [
-      "delivery_validation.DV1",
-      "baseline_validation.BV1",
-      "baseline_validation.BV2",
-      "baseline_validation.BV3",
-      "impact_discovery.ID1",
-      "impact_discovery.ID2",
-      "impact_discovery.ID3"
-    ],
-    "classification_incomplete": [],
-    "step_classification_incomplete": []
+    "required": ["impact_discovery", "reviewer", "baseline_validation"],
+    "required_evidence": ["baseline_validation.BV2", "role.reviewer"],
+    "classification_incomplete": []
   }
 }

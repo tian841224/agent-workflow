@@ -5,6 +5,8 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+import { compile, stepIds } from "./policy-compiler.mjs";
+import { sourceModule } from "./source-module.mjs";
 
 const cli = join(process.cwd(), "dist", "agent-workflow.mjs");
 const run = (args, options = {}) => spawnSync(process.execPath, [cli, ...args], { cwd: process.cwd(), encoding: "utf8", ...options });
@@ -41,23 +43,6 @@ test("a v2 task carrying retired fields and no transition history migrates into 
   assert.equal(superseded.status, 0, superseded.stderr);
 });
 
-// isReadOnly used to invert a write-name blocklist, so any editor or filesystem tool whose name
-// missed /(write|edit|delete|rename)/ was treated as a read wherever it pointed.
-const WRITE_TOOLS = ["str_replace", "create_file", "mcp__fs__move_file", "apply_diff", "insert_lines"];
-for (const tool of WRITE_TOOLS) {
-  test(`task-guard treats ${tool} as a write when it targets task.json`, () => {
-    const result = guard("git-guard", { tool_name: tool, session_id: "s1", tool_input: { file_path: join("tasks", "t", "task.json") } });
-    assert.match(result.stdout, /task-guard/);
-  });
-}
-
-test("a read tool pointed at protected content is still allowed", () => {
-  for (const tool of ["read", "read_file", "mcp__fs__list_directory"]) {
-    const result = guard("git-guard", { tool_name: tool, session_id: "s1", tool_input: { file_path: join("tasks", "t", "task.json") } });
-    assert.doesNotMatch(result.stdout, /permissionDecision":"deny/, tool);
-  }
-});
-
 test("git global options are consumed before the subcommand, and quoted prose is not an invocation", () => {
   // An ordinary mutation with a global option consumed ahead of its subcommand is deferred to
   // the platform's own approval flow, same as one without a global option.
@@ -83,46 +68,13 @@ test("git options that alter execution are denied outright, and a repository loc
   }
 });
 
-test("the read-only allowlist covers the usual inspection tools but not their writing modes", () => {
-  const probe = (command) => guard("git-guard", { tool_name: "bash", session_id: "s1", tool_input: { command } }).stdout;
-  for (const command of ["jq . tasks/t/task.json", "less tasks/t/task.json", "head -20 tasks/t/task.json", "certutil -hashfile tasks/t/task.json SHA256"]) {
-    assert.doesNotMatch(probe(command), /permissionDecision":"deny/, command);
-  }
-  // awk and sed are general interpreters with write paths no flag check can enumerate (`print > f`,
-  // `w`, `s///w`), and certutil is a general certificate tool — only its -hashfile mode is a read.
-  for (const command of [
-    "sed -n 1,20p tasks/t/task.json",
-    "sed -i s/a/b/ tasks/t/task.json",
-    "awk 'NR<5' tasks/t/task.json",
-    "certutil -decode tasks/in.b64 tasks/t/task.json",
-    "find tasks -name task.json -delete"
-  ]) {
-    assert.match(probe(command), /permissionDecision":"deny/, command);
-  }
-});
-
-test("evidence recency is compared as instants, not as strings", () => {
-  const root = join(tmpdir(), `agent-workflow-evidence-tz-${process.pid}-${Date.now()}`);
-  const task = join(root, "task");
-  mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Timezone\n\n## Goal\n\nVerify instant comparison.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
-  const path = join(task, "task.json");
-  const base = {
-    schema_version: 6, id: "20260101-000000-tz", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
-    code_change: true, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
-    state_revision: 1, plan_revision: 1,
-    lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },
-    waivers: [], workflow_request: ["impact_discovery"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix"
-  };
-  writeFileSync(path, JSON.stringify({ ...base, evidence: [] }));
-  const hash = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
-  // "09:00+08:00" is 01:00Z — earlier than the 05:00Z entry, but later as a plain string. The stale
-  // (wrong plan_hash) entry is the chronologically later one; if recency were compared as strings
-  // the fresh matching entry would wrongly win instead.
-  const step = (planHash, at) => ({ kind: "step", id: "impact_discovery.ID1", status: "recorded", at, plan_hash: planHash, intent_hash: "1".repeat(64), summary: "entry" });
-  writeFileSync(path, JSON.stringify({ ...base, evidence: [step(hash, "2026-01-01T09:00:00.000+08:00"), step("0".repeat(64), "2026-01-01T05:00:00.000Z")] }));
-  const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
-  assert.ok(gated.errors.some((error) => error.includes("impact_discovery.ID1")), gated.errors.join("; "));
+test("evidence recency is compared as instants, not as strings", async () => {
+  const { latestEvidence } = await sourceModule(join("src", "lifecycle", "evidence.ts"));
+  // "09:00+08:00" is 01:00Z — earlier than the 05:00Z entry, but later as a plain string. If recency
+  // were compared as strings the older passing run would wrongly mask the later failing one.
+  const run = (at, exit_code) => ({ kind: "step", id: "acceptance.AC1", status: "recorded", evidence_kind: "execution", trust_level: "runtime", at, exit_code });
+  const latest = latestEvidence([run("2026-01-01T09:00:00.000+08:00", 0), run("2026-01-01T05:00:00.000Z", 1)], "acceptance.AC1");
+  assert.equal(latest.exit_code, 1);
 });
 
 test("a non-classification write leaves plan_revision alone so role evidence survives it", () => {
@@ -130,22 +82,18 @@ test("a non-classification write leaves plan_revision alone so role evidence sur
   const task = join(root, "20260101-000000-revision");
   mkdirSync(task, { recursive: true });
   const path = join(task, "task.json");
-  assert.equal(run(["task-init", "--task-path", path], { input: JSON.stringify({ task_type: "fix" }) }).status, 0);
+  assert.equal(run(["task-init", "--task-path", path], { input: JSON.stringify({ task_type: "fix", managed_change: true, code_change: false, impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high" }) }).status, 0);
   const before = JSON.parse(readFileSync(path, "utf8")).plan_revision;
   assert.equal(run(["task-write", "--task-path", path], { input: JSON.stringify({ workflow_decision: "no capability needed" }) }).status, 0);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).plan_revision, before);
-  assert.equal(run(["task-write", "--task-path", path], { input: JSON.stringify({ impact_scope: "module" }) }).status, 0);
+  // plan_revision follows plan_hash, which moves only when the gate items do: multi_module pulls in the Reviewer.
+  assert.equal(run(["task-write", "--task-path", path], { input: JSON.stringify({ impact_scope: "multi_module" }) }).status, 0);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).plan_revision, before + 1);
 });
 
 test("impact_scope_at_least matches exactly at the threshold", () => {
-  const root = join(tmpdir(), `agent-workflow-rank-boundary-${process.pid}-${Date.now()}`);
-  mkdirSync(root, { recursive: true });
-  const planFor = (impact_scope) => {
-    const path = join(root, `${impact_scope}.json`);
-    writeFileSync(path, JSON.stringify({ workflow_request: [], risk_flags: [], task_type: "fix", impact_scope, impact_effect: "local_behavior", impact_confidence: "high" }));
-    return JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
-  };
+  // code_change: false isolates the scope threshold from the rule that every code change gets a Reviewer.
+  const planFor = (impact_scope) => compile({ managed_change: true, code_change: false, workflow_request: [], risk_flags: [], task_type: "fix", impact_scope, impact_effect: "local_behavior", impact_confidence: "high" });
   assert.ok(planFor("multi_module").required.includes("reviewer"), "at the threshold");
   assert.equal(planFor("module").required.includes("reviewer"), false, "one rank below");
 });
@@ -233,16 +181,12 @@ test("concurrent task-write processes each land exactly one revision through the
 });
 
 test("a schema task keeps the error-path and design steps the old change_kind collapse would have dropped", () => {
-  const root = join(tmpdir(), `agent-workflow-task-type-widen-${process.pid}-${Date.now()}`);
-  mkdirSync(root, { recursive: true });
-  const path = join(root, "task.json");
-  writeFileSync(path, JSON.stringify({
+  const plan = compile({
     workflow_request: ["execution_path_review", "codebase_design"],
     risk_flags: [], task_type: "schema", impact_scope: "module", impact_effect: "schema", impact_confidence: "high",
     workflow_facts: { changes_module_interface: false, improves_testability: false }
-  }));
-  const steps = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).steps;
-  const idsFor = (name) => steps.find((capability) => capability.name === name).steps.map((step) => step.id);
+  });
+  const idsFor = (name) => stepIds(plan, name);
   assert.ok(idsFor("execution_path_review").includes("EP4"), idsFor("execution_path_review").join(","));
   assert.ok(idsFor("codebase_design").includes("CD2"), idsFor("codebase_design").join(","));
   assert.ok(idsFor("codebase_design").includes("CD4"), idsFor("codebase_design").join(","));

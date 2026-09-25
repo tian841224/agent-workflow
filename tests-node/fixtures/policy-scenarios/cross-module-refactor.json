@@ -7,33 +7,12 @@
     "impact_effect": "local_behavior",
     "impact_confidence": "high",
     "managed_change": true,
+    "code_change": true,
     "risk_flags": []
   },
   "expected": {
-    "required": [
-      "delivery_validation",
-      "baseline_validation",
-      "execution_path_review",
-      "regression_validation",
-      "reviewer"
-    ],
-    "required_evidence": [
-      "delivery_validation.DV1",
-      "baseline_validation.BV1",
-      "baseline_validation.BV2",
-      "baseline_validation.BV3",
-      "execution_path_review.EP1",
-      "execution_path_review.EP2",
-      "execution_path_review.EP4",
-      "execution_path_review.EP5",
-      "regression_validation.RV1",
-      "regression_validation.RV2",
-      "regression_validation.RV3",
-      "regression_validation.RV4",
-      "regression_validation.RV5",
-      "role.reviewer"
-    ],
-    "classification_incomplete": [],
-    "step_classification_incomplete": []
+    "required": ["execution_path_review", "regression_validation", "reviewer", "baseline_validation"],
+    "required_evidence": ["baseline_validation.BV2", "regression_validation.RV3", "role.reviewer"],
+    "classification_incomplete": []
   }
 }

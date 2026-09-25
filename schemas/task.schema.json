@@ -14,7 +14,7 @@
     "plan_revision": { "type": "integer", "minimum": 1 },
     "code_change": { "type": "boolean", "description": "Whether this task modifies application source code. Descriptive only — does not decide whether the managed workflow applies; see managed_change." },
     "managed_change": { "type": "boolean", "description": "Whether this task enters the managed workflow. True when the change can affect executable behavior, data, contracts, security, deployment/runtime results, delivery behavior, or verification integrity. False bypasses the managed workflow regardless of code_change. Safe test-only additions, assertion strengthening, and test refactors that do not weaken verification may remain false." },
-    "task_type": { "enum": ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
+    "task_type": { "description": "mechanical: a behavior-preserving change (rename, move, formatting, a test-guarded constant) that the coordinator may self-check instead of dispatching a reviewer.", "enum": ["fix", "feature", "refactor", "mechanical", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"] },
     "impact_scope": { "enum": ["file", "module", "multi_module", "cross_project"] },
     "impact_effect": { "enum": ["none", "local_behavior", "shared_behavior", "schema", "data", "contract", "destructive"] },
     "impact_confidence": { "enum": ["high", "medium", "low"] },
@@ -82,7 +82,7 @@
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "workflowFacts": {
       "type": "object",
-      "description": "Declared facts that steer step selection inside an already-selected capability. Names are the closed set referenced by schemas/workflow-policy.json; an undeclared fact leaves its step unknown, which lists the step in step_classification_incomplete and blocks the gate for a managed_change task until the fact is declared.",
+      "description": "Declared facts that steer step selection inside an already-selected capability. Names are the closed set referenced by schemas/workflow-policy.json; an undeclared fact leaves its step undecided, which keeps it on the plan checklist; facts never block the gate.",
       "propertyNames": {
         "enum": [
           "changes_module_interface", "data_transform", "debug_requested", "destructive_operation",
@@ -143,6 +143,7 @@
         "reviewed_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "reviewed_diff_sha256": { "$ref": "#/$defs/sha256" },
         "delivery_hash": { "$ref": "#/$defs/sha256" },
+        "reviewed_path_digests": { "type": "object", "description": "Content sha256 (or \"deleted\") of every reviewed path, so the next review round can be scoped to the paths changed since this one.", "additionalProperties": { "type": "string", "pattern": "^([a-f0-9]{64}|deleted)$" } },
         "intent_hash": { "$ref": "#/$defs/sha256" },
         "summary": { "type": "string", "minLength": 1 }
       },
@@ -150,7 +151,7 @@
     },
     "stepEvidence": {
       "type": "object",
-      "description": "One evidence-capability step's result, keyed as <capability>.<step id> to match compileWorkflowPlan's required_evidence, written only by `agent-workflow evidence-record`/`evidence-run`. status: recorded means the agent has completed and recorded this analysis — it is not a cryptographic verification claim. plan_revision (like role evidence's) guards against plan_hash's own reversibility: a classification round-trip can restore an identical plan_hash, so the gate also requires plan_revision to match the task's current one.",
+      "description": "One runtime proof (<capability>.<step id>) or acceptance case (acceptance.<AC id>) result, written only by `agent-workflow evidence-run`, which executed the command itself. Entries with evidence_kind analysis were attested by older runtimes and no longer satisfy any gate item. plan_revision (like role evidence's) guards against plan_hash's own reversibility: a classification round-trip can restore an identical plan_hash, so the gate also requires plan_revision to match the task's current one.",
       "required": ["kind", "id", "status", "at", "plan_hash", "intent_hash", "plan_revision", "summary"],
       "allOf": [
         {
@@ -190,7 +191,7 @@
     },
     "legacyEvidence": {
       "type": "object",
-      "description": "Written only by migrate-state for an imported/pre-v4 task.md; the gate always rejects it until a new evidence-record/review-record replaces it.",
+      "description": "Written only by migrate-state for an imported/pre-v4 task.md; the gate always rejects it until a new evidence-run/review-record replaces it.",
       "required": ["kind", "status"],
       "properties": {
         "kind": { "const": "legacy-unverified" },

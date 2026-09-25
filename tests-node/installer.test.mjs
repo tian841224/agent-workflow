@@ -5,9 +5,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 
+// Install always writes canonical skills under the user's home regardless of the --*-target flags,
+// so every spawned install/repair gets its own home instead of racing on the developer's ~/.agents.
+const isolatedHome = (root) => ({ ...process.env, HOME: join(root, "home"), USERPROFILE: join(root, "home") });
+
 test("install writes a standalone Node runtime and required skills", () => {
   const root = join(tmpdir(), `agent-workflow-test-${process.pid}-${Date.now()}`);
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const installed = run(["install", "--non-interactive", "--skills", "workflow", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")]);
   assert.equal(installed.status, 0, installed.stderr);
   assert.equal(JSON.parse(installed.stdout).ok, true);
@@ -18,7 +22,7 @@ test("install writes a standalone Node runtime and required skills", () => {
 
 test("Ponytail native install is opt-in and dry-run only plans upstream commands", () => {
   const root = join(tmpdir(), `agent-workflow-ponytail-${process.pid}-${Date.now()}`);
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const result = run(["install", "--non-interactive", "--skills", "workflow", "--ponytail", "--dry-run", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")]);
   assert.equal(result.status, 0, result.stderr);
   const native = JSON.parse(result.stdout).native;
@@ -29,7 +33,7 @@ test("Ponytail native install is opt-in and dry-run only plans upstream commands
 
 test("Design Lab installs Claude through the marketplace and Codex/Antigravity from a temporary clone", () => {
   const root = join(tmpdir(), `agent-workflow-design-lab-${process.pid}-${Date.now()}`);
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const result = run(["install", "--non-interactive", "--skills", "workflow", "--design-and-refine", "--dry-run", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")]);
   assert.equal(result.status, 0, result.stderr);
   const native = JSON.parse(result.stdout).native;
@@ -43,7 +47,7 @@ test("Design Lab installs Claude through the marketplace and Codex/Antigravity f
 
 test("--integration installs any manifest entry, and an unknown name fails before anything is written", () => {
   const root = join(tmpdir(), `agent-workflow-integration-${process.pid}-${Date.now()}`);
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const targets = ["--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
   const known = run(["install", "--non-interactive", "--skills", "workflow", "--integration", "hallmark,ponytail", "--dry-run", ...targets]);
   assert.equal(known.status, 0, known.stderr);
@@ -56,7 +60,7 @@ test("--integration installs any manifest entry, and an unknown name fails befor
 
 test("Hallmark install is opt-in and plans a temporary clone, the upstream install command, and its removal", () => {
   const root = join(tmpdir(), `agent-workflow-hallmark-${process.pid}-${Date.now()}`);
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const targets = ["--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
   const plain = JSON.parse(run(["install", "--non-interactive", "--skills", "workflow", "--dry-run", ...targets]).stdout);
   assert.equal(plain.native, null, "no native install without the flag");
@@ -141,7 +145,7 @@ test("a global CLI shim resolves its recorded source from the managed state root
 test("repair removes legacy runtime files after replacing the bundle", () => {
   const root = join(tmpdir(), `agent-workflow-repair-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   assert.equal(run(["install", "--non-interactive", "--state-root", state, "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")]).status, 0);
   const stale = join(state, "runtime", "agent_workflow", "installer.py");
   mkdirSync(join(state, "runtime", "agent_workflow"), { recursive: true });
@@ -155,7 +159,7 @@ test("repeated repairs do not duplicate a platform's own managed hooks (Windows 
   const state = join(root, "state");
   const claudeTarget = join(root, "claude");
   const targets = ["--claude-target", claudeTarget, "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
@@ -168,24 +172,24 @@ test("install keeps clean-comments out of runtime hooks while retaining locale l
   const state = join(root, "state");
   const claudeTarget = join(root, "claude");
   const targets = ["--claude-target", claudeTarget, "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   const hooks = JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks;
   const stop = JSON.stringify(hooks.Stop || []);
   const preToolUse = JSON.stringify(hooks.PreToolUse || []);
-  assert.equal((stop.match(/locale-lint --platform Claude/g) || []).length, 1, "locale-lint Stop hook must not duplicate across repairs");
-  assert.equal((JSON.stringify(hooks.SessionStart || []).match(/locale-context --platform Claude/g) || []).length, 1, "locale-context SessionStart hook must not duplicate across repairs");
+  assert.doesNotMatch(stop, /locale-lint/, "no after-reply lint is installed");
+  assert.equal((JSON.stringify(hooks.UserPromptSubmit || []).match(/locale-context --platform Claude/g) || []).length, 1, "locale-context UserPromptSubmit hook must not duplicate across repairs");
   assert.doesNotMatch(stop, /\[agent-workflow managed: clean-comments\]|clean-comments\/SKILL\.md|\"type\":\"agent\"/);
   assert.doesNotMatch(preToolUse, /\[agent-workflow managed: clean-comments\]|clean-comments\/SKILL\.md|Edit\|Write/, "clean-comments must not run on every Edit/Write");
 });
 
-test("repair preserves a platform's own Stop hook alongside agent-workflow's managed Stop hooks", () => {
+test("repair preserves a platform's own Stop hook and adds none of its own", () => {
   const root = join(tmpdir(), `agent-workflow-stop-merge-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
   const claudeTarget = join(root, "claude");
   const targets = ["--claude-target", claudeTarget, "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   const settingsPath = join(claudeTarget, "settings.json");
   const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
@@ -194,7 +198,7 @@ test("repair preserves a platform's own Stop hook alongside agent-workflow's man
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   const stopHooks = JSON.stringify(JSON.parse(readFileSync(settingsPath, "utf8")).hooks.Stop);
   assert.match(stopHooks, /user's own stop hook/);
-  assert.equal((stopHooks.match(/locale-lint --platform Claude/g) || []).length, 1, "locale-lint Stop hook must not duplicate across repairs");
+  assert.doesNotMatch(stopHooks, /locale-lint/, "no after-reply lint is installed");
 });
 
 test("repair sweeps retired Antigravity lifecycle hooks and keeps the user's own", () => {
@@ -202,7 +206,7 @@ test("repair sweeps retired Antigravity lifecycle hooks and keeps the user's own
   const state = join(root, "state");
   const antigravityTarget = join(root, "gemini");
   const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", antigravityTarget];
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   const hooksPath = join(antigravityTarget, "config", "hooks.json");
   // An install from a build that still targeted SessionStart/SessionEnd — events Antigravity no
@@ -227,7 +231,7 @@ test("repair sweeps retired Antigravity lifecycle hooks and keeps the user's own
 test("a fresh non-interactive install with no --skills selects only required skills; --skills all selects every skill", () => {
   const root = join(tmpdir(), `agent-workflow-install-defaults-${process.pid}-${Date.now()}`);
   const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const required = Object.entries(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills).filter(([, meta]) => meta.required === true).map(([name]) => name).sort();
   const catalog = Object.keys(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills).sort();
   assert.ok(catalog.length > required.length, "the manifest needs at least one optional skill for this test to mean anything");
@@ -245,7 +249,7 @@ test("a re-install with no --skills keeps the previous selection instead of drop
   const root = join(tmpdir(), `agent-workflow-install-retention-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
   const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
-  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const catalog = Object.keys(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills).sort();
 
   const first = run(["install", "--non-interactive", "--skills", "all", "--state-root", state, ...targets]);

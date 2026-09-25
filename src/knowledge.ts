@@ -41,12 +41,15 @@ export function writeKnowledgeEntry(path: string, record: JsonObject, content: s
   writeAtomic(path, `---\n${header}\n---\n\n${content}\n`);
 }
 
-export function knowledgeRecord(fields: { topic: string; scope: string; projectId: string; content: string; kind?: string; sourceEvent?: string; status?: string; relationships?: string[] }): JsonObject {
+export function knowledgeRecord(fields: { topic: string; scope: string; projectId: string; content: string; kind?: string; sourceEvent?: string; status?: string; relationships?: string[]; tags?: string[]; paths?: string[] }): JsonObject {
   const digest = sha256(fields.content); const stamp = now();
   const status = fields.status || "needs_verification";
+  const tags = [...new Set((fields.tags || []).map((tag) => tag.trim().toLowerCase()).filter(Boolean))];
+  const paths = [...new Set((fields.paths || []).map((path) => path.trim().replaceAll("\\", "/").replace(/^\.\//, "")).filter(Boolean))];
   return {
     id: digest, topic: fields.topic, scope: fields.scope.toLowerCase(), project_id: fields.scope.toLowerCase() === "global" ? "" : fields.projectId,
     origin: "native", ...(fields.kind ? { kind: fields.kind } : {}), ...(fields.sourceEvent ? { source_event: fields.sourceEvent } : {}),
+    ...(tags.length ? { tags } : {}), ...(paths.length ? { paths } : {}),
     content_sha256: digest, status, relationships: fields.relationships || [], created_at: stamp, updated_at: stamp
   };
 }
@@ -175,7 +178,8 @@ export function memoryContext(platform: string, root?: string, query = "", cwd =
     const raw = readFileSync(path, "utf8"); const fields = parseFrontmatter(raw) as unknown as JsonObject;
     const body = frontmatterBody(raw).trim().replace(/\s+/g, " ");
     const topic = String(fields.topic || "");
-    return { path, fields, updatedAt: String(fields.updated_at || ""), line: topic ? `${topic}: ${body.slice(0, 120)}` : body.slice(0, 120), haystack: `${topic} ${body} ${path}`.toLowerCase(), content: `${topic} ${body}`.toLowerCase(), native: false as const, source: "shared" };
+    const labels = [fields.tags, fields.paths].flatMap((value) => Array.isArray(value) ? value : []).join(" ");
+    return { path, fields, updatedAt: String(fields.updated_at || ""), line: topic ? `${topic}: ${body.slice(0, 120)}` : body.slice(0, 120), haystack: `${topic} ${labels} ${body} ${path}`.toLowerCase(), content: `${topic} ${labels} ${body}`.toLowerCase(), native: false as const, source: "shared" };
   }).filter((candidate) => candidate.line && String(candidate.fields.status || "") === "verified");
   // Native platform memory is read-only reference material and stays marked needs_verification so
   // it can help locate a prior decision without silently becoming trusted shared knowledge. It is

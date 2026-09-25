@@ -1,18 +1,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { git, JsonObject, output, projectIdentity, readJson, stateRoot } from "../core.js";
-import { intentValidationErrors } from "../intent.js";
+import { git, JsonObject, projectIdentity, readJson, stateRoot } from "../core.js";
+import { acceptanceErrors, acceptanceRequired, intentValidationErrors } from "../intent.js";
 import { schemaErrors } from "./task-schema.js";
-import { taskPath as resolveTaskPath } from "./task-store.js";
 import { activeLeaseConflict } from "./worktree-lease.js";
 
 type ReadinessStatus = "pass" | "warn" | "fail";
 export type ReadinessCheck = { id: string; status: ReadinessStatus; detail: string };
 
 // The fixed environment prerequisites of a task, checked once before exploration or validation
-// starts. task-init runs this on the state it just created, so a normal managed task needs no second
-// CLI roundtrip; `preflight` keeps the same checks as a manual diagnostic. Read-only by design: task
-// creation, activation and evidence writes stay with their own runtime commands.
+// starts. task-init runs this on the state it just created, so a managed task needs no second CLI
+// roundtrip. Read-only by design: task creation, activation and evidence writes stay with their own
+// runtime commands.
 export function readinessChecks(taskPath: string, repoRootValue: string, stateRootValue?: string, knownState?: JsonObject): ReadinessCheck[] {
   const repoRoot = resolve(repoRootValue);
   const checks: ReadinessCheck[] = [];
@@ -32,7 +31,10 @@ export function readinessChecks(taskPath: string, repoRootValue: string, stateRo
       taskState = knownState || readJson(taskPath);
       const errors = schemaErrors(taskState);
       const taskMd = join(dirname(taskPath), "task.md");
-      if (existsSync(taskMd)) errors.push(...intentValidationErrors(readFileSync(taskMd, "utf8")));
+      if (existsSync(taskMd)) {
+        const markdown = readFileSync(taskMd, "utf8");
+        errors.push(...intentValidationErrors(markdown), ...acceptanceErrors(markdown, acceptanceRequired(taskState)));
+      }
       else errors.push("sibling task.md is missing");
       const status = String(((taskState.lifecycle as JsonObject | undefined) || {}).status || "");
       if (status !== "in_progress") errors.push(`task lifecycle.status must be 'in_progress', got '${status || "(missing)"}'`);
@@ -73,19 +75,11 @@ export function readinessChecks(taskPath: string, repoRootValue: string, stateRo
     }
   }
 
-  add("shell", "pass", process.platform === "win32" ? "Windows: run npm evidence through cmd.exe /c npm run <script>" : "Use the repository shell launcher for package scripts");
+  add("shell", "pass", process.platform === "win32" ? "Windows: evidence-run routes .cmd shims such as npm through cmd.exe, which refuses arguments containing %, quotes or line breaks" : "Use the repository shell launcher for package scripts");
   return checks;
 }
 
 export function readinessSummary(checks: ReadinessCheck[]): JsonObject {
   const blockers = checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail}`);
   return { ready: blockers.length === 0, checks, blockers };
-}
-
-export function preflight(taskValue = "", repoRootValue = process.cwd(), stateRootValue?: string): number {
-  const taskPath = taskValue ? resolveTaskPath(taskValue) : "";
-  const checks = readinessChecks(taskPath, repoRootValue, stateRootValue);
-  const errors = checks.filter((check) => check.status === "fail").map((check) => `${check.id}: ${check.detail}`);
-  output({ valid: errors.length === 0, repo_root: resolve(repoRootValue), task: taskPath, checks, errors });
-  return errors.length ? 1 : 0;
 }

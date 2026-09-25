@@ -166,8 +166,15 @@ export function projectDoc(options: Options): number {
   if (action === "List") { output(result); return 0; }
   if (action === "Stale") { output(result.filter((item) => { const rel = relative(root, String(item.path)); const covered = Array.isArray(item.covers) ? item.covers.map(String) : []; const docTime = Number(git(root, ["log", "-1", "--format=%ct", "--", rel]).stdout || 0); const codeTime = covered.length ? Number(git(root, ["log", "-1", "--format=%ct", "--", ...covered]).stdout || 0) : 0; return codeTime > docTime; })); return 0; }
   if (action !== "Lookup") throw new Error(`unsupported project-doc action: ${action}`);
-  const taskValue = text(options, "task-path"); const prior = projectDocState(root, taskValue);
-  const requested = paths(options).map((path) => path.replaceAll("\\", "/")); const normalizedRequested = requested.map(normalizeRepoPath); const matched = new Set<string>();
+  output(lookupDocs(root, docRoot, paths(options), text(options, "task-path"), result)); return 0;
+}
+
+// Shared by `project-doc --action Lookup` and task-init's context, so both route an agent to the
+// same documents for the same paths.
+export function lookupDocs(root: string, docRoot: string, requestedPaths: string[], taskValue = "", known?: JsonObject[]): JsonObject {
+  const result = known || docs(root, docRoot);
+  const prior = projectDocState(root, taskValue);
+  const requested = requestedPaths.map((path) => path.replaceAll("\\", "/")); const normalizedRequested = requested.map(normalizeRepoPath); const matched = new Set<string>();
   const current = result.filter((item) => !historical.has(item));
   const mapped = current.map((item) => {
     const coverValues = Array.isArray(item.covers) ? item.covers.map(String) : [];
@@ -179,5 +186,5 @@ export function projectDoc(options: Options): number {
     return { ...item, doc_type: String(item.doc_type), matched_by: matchedBy, digest_status: digestStatus(root, item, prior, taskValue) };
   }).filter((item) => !OVERVIEW_TYPES.includes(String(item.doc_type)) && item.matched_by.length > 0).sort((left, right) => Number(right.matched_by.length) - Number(left.matched_by.length));
   const overview_candidates = current.filter((item) => OVERVIEW_TYPES.includes(String(item.doc_type))).map((item) => ({ path: item.path, doc_type: item.doc_type, content_sha256: item.content_sha256, reason: "repo-wide overview; read when the compiled exploration profile or task impact requires it", digest_status: digestStatus(root, item, prior, taskValue) }));
-  output({ docs: mapped, overview_candidates, uncovered: requested.filter((path) => !matched.has(normalizeRepoPath(path))) }); return 0;
+  return { docs: mapped, overview_candidates, uncovered: requested.filter((path) => !matched.has(normalizeRepoPath(path))) } as unknown as JsonObject;
 }

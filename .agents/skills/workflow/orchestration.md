@@ -1,105 +1,102 @@
 # Parallel orchestration
 
-`agent-workflow orchestrate` (protocol 3, the default) is the only control plane for independent
-implementation workers. The retired protocol 2 phase tracker cannot create or advance state; only
-`--protocol 2 --action Read` of a leftover state file remains.
+Read this when task-init returns `parallel_hint.candidate: true`. Experimental until it has run on a
+real task. `agent-workflow orchestrate` (protocol 3) is the only control plane for parallel workers;
+the parent task keeps classification, acceptance, Reviewer and closure.
 
-## Worthwhile before eligible
+## When to split
 
-Eligibility is a safety gate, not a reason to parallelize. Use a batch only when there are at least
-two work packages and each one carries enough implementation and validation work to outweigh
-worktree setup, handoff, `Collect`／`Integrate`／`Apply`, and the parent's final validation.
-Otherwise run ordered slices in the parent task. This is a coordinator judgement; it adds no plan
-field.
+A split pays only when it clearly saves wall-clock time: every worker re-reads its context, so total
+tokens go up. Ordered slices in the parent task ([elevated.md](elevated.md)) stay the default.
 
-## Eligibility
+1. `parallel_hint.candidate` is true. Its `reasons` say why not when it is false; then stay sequential.
+2. Write the split plan (below) and run `Assess`. It checks two things and recommends `parallel` only
+   when both hold:
+   - **eligible** (safe): at least two workers, disjoint `file_ownership`, `planned_files` inside each
+     worker's ownership, `shared_files` inside nobody's ownership, and every parent acceptance case
+     assigned exactly once — to one worker or to `coordinator_acceptance`.
+   - **worthwhile** (worth it): each worker owns at least one acceptance case and at least
+     `min_files_per_worker` (default 3) planned files, and the parent carries no risk flag that needs
+     one ordered sequence (`migration`, `irreversible`, `schema`, `unclear_requirements`).
+3. On `recommendation: parallel`, state in the progress message which cases and paths each worker
+   owns, then follow `next`. On `sequential`, continue with ordered slices.
 
-The coordinator may prepare one batch only when there are at least two workers, every worker has a
-non-empty goal, completion criterion, and `file_ownership`, ownership prefixes do not overlap, no
-worker depends on another worker's unfinished output, and no shared persistent state is written by
-more than one worker. Shared integration files stay with the coordinator. The coordinator rejects
-an ineligible plan before creating worktrees.
+Antigravity has no native subagent, so its tasks always stay sequential.
 
-The plan is a JSON object passed with `--plan-path`:
+## How to split
+
+1. **By behavior first.** Group acceptance cases that can be verified independently; each group is one
+   worker. Then find the directory prefixes that group changes; those are its `file_ownership`.
+2. **Contracts before dispatch.** Shared types and interfaces, route or DI registration, index
+   exports, configuration, lockfiles and migrations are `shared_files`. The coordinator writes them
+   before `Prepare`; the snapshot carries them into every worktree, and workers build against them
+   read-only.
+3. **No waiting between workers.** When one group needs another's output, remove the dependency by
+   writing the contract first; when that is impossible, keep those groups in ordered slices.
+4. **Cross-worker cases stay with the parent.** An end-to-end case spanning several groups goes in
+   `coordinator_acceptance` and runs after `Apply`.
+5. **Two or three workers.** `max_workers` defaults to 3; more workers multiply context and
+   integration cost faster than they save time.
 
 ```json
 {
-  "repo_root": "C:/repo",
-  "parent_task_path": "C:/state/projects/p/tasks/parent/task.json",
+  "parent_task_path": "<parent task.json>",
+  "repo_root": "<repo>",
   "max_workers": 3,
+  "shared_files": ["src/types/order.ts", "src/routes.ts"],
+  "coordinator_acceptance": ["AC5"],
   "workers": [
-    {"id":"api","goal":"...","completion_criteria":"...","file_ownership":["src/api"]},
-    {"id":"ui","goal":"...","completion_criteria":"...","file_ownership":["src/ui"]}
+    {"id": "api", "goal": "...", "acceptance": ["AC1", "AC2"], "file_ownership": ["src/api/"], "planned_files": ["src/api/order.ts", "src/api/validate.ts", "src/api/order.test.ts"]},
+    {"id": "ui", "goal": "...", "acceptance": ["AC3", "AC4"], "file_ownership": ["src/ui/order/"], "planned_files": ["src/ui/order/form.tsx", "src/ui/order/list.tsx", "e2e/order.spec.ts"]}
   ]
 }
 ```
 
-`has_order_dependency: true` and `shared_persistent_state: true` are explicit rejection signals.
-The parent task remains the authority for classification, lifecycle, evidence, reviewer, and
-closure. A child task inherits the parent's intent text and intent approval when present, adds a
-worker-assignment section, and receives the worker's ownership boundary.
+## Running a batch
 
-## One-shot protocol
-
-`Prepare` captures the complete current worktree, including dirty and untracked files, through a
-temporary `GIT_INDEX_FILE` and an internal snapshot commit. It creates one detached worktree per
-worker, one child `task.json` plus `execution-packet.json` per worker, and a version 3 state file
-under `<state-root>/orchestration/v3/<id>`. The parent fingerprint is recorded after setup, so
-creating linked worktrees does not appear as a parent edit.
+Every action returns `next`; follow it. The sequence is:
 
 ```text
-orchestrate --protocol 3 --action Assess --id <id> --plan-path <plan> [--repo-root <repo>]
-orchestrate --protocol 3 --action Prepare --id <id> --state-root <root> --plan-path <plan>
-orchestrate --protocol 3 --action Bind --id <id> --worker-id <worker> --run-id <run> --platform <platform> --workspace <worktree>
-worker-check --assignment-path <execution-packet.json> --cwd <worktree>
-worker-exec --assignment-path <execution-packet.json> --cwd <worktree> -- <command> [args...]
-orchestrate --protocol 3 --action Collect --id <id> --worker-id <worker> --result-path <result.json>
-orchestrate --protocol 3 --action Integrate --id <id>
-orchestrate --protocol 3 --action Apply --id <id>
-orchestrate --protocol 3 --action Fail --id <id> --reason <reason>
-orchestrate --protocol 3 --action Cleanup --id <id>
+orchestrate --action Assess  --id <id> --plan-path <plan>
+orchestrate --action Prepare --id <id> --plan-path <plan>
+  dispatch all workers in one turn (below), then Bind each: --worker-id <w> --run-id <run> --platform <p>
+orchestrate --action Collect --id <id> --worker-id <w>        (once per worker, as each reports)
+orchestrate --action Integrate --id <id>
+orchestrate --action Apply --id <id>
+orchestrate --action Cleanup --id <id>
 ```
 
-The host platform dispatches the native Claude, Codex, or Antigravity worker after `Prepare` and
-records its stable `run_id` with `Bind`. `worker-check` is fail-closed on the exact assigned cwd
-and non-empty ownership. `worker-exec` runs a command without a shell and returns exit code plus an
-output digest; it does not grant Git-write authority.
+**Dispatch.** Send each worker only `Execute the assignment in <packet_path>`, all in the same turn:
 
-`Collect` accepts only `completed`, `blocked`, `failed`, or `cancelled`. A completed result is
-converted into an immutable path/content artifact and checked against `file_ownership`; a failed
-or blocked result is retained as rejected evidence. A result for a different `run_id` or attempt
-is rejected. `Integrate` applies all collected artifacts to a fresh detached worktree from the
-same snapshot and fails on path conflicts. `Apply` first compares the parent workspace fingerprint
-with the value recorded by `Prepare`; any parent edit blocks the apply. It then copies only the
-verified integrated artifacts into the parent worktree. `Retry` advances one worker attempt after a
-non-completed result. `Recover` reports missing worktrees or invalid persisted statuses. `Cancel`
-and `Cleanup` preserve the state journal and remove only registered protocol worktrees.
+- Claude: Agent tool, `subagent_type: agent-workflow-worker`, `run_in_background: true`.
+- Codex: the spawn_agent tool with agent type `agent-workflow-worker`.
 
-The state machine is:
+While workers run, the coordinator does non-overlapping work (for example the next shared contract or
+the `coordinator_acceptance` test), leaving the parent worktree's delivered files unchanged: `Apply`
+refuses a parent that changed since `Prepare`.
 
-```text
-prepared -> executing -> collecting -> integrating -> applied -> cleaned
-    |            |             |             |
-    +------------+-------------+-------------+--> cancelled / failed
-```
+**What the runtime guarantees.**
+- `Prepare` snapshots the dirty parent, creates one detached worktree per worker, and links the
+  parent's ignored dependency directories (`node_modules`, `.venv`, `venv`, `vendor`) so tests run
+  without reinstalling.
+- `Collect` reads the worker's result file and its `worker-exec` receipts. A completed worker is
+  rejected when it wrote outside its ownership or any assigned case has no passing receipt.
+- `Integrate` applies every artifact to a fresh worktree and fails on a path changed by two workers.
+- `Apply` copies the integrated delivery into the parent.
+- `Fail`／`Cancel` end the batch and release the child tasks.
 
-All state updates use the runtime JSON lock. `schemas/orchestration.schema.json` is the state
-authority; `schemas/cli-output.schema.json` defines the command output shapes.
+## Recovery
+
+- **Rejected worker.** `Retry --worker-id <w>` starts a new attempt. When the rejection is an
+  ownership request, first update that worker in the plan and pass `--plan-path`; `Retry` validates
+  the widened ownership against the other workers and issues a new packet.
+- **Integration conflict.** Split the ownership differently and start a new batch.
+- **Parent drift at Apply.** Review the parent's new diff and start a new batch; the user's edit is
+  never overwritten.
+- **Repeated failure.** `Cancel`, `Cleanup`, and finish the remaining cases as ordered slices.
 
 ## After Apply
 
-The protocol's responsibility ends at `Apply` (then `Cleanup`). The parent returns to
-[Finalization](evidence.md#finalization). Worker receipts never replace parent evidence.
-
-## Ownership and recovery
-
-`file_ownership` is a hard write boundary. A worker that needs another path stops and reports the
-path; the coordinator widens the plan and starts a new attempt. No worker commits, branches,
-rebases, merges, or edits another worktree. If `Integrate` finds a duplicate path, the batch stays
-recoverable and the coordinator must split ownership before retrying. If `Apply` detects parent
-drift, the coordinator preserves the artifacts, reviews the new parent diff, and starts a fresh
-batch rather than overwriting the user's edit.
-
-The protocol provides deterministic local orchestration and cross-platform assignment contracts;
-native platform dispatch and remote/installed runtime verification remain outside this repository's
-local test proof.
+Return to [Finalization](evidence.md#finalization): the parent runs every acceptance case with
+`evidence-run` (worker receipts never replace parent evidence), then one Reviewer reviews the
+integrated diff, then `close-task`.

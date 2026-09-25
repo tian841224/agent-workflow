@@ -47,6 +47,60 @@ export function intentHash(taskMd: string): string {
   return sha256(canonicalJson(picked));
 }
 
+export type AcceptanceCase = { id: string; title: string; given: string; when: string; then: string; verify: string; command: string };
+export type AcceptanceParse = { declared: boolean; cases: AcceptanceCase[]; errors: string[] };
+
+const ACCEPTANCE_HEADING = /^###\s+acceptance\s+(cases|criteria)\s*$/i;
+const CASE_LINE = /^[-*]\s+(?:\[[ xX]\]\s+)?\*\*(AC\d+)\*\*\s*(.*)$/;
+const CLAUSE_LINE = /^\s+[-*]\s+(given|when|then|verify)\b\s*:?\s*(.*)$/i;
+
+// Parses the Given/When/Then cases under `### Acceptance cases` inside Completion criteria. The
+// section already sits inside the intent hash, so a case edited after its verification run makes
+// that run stale without any extra bookkeeping.
+export function acceptanceCases(markdown: string): AcceptanceParse {
+  const criteria = (sections(markdown).get("completion criteria") || "").split(/\r?\n/);
+  const start = criteria.findIndex((line) => ACCEPTANCE_HEADING.test(line.trim()));
+  if (start === -1) return { declared: false, cases: [], errors: [] };
+  const cases: AcceptanceCase[] = [];
+  const errors: string[] = [];
+  let current: AcceptanceCase | undefined;
+  for (const line of criteria.slice(start + 1)) {
+    if (/^###\s+/.test(line)) break;
+    const head = line.match(CASE_LINE);
+    if (head) {
+      current = { id: head[1], title: head[2].trim(), given: "", when: "", then: "", verify: "", command: "" };
+      cases.push(current);
+      continue;
+    }
+    const clause = line.match(CLAUSE_LINE);
+    if (clause && current) {
+      const key = clause[1].toLowerCase() as "given" | "when" | "then" | "verify";
+      current[key] = clause[2].trim();
+      if (key === "verify") current.command = clause[2].match(/`([^`]+)`/)?.[1].trim() || "";
+    }
+  }
+  const seen = new Set<string>();
+  for (const item of cases) {
+    if (seen.has(item.id)) errors.push(`acceptance case ${item.id} is declared more than once`);
+    seen.add(item.id);
+    for (const key of ["given", "when", "then"] as const) if (!item[key]) errors.push(`acceptance case ${item.id} has no ${key[0].toUpperCase()}${key.slice(1)} clause`);
+    if (!item.command) errors.push(`acceptance case ${item.id} needs a runnable command in its Verify clause, written as a code span`);
+  }
+  if (!cases.length) errors.push("'### Acceptance cases' declares no case; write each as `- **AC1** <title>` with Given/When/Then/Verify sub-items");
+  return { declared: true, cases, errors };
+}
+
+// A code-change managed task must define its acceptance cases before development; other tasks may.
+export function acceptanceRequired(state: { managed_change?: unknown; code_change?: unknown }): boolean {
+  return state.managed_change === true && state.code_change === true;
+}
+
+export function acceptanceErrors(markdown: string, required: boolean): string[] {
+  const parsed = acceptanceCases(markdown);
+  if (!parsed.declared) return required ? ["task.md has no '### Acceptance cases' under '## Completion criteria'; a code-change task defines Given/When/Then cases before development"] : [];
+  return parsed.errors;
+}
+
 export function intentHashForPath(taskMdPath: string): string {
   return intentHash(readFileSync(taskMdPath, "utf8"));
 }

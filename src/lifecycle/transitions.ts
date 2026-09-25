@@ -1,10 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, stateRoot, withFileLock, writeJson } from "../core.js";
-import { intentHash, intentValidationErrors } from "../intent.js";
+import { acceptanceCases, intentHash, intentValidationErrors } from "../intent.js";
 import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
 import { resolveProcedures } from "../execution/execution-packet.js";
-import { evaluateTaskGate } from "./task-gate.js";
+import { parallelHint } from "../orchestration/parallel.js";
+import { taskContext } from "../task-context.js";
+import { nextActions } from "./next.js";
+import { evaluateTaskGate, nextForState } from "./task-gate.js";
 import { readinessChecks, readinessSummary } from "./readiness.js";
 import { freezeRequired, schemaErrors } from "./task-schema.js";
 import { assertMutable, lifecycleOf, OPEN_STATUSES, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
@@ -85,7 +88,7 @@ function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
   const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated");
   if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated`);
 }
-export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, emitOutput = true, runtimeSeed: JsonObject = {}): number {
+export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, emitOutput = true, runtimeSeed: JsonObject = {}, contextPaths: string[] = []): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
     if (existsSync(path)) { if (emitOutput) output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
@@ -126,7 +129,20 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       };
       const created = codeChange ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, createTask) : createTask();
       const plan = compilePlanForTaskPath(created, path);
-      if (emitOutput) output({ valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created), readiness: readinessSummary(readinessChecks(path, repoRootValue, stateRootValue, created)) });
+      if (emitOutput) {
+        const repoRoot = identity.root;
+        const taskMd = join(dirname(path), "task.md");
+        const acceptanceCount = existsSync(taskMd) ? acceptanceCases(readFileSync(taskMd, "utf8")).cases.length : 0;
+        const managedCode = created.managed_change === true && created.code_change === true;
+        const context = contextPaths.length ? taskContext(repoRoot, root, identity.projectId, contextPaths, taskId, path) : undefined;
+        output({
+          valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created, Boolean(context?.doc_gap)),
+          readiness: readinessSummary(readinessChecks(path, repoRootValue, stateRootValue, created)),
+          ...(managedCode ? { parallel_hint: parallelHint(created, plan.exploration_profile, acceptanceCount) } : {}),
+          ...(context ? { context } : {}),
+          next: nextForState(created, path, repoRoot)
+        });
+      }
       return 0;
     } catch (error) { if (emitOutput) output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   });
@@ -154,7 +170,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
   if (!existsSync(path)) { if (emitOutput) output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     const disallowed = Object.keys(patch).filter((key) => !TASK_WRITABLE_FIELDS.has(key));
-    if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-record / review-record / pause / block / resume / supersede / waive / close-task instead)`);
+    if (disallowed.length) throw new Error(`task-write: field(s) are not writable via task-write: ${disallowed.join(", ")} (evidence/intent_approval/lifecycle/base_commit/file_ownership/hashes are runtime-managed — use task-init / approve-intent / evidence-run / review-record / pause / block / resume / supersede / waive / close-task instead)`);
     // Only project-doc Remember may replace read/digest evidence; ordinary task-write merges updated paths.
     if (!allowProjectDocEvidence) assertProjectDocsUpdateOnly(patch, "task-write");
     const before = task(path);
@@ -214,10 +230,11 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
     };
     const state = root && identity ? withFileLock(`${worktreeLeasePath(root, identity.worktreeId)}.lock`, applyWrite) : applyWrite();
     if (emitOutput) {
+      const next = nextForState(state, path, repoRootValue);
       if (classificationTouched) {
         const plan = postPatchPlan || compilePlanForTaskPath(state, path);
-        output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state) });
-      } else output({ valid: true, task: path, state_revision: state.state_revision });
+        output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state), next });
+      } else output({ valid: true, task: path, state_revision: state.state_revision, next });
     }
     return 0;
   } catch (error) { if (emitOutput) output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
@@ -235,7 +252,7 @@ export function closeTask(value: string, actor: string, confirmation: string, st
   const outcome = withFileLock<{ code: number; body: JsonObject }>(`${path}.lock`, () => {
     const state = readJson(path) as JsonObject;
     const gate = evaluateTaskGate(state, path, repoRoot);
-    if (!gate.valid) return { code: 1, body: { valid: false, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors } as JsonObject };
+    if (!gate.valid) return { code: 1, body: { valid: false, task: path, status: gate.status, compiled: gate.compiled, errors: gate.errors, next: nextActions(path, repoRoot, gate) } as unknown as JsonObject };
     applyTransition(state, path, "close", actor, confirmation, "");
     state.state_revision = Number(state.state_revision || 0) + 1;
     writeJson(path, state);

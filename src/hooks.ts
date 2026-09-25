@@ -1,6 +1,5 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
-import { isWithin, Json, JsonObject, output, readJson, sha256, stateRoot } from "./core.js";
+import { resolve } from "node:path";
+import { isWithin, Json, JsonObject, output } from "./core.js";
 
 export type CanonicalHookEvent = { platform: string; event: string; tool: string; cwd?: string; command?: string; paths: string[] };
 export type HookDecision = { allow: boolean; reason?: string; context?: string };
@@ -42,80 +41,6 @@ export function normalizeHookEvent(platform: string, payload: JsonObject, event 
   const cwd = text(object(call.args).Cwd) || text(payload.cwd) || (Array.isArray(payload.workspacePaths) ? text(payload.workspacePaths[0]) : "");
   return { platform, event, tool, cwd: cwd || undefined, command: command || undefined, paths: found };
 }
-export function hookDecision(event: CanonicalHookEvent, root = stateRoot()): HookDecision {
-  const scope: GuardScope = { root, cwd: event.cwd || process.cwd() };
-  // A command-less read tool is allowed whatever it names, so it needs none of the path probing below.
-  if (!event.command && isReadOnlyTool(event.tool)) return { allow: true };
-  if (!touchesProtected(event, TASK_STATE_PATTERN, scope)) return { allow: true };
-  const allowed = event.command ? taskCommandAllowed(event.command, root, scope.cwd) : isReadOnlyTool(event.tool);
-  return allowed ? { allow: true } : { allow: false, reason: "task-guard: task.json is runtime-owned; use `agent-workflow task-report` for read-only inspection and the verified agent-workflow task CLI for writes instead of editing it directly." };
-}
-const TASK_STATE_PATTERN = /\btask\.json\b/i;
-// Quoted path fragments such as task".json" still name the protected file.
-function spliced(command: string): string {
-  return command.replace(/["']/g, "").replace(/\\([^\\])/g, "$1");
-}
-// A Windows 8.3 short name opens the same file as its long form — writing through TASK~1.JSO
-// overwrites task.json — so a path carrying one has to be resolved before the filename pattern can
-// clear it. Only paths shaped like a short name pay for the lookup, and a path that does not
-// resolve has no alias to abuse.
-function longNameOf(path: string): string {
-  if (process.platform !== "win32" || !/~\d/.test(path)) return "";
-  try { return realpathSync.native(path); } catch { return ""; }
-}
-// A command names its files positionally, so every short-name-shaped token has to be resolved:
-// checking only redirect targets would miss `sed -i … TASK~1.JSO` and every other shape.
-function aliasedPaths(command: string): string[] {
-  if (process.platform !== "win32" || !/~\d/.test(command)) return [];
-  return command.split(/[\s;|&<>"']+/).filter((token) => /~\d/.test(token)).map(longNameOf).filter(Boolean);
-}
-type GuardScope = { root: string; cwd: string };
-// A hardlink needs no privilege, carries no "task.json" in its name, and opens the same file, so
-// the only thing that identifies it is file identity. The enumeration is paid only for a regular
-// file with more than one link, which is rare enough not to slow ordinary calls.
-function taskStateIdentities(root: string): Set<string> {
-  const identities = new Set<string>();
-  const list = (directory: string): string[] => { try { return readdirSync(directory); } catch { return []; } };
-  const record = (file: string): void => {
-    const stat = statSync(file, { bigint: true, throwIfNoEntry: false });
-    if (stat) identities.add(`${stat.dev}:${stat.ino}`);
-  };
-  for (const task of list(join(root, "tasks"))) record(join(root, "tasks", task, "task.json"));
-  for (const project of list(join(root, "projects")))
-    for (const task of list(join(root, "projects", project, "tasks"))) record(join(root, "projects", project, "tasks", task, "task.json"));
-  return identities;
-}
-function isTaskStateLink(path: string, scope: GuardScope): boolean {
-  // A UNC path can stall on the network for far longer than a guard may block.
-  if (!path || /^(?:\\\\|\/\/)/.test(path)) return false;
-  try {
-    const stat = statSync(resolve(scope.cwd, path), { bigint: true, throwIfNoEntry: false });
-    if (!stat || !stat.isFile() || stat.nlink < 2n) return false;
-    return taskStateIdentities(scope.root).has(`${stat.dev}:${stat.ino}`);
-  } catch { return false; }
-}
-function commandTokens(command: string): string[] {
-  return command.split(/[\s;|&<>"']+/).filter(Boolean);
-}
-function mentionsProtected(text: string, pattern: RegExp, scope: GuardScope): boolean {
-  return pattern.test(text) || pattern.test(spliced(text)) || aliasedPaths(text).some((path) => pattern.test(path))
-    || commandTokens(text).some((token) => isTaskStateLink(token, scope));
-}
-function touchesProtected(event: CanonicalHookEvent, pattern: RegExp, scope: GuardScope): boolean {
-  return event.paths.some((path) => pattern.test(path) || pattern.test(longNameOf(path)) || isTaskStateLink(path, scope)) || mentionsProtected(event.command || "", pattern, scope);
-}
-const READ_ONLY_COMMANDS = new Set([
-  "cat", "type", "head", "tail", "more", "less", "nl", "ls", "dir", "tree", "wc", "grep", "rg", "findstr", "select-string",
-  "get-content", "get-childitem", "test-path", "resolve-path", "cmp", "stat", "file", "jq",
-  "cut", "tr", "echo", "printf", "basename", "dirname", "realpath", "pwd", "md5sum", "sha256sum"
-]);
-// Interpreters and commands with output-file modes require the sanctioned runtime path.
-// certutil is a general certificate/encoding tool; only its file-hashing mode is a read.
-const HASH_ALGORITHMS = new Set(["sha256", "sha1", "md5"]);
-function isCertutilRead(segment: string): boolean {
-  const tokens = segment.trim().split(/\s+/);
-  return tokens.length === 4 && tokens[1].toLowerCase() === "-hashfile" && HASH_ALGORITHMS.has(tokens[3].toLowerCase());
-}
 
 // Commands whose quoted arguments and heredoc bodies are text they print or match, never text they
 // execute. Only these get their quoted runs and heredoc bodies dropped before parsing — an
@@ -126,7 +51,7 @@ const DATA_ARGUMENT_COMMANDS = new Set([
 ]);
 // PowerShell does not put the command first: an assignment binds it (`$t = git ls-files`) and a block
 // opener precedes it (`foreach ($d in $dirs) { Get-ChildItem $d }`). The raw first token read those as
-// the commands `$t` and `foreach`, which are on no allowlist, so read-only PowerShell was denied.
+// the commands `$t` and `foreach`, which hid the git invocation behind them.
 const POWERSHELL_PREFIX = /^(?:\$[A-Za-z_]\w*\s*=\s*|(?:foreach|foreach-object|if|elseif|else|while|for|switch|try|catch|finally|do|%)\b\s*(?:\([^()]*\))?\s*\{?\s*|\{\s*)/i;
 function stripInvocationPrefix(segment: string): string {
   let text = segment.trim();
@@ -156,37 +81,6 @@ function splitShellSegments(command: string): string[] {
   return segments.map((segment) => segment.trim()).filter(Boolean);
 }
 
-const NULL_DEVICES = new Set(["/dev/null", "nul", "$null"]);
-function redirectTargets(command: string): string[] {
-  const targets: string[] = [];
-  let quote = "", escaped = false;
-  for (let index = 0; index < command.length; index += 1) {
-    const character = command[index];
-    if (escaped) { escaped = false; continue; }
-    if (character === "\\" && quote !== "'") { escaped = true; continue; }
-    if (quote) { if (character === quote) quote = ""; continue; }
-    if (character === "'" || character === '"') { quote = character; continue; }
-    if (character !== ">") continue;
-    let cursor = index + 1;
-    while (command[cursor] === ">") cursor += 1;
-    while (command[cursor] === " " || command[cursor] === "\t") cursor += 1;
-    // `2>&1` and `>&2` rebind a descriptor onto another, so no file is opened.
-    if (command[cursor] === "&" && /^(?:\d+|-)(?:\s|[;|&]|$)/.test(command.slice(cursor + 1))) continue;
-    let target = "";
-    let targetQuote = "";
-    if (command[cursor] === "&") cursor += 1;
-    for (; cursor < command.length; cursor += 1) {
-      const part = command[cursor];
-      if (targetQuote) { if (part === targetQuote) targetQuote = ""; else target += part; }
-      else if (part === '"' || part === "'") targetQuote = part;
-      else if (/[\s;|&<>]/.test(part)) break;
-      else target += part;
-    }
-    // Discarding to the null device writes nothing the guard needs to protect.
-    if (target && !NULL_DEVICES.has(target.toLowerCase())) targets.push(target);
-  }
-  return targets;
-}
 
 // Drops the body of a heredoc whose receiving command treats it as data, so a command quoted inside
 // `cat <<EOF ... EOF` is documentation rather than an invocation. A body fed to `bash`, `python` or
@@ -223,86 +117,6 @@ function stripQuotedData(segment: string): string {
 // `bash -c "git push"` as an invocation of bash and never look at what bash was told to run.
 const SCRIPT_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "powershell", "pwsh", "cmd", "busybox"]);
 const PREFIX_WRAPPERS = new Set(["sudo", "doas", "su", "env", "nohup", "timeout", "command", "exec", "time", "xargs", "stdbuf", "nice", "ionice"]);
-// Only segments naming task.json pay for task read/write classification.
-function taskCommandAllowed(command: string, root: string, cwd: string): boolean {
-  const scope: GuardScope = { root, cwd };
-  const { command: stripped, hiddenExpansion } = stripHeredocBodies(command);
-  if (hiddenExpansion) return false;
-  if (/<<<?/.test(stripped) && !DATA_ARGUMENT_COMMANDS.has(commandHead(stripped))) return false;
-  return splitShellSegments(stripped).every((raw) => {
-    if (!mentionsProtected(raw, TASK_STATE_PATTERN, scope)) return true;
-    // Both spellings have to be tested: splicing defeats quote evasion (task".json"), but on a
-    // Windows path it also glues the directories onto the filename and destroys the \b anchor, so
-    // only the raw target still names the file there.
-    if (redirectTargets(raw).some((target) => TASK_STATE_PATTERN.test(target) || TASK_STATE_PATTERN.test(spliced(target)) || TASK_STATE_PATTERN.test(longNameOf(target)) || isTaskStateLink(target, scope))) return false;
-    const segment = stripQuotedData(raw);
-    if (SUBSTITUTION.test(segment)) return false;
-    const subcommand = verifiedRuntimeSubcommand(raw, root);
-    if (subcommand && (TASK_STATE_WRITER_COMMANDS.has(subcommand) || TASK_STATE_READER_COMMANDS.has(subcommand))) return true;
-    const head = commandHead(segment);
-    if (head === "git") {
-      const git = parseGitInvocation(stripInvocationPrefix(raw));
-      return !!git && TASK_GIT_READS.has(git.subcommand) && !git.args.some((arg) => GIT_DENIED_READ_OPTIONS.test(arg));
-    }
-    if (head === "certutil") return isCertutilRead(raw);
-    if (head === "rg" && /--pre(?:=|\s)/.test(spliced(raw))) return false;
-    return READ_ONLY_COMMANDS.has(head);
-  });
-}
-// The mirror image of the shell allowlist: a tool event carries no command to inspect, so the tool
-// name itself has to prove it only reads. Inverting a write-name blocklist let ordinary editor and
-// filesystem tools (str_replace, create_file, move_file) pass as reads.
-const READ_ONLY_TOOLS = new Set(["read", "read_file", "readfile", "view", "view_file", "cat", "open", "glob", "grep", "search", "search_files", "list", "list_dir", "list_directory", "ls", "notebookread", "notebook_read", "get_file_info", "directory_tree"]);
-function isReadOnlyTool(tool: string): boolean {
-  return READ_ONLY_TOOLS.has(tool) || READ_ONLY_TOOLS.has(tool.replace(/^mcp__.*?__/, ""));
-}
-// Sanctioned task writers must resolve to the recorded runtime hash, not merely share its name.
-const PATH_EXTENSIONS = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat", ".ps1", ".mjs"] : [""];
-function resolveOnPath(name: string): string | undefined {
-  for (const directory of (process.env.PATH || "").split(delimiter).filter(Boolean))
-    for (const extension of PATH_EXTENSIONS) {
-      const candidate = resolve(directory, `${name}${extension}`);
-      if (existsSync(candidate)) return candidate;
-    }
-  return undefined;
-}
-function resolvableAgentWorkflowPath(candidate: string): string | undefined {
-  if (!candidate.includes("/") && !candidate.includes("\\")) return resolveOnPath(candidate);
-  const home = process.env.USERPROFILE || process.env.HOME || "";
-  return resolve(/^~[\\/]/.test(candidate) ? home + candidate.slice(1) : candidate);
-}
-// Returns the subcommand only after verifying the runtime binary against managed state.
-function verifiedRuntimeSubcommand(segment: string, root = stateRoot()): string | undefined {
-  // Substitutions execute before the runtime can validate its own arguments.
-  if (SUBSTITUTION.test(segment)) return undefined;
-  const tokens = (segment.match(/"[^"]*"|'[^']*'|\S+/g) || []).map((token) => token.replace(/^["']|["']$/g, ""));
-  const executableName = (token: string) => token.replace(/^.*[\\/]/, "").toLowerCase();
-  if (/^node(?:\.exe)?$/.test(executableName(tokens[0] || ""))) tokens.shift();
-  const candidate = tokens[0] || "";
-  if (!/^agent-workflow(?:\.mjs)?$/.test(executableName(candidate))) return undefined;
-  if (redirectTargets(segment).length) return undefined;
-  const resolvedPath = resolvableAgentWorkflowPath(candidate);
-  if (!resolvedPath) return undefined; // an unresolvable name has no identity to verify; deny fail-closed
-  const managedPath = join(root, "managed-runtime.json");
-  if (!existsSync(managedPath)) return undefined; // resolvable path with nothing to verify it against — deny fail-closed
-  try {
-    const runtimeHash = String((readJson(managedPath) as JsonObject).runtime_hash || "");
-    if (!runtimeHash || !existsSync(resolvedPath) || sha256(readFileSync(resolvedPath)) !== runtimeHash) return undefined;
-  } catch { return undefined; } // resolvedPath could not be verified against the recorded identity; deny fail-closed
-  return tokens[1]?.toLowerCase();
-}
-// A command legitimately writes task.json only through these commands' own validated write path
-// (schema check + file lock), never by the shell segment touching the file directly.
-const TASK_STATE_WRITER_COMMANDS = new Set([
-  "task-init", "task-write", "reclassify", "close-task", "pause", "block", "resume", "supersede",
-  "waive", "approve-intent", "evidence-record", "review-record", "project-doc"
-]);
-// Inspecting the task file through the verified runtime is the remediation this guard's own denial
-// message recommends, so the read-only subcommands have to clear the same check the writers do.
-// None of these write task state; denying them only turned a task-path argument into a retry.
-const TASK_STATE_READER_COMMANDS = new Set(["task-report", "task-gate", "pre-review", "execution-packet", "workflow-plan", "preflight"]);
-// This allowlist applies only when inspecting the runtime-owned task file.
-const TASK_GIT_READS = new Set(["status", "diff", "log", "show", "rev-parse", "ls-files", "rev-list"]);
 // Global options come before the subcommand, so they have to be consumed before it can be read;
 // leaving them in place made `git --no-pager log` parse as the subcommand "--no-pager".
 const GIT_GLOBAL_OPTIONS = /^(?:-C\s*(?:"[^"]+"|'[^']+'|\S+)|--no-pager|--no-optional-locks|--no-lazy-fetch|-P|--no-replace-objects|--literal-pathspecs|--bare)\s*/;
@@ -382,8 +196,8 @@ export function gitDecision(event: CanonicalHookEvent): HookDecision {
   }
   return { allow: true };
 }
-export function runGuard(platform: string, eventName: string, payload: JsonObject, root = stateRoot()): void {
-  const event = normalizeHookEvent(platform, payload, eventName);
-  const baseline = hookDecision(event, root);
-  platformOutput(platform, eventName, baseline.allow ? gitDecision(event) : baseline);
+// Task state is not guarded here: the runtime owns every write to it, and a shell-string guard could
+// only block commands by pattern while never proving what they actually write.
+export function runGuard(platform: string, eventName: string, payload: JsonObject): void {
+  platformOutput(platform, eventName, gitDecision(normalizeHookEvent(platform, payload, eventName)));
 }

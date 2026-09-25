@@ -26,30 +26,30 @@ test("workflow documents preserve focused work and the ordered slice loop", () =
   const elevated = read(".agents/skills/workflow/elevated.md");
   const runtime = read("docs/modules/workflow-runtime.md");
   const readme = read("README.md");
+  const capabilitySelection = read(".agents/skills/workflow/capability-selection.md");
   assert.match(evidence, /`focused` file-local work follows `implementation -> focused feedback` directly/);
   assert.match(readme, /直接走 `implementation -> focused feedback`/);
   assert.match(runtime, /expanded: ordered slice .*local feedback > next dependent slice > all slices complete/);
   assert.match(elevated, /goal, scope,\s+acceptance criteria, local verification command, and dependencies/);
   assert.match(evidence, /elevated\.md#ordered-implementation-slices/);
-  assert.match(evidence, /Before the first formal evidence batch, reuse the compiled plan/);
-  assert.match(evidence, /classification_incomplete/);
+  // The plan returned by task-init/task-write is reused as-is; nothing recompiles it before recording.
+  assert.match(evidence, /The gate items are already decided/);
+  assert.match(capabilitySelection, /`classification_incomplete`[^\n]*gate 會擋下這種 task/);
   assert.match(elevated, /dependent slice waits until the\s+previous slice's local feedback passes/);
-  assert.match(evidence, /`evidence-run` the affected\/regression checks, batching every requirement id that command covers,\s+including `delivery_validation\.DV1`/);
-  assert.match(evidence, /Read-only\s+review leaves the receipt reusable/);
+  assert.match(evidence, /`evidence-run` every acceptance case and proof, batching the ids each distinct command covers/);
+  assert.match(evidence, /Read-only review leaves the runs\s+reusable/);
   assert.match(elevated, /Each slice receives local feedback only; the whole task gets\s+one Reviewer after every slice is stable/);
-  assert.match(evidence, /timing in \[review\.md\]\(review\.md\)/);
+  assert.match(evidence, /run it per \[review\.md\]\(review\.md\)/);
   assert.equal((evidence.match(/^## Finalization$/gm) || []).length, 1, "the final sequence has one owner section");
   assert.match(review, /正式 Reviewer 以整個 task 的穩定交付為單位執行/);
-  assert.match(review, /第一輪 `pre-review` 快照/);
+  assert.match(review, /驗收案例與 proofs 的 `evidence-run` 都通過之後，才開第一輪/);
   assert.match(review, /需要獨立發布、不可逆外部操作或不可回溯前提的範圍，建立獨立 task/);
-  assert.match(review, /暫停或恢復同一 task 不會改變這個 review boundary/);
 
   const stable = runtime.indexOf("all slices complete");
-  const regression = runtime.indexOf("affected/regression", stable);
-  const reviewer = runtime.indexOf("Reviewer", regression);
-  const dv1 = runtime.indexOf("DV1", regression);
+  const runs = runtime.indexOf("evidence-run acceptance cases and proofs", stable);
+  const reviewer = runtime.indexOf("Reviewer", runs);
   const close = runtime.indexOf("close-task", reviewer);
-  assert.ok(stable >= 0 && regression > stable && dv1 > regression && reviewer > dv1 && close > reviewer, "stable validation can cover DV1 before read-only review and gated close");
+  assert.ok(stable >= 0 && runs > stable && reviewer > runs && close > reviewer, "stable delivery runs acceptance cases and proofs before read-only review and gated close");
   assert.doesNotMatch(runtime, /> task-gate > close-task/);
 });
 
@@ -78,12 +78,11 @@ function readmeWithoutLegacyBenchmark() {
 }
 
 test("removed evidence CLI flags are rejected by the active parser", () => {
-  const result = spawnSync(process.execPath, [cli, "evidence-record", "--started-at", "2026-01-01T00:00:00.000Z"], { cwd: root, encoding: "utf8" });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unknown option\(s\).*--started-at/);
-  const duration = spawnSync(process.execPath, [cli, "evidence-record", "--duration-ms", "10"], { cwd: root, encoding: "utf8" });
-  assert.notEqual(duration.status, 0);
-  assert.match(duration.stderr, /Unknown option\(s\).*--duration-ms/);
+  for (const [flag, value] of [["--started-at", "2026-01-01T00:00:00.000Z"], ["--duration-ms", "10"]]) {
+    const result = spawnSync(process.execPath, [cli, "evidence-run", flag, value], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, new RegExp(`Unknown option\\(s\\) for evidence-run: ${flag}`));
+  }
 });
 
 test("v4 execution evidence migrates to the latest schema once and preserves the original backup", () => {
@@ -108,12 +107,16 @@ test("v4 execution evidence migrates to the latest schema once and preserves the
   assert.equal(readFileSync(join(task, "task.json"), "utf8"), once);
 });
 
-test("lifecycle finalization stays a single authority: only transitions.ts closes a task, orchestration never imports the gate", () => {
+test("lifecycle finalization stays a single authority: only transitions.ts closes a task, orchestration never evaluates the gate", () => {
   const closers = sourceFiles(join(root, "src"))
     .filter((file) => file !== join(root, "src", "lifecycle", "transitions.ts"))
     .filter((file) => /applyTransition\(\s*[^)]*"close"|transitionTask\([^)]*"close"/.test(readFileSync(file, "utf8")));
   assert.deepEqual(closers, [], "only lifecycle/transitions.ts may drive the close transition");
 
+  // Orchestration may import the read-only nextForState hint (it only emits `next`), but must not
+  // evaluate the gate or close the task itself: the parent coordinator closes it after Apply.
   const protocol = read("src/orchestration/protocol.ts");
-  assert.doesNotMatch(protocol, /lifecycle\/task-gate/, "orchestration must not re-evaluate the gate itself; the parent coordinator closes the task after Apply");
+  const gateImports = [...protocol.matchAll(/import\s*\{([^}]*)\}\s*from\s*"[^"]*lifecycle\/task-gate(?:\.js)?"/g)].flatMap((match) => match[1].split(",").map((name) => name.trim()).filter(Boolean));
+  assert.deepEqual(gateImports.filter((name) => name !== "nextForState"), [], "orchestration may only import nextForState from the lifecycle gate");
+  assert.doesNotMatch(protocol, /\bevaluateTaskGate\b|\bcloseTask\b/, "orchestration must not re-evaluate the gate itself; the parent coordinator closes the task after Apply");
 });

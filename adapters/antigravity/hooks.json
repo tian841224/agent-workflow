@@ -30,14 +30,5 @@
         ]
       }
     ]
-  },
-  "agent-workflow-locale-lint": {
-    "PostInvocation": [
-      {
-        "type": "command",
-        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" locale-lint --platform Antigravity --state-root \"{{STATE_ROOT}}\"",
-        "timeout": 15
-      }
-    ]
   }
 }

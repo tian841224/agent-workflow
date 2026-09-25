@@ -16,7 +16,7 @@ export function learn(options: Options): number { const action = text(options, "
   const id = `${now().replace(/[-:.TZ]/g, "").slice(0, 14)}-${kind}-${slug(topic)}-${digest.slice(0, 10)}`; const path = join(directory, `${id}.md`);
   // status is never accepted from the caller — Capture can only ever create needs_verification
   // records; knowledge-verify is the sole path to "verified", for either scope.
-  const record = knowledgeRecord({ topic: slug(topic), scope, projectId: project, content, kind, sourceEvent: text(options, "source-event", "agent-learning"), relationships: supersedes.map((reference) => `supersedes:${resolveEntry(directory, reference)[1].content_sha256}`) });
+  const record = knowledgeRecord({ topic: slug(topic), scope, projectId: project, content, kind, sourceEvent: text(options, "source-event", "agent-learning"), relationships: supersedes.map((reference) => `supersedes:${resolveEntry(directory, reference)[1].content_sha256}`), tags: list(options, "tags"), paths: list(options, "paths") });
   writeKnowledgeEntry(path, record, content);
   for (const reference of supersedes) { const [old] = resolveEntry(directory, reference); writeAtomic(old, setField(setField(readFileSync(old, "utf8"), "status", "superseded"), "superseded_by", digest)); } for (const reference of list(options, "forget")) rmSync(resolveEntry(directory, reference)[0]); output({ status: "created", path, id }); return 0; }
 export function skillDraft(options: Options): number { const root = stateRoot(text(options, "state-root") || undefined); const action = text(options, "action"); const path = join(root, "skill-drafts", "index.json"); const name = text(options, "name");

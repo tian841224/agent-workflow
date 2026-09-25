@@ -4,7 +4,7 @@ import { compileWorkflowPlan, loadPolicy } from "./workflow-policy.js";
 // The dimensions a policy condition can read, sampled rather than exhausted: every value of the two
 // enums a require_when threshold ranks on, plus representative sets for the multi-valued inputs.
 // Sampling is deliberate — the point is a stable tripwire, not a proof.
-const TASK_TYPES = ["fix", "feature", "refactor", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"];
+const TASK_TYPES = ["fix", "feature", "refactor", "mechanical", "chore", "schema", "migration", "config", "docs", "investigation", "read_only"];
 const IMPACT_SCOPES = ["file", "module", "multi_module", "cross_project"];
 const IMPACT_EFFECTS = ["none", "local_behavior", "shared_behavior", "data", "schema", "contract", "destructive"];
 const IMPACT_CONFIDENCES = ["high", "medium", "low"];

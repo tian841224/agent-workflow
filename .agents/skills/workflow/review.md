@@ -1,55 +1,49 @@
 # Reviewer
 
-只有 `reviewer` 進入 `selected` 時才讀本檔。
+只有 `reviewer` 進入 `selected` 時才讀本檔。`code_change: true` 的 task 都會選入 Reviewer。`task_type: mechanical` 只免除這條規則；影響面到 `multi_module` 以上、`impact_effect` 為 shared_behavior／data／contract／destructive，或帶有高風險 flag 時仍會選入。沒選入時，由主對話對照 acceptance 與 checklist 自我檢查。
 
-`reviewer` 是獨立的唯讀複審角色：只讀 diff 與相關程式碼並回報結論，本身不改動任何檔案，可以派成 subagent。主對話是 coordinator，負責整合複審結果並做最後一次合理性核對；coordinator 這一趟屬於整合工作，不算第二位 reviewer。
-
-Runtime contract 只認得 `role.reviewer` 一種身份，第二位 reviewer 就算真的跑了也無法被證明，因此高風險情境改成把對抗式要求寫進同一位 reviewer 的指令。reviewer 回報 blocker 並修正後，重新執行同一個 reviewer capability。
+`reviewer` 是獨立的唯讀複審角色，派成 subagent：只讀 diff 與相關程式碼並回報結論，不改動任何檔案。主對話是 coordinator，負責修正、整合複審結果，並做最後一次合理性核對；這一趟屬於整合工作，不算第二位 reviewer。Runtime contract 只認得 `role.reviewer` 一種身份，所以高風險情境的對抗式要求要寫進同一位 reviewer 的指令。
 
 ## Review timing
 
-正式 Reviewer 以整個 task 的穩定交付為單位執行。使用 ordered slices 的 task 先完成所有 slices、整合程式碼／測試／文件，再完成受影響範圍的整體驗證，才建立第一輪 `pre-review` 快照並派出 Reviewer。Slice 的 local feedback 是 coordinator 的實作回饋，不是正式 Reviewer。
+正式 Reviewer 以整個 task 的穩定交付為單位執行：所有 slices 完成、程式碼／測試／文件整合好，而且驗收案例與 proofs 的 `evidence-run` 都通過之後，才開第一輪。Slice 的 local feedback 是 coordinator 的實作回饋，不是正式 Reviewer。需要獨立發布、不可逆外部操作或不可回溯前提的範圍，建立獨立 task。
 
-需要獨立發布、不可逆外部操作或不可回溯前提的範圍，建立獨立 task；該 task 也要等自己的全部實作完成後才進入 Reviewer。暫停或恢復同一 task 不會改變這個 review boundary。
+## 每一輪的流程
 
-## 執行方式
+1. 在 repo root 執行 `agent-workflow pre-review --path <repo> --task-path <task>`。回傳 `workspace_sha256`，以及這一輪的 `review` brief：`round`、`scope`、`paths`、上一輪的 `previous`、`acceptance`、`checklist`、`risk_flags`。從快照到 `review-record` 之間工作樹保持不動，包括 stash/pop。
+2. 派新的 reviewer subagent（Claude 用 `general-purpose`），訊息只帶下列內容：
+   - brief 本身：`paths` 與 base、驗收案例、checklist
+   - 這次強度要求的推翻假設（見下節）
+   - 第 2 輪起加上 `previous` 的 findings
 
-reviewer 與 coordinator 兩趟盲點互補：獨立 reviewer 抓得到主對話因為熟悉而略過的死碼與慣例偏離，coordinator 抓得到 reviewer 缺少專案脈絡而串不起來的跨檔案語意問題。
+   完整背景與已確認的 PASS 不重複貼上。
+3. reviewer 回報 finding、blocker、FAIL 或未驗證限制，每項附依據、影響與可重現位置（repo-relative path、symbol、diff hunk）；全部通過時回傳單行 `PASS`。
+4. 主對話用 `review-record --expected-workspace-sha256 <sha>` 記錄結果。runtime 會自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與每個路徑的 digest；工作樹在快照後有變動，就拒絕這筆紀錄。
+5. 有 blocker：主對話修正 → 重跑受影響的 `evidence-run` → 回到第 1 步。下一輪的 `scope` 是 `delta`，`paths` 只包含上一輪之後內容有變動的路徑。
 
-reviewer 這一趟派一般 subagent（`general-purpose`），只讀已穩定的 delivery diff 與 shared evidence map，指令載明兩項要求：
+## 強度依 brief 調整
 
-- 核對既有的相關測試是否足以支撐結論；只有測試範圍、新修改、環境或 finding 使既有結果不再有效時才實際重跑。數值、邊界與併發行為若現有測試沒有涵蓋，列為測試缺口並指出應補的具體案例，由實作者依 TDD 補齊。
-- 對改動的欄位與資料流，往上下游追到 repository 與 entity，確認欄位映射、呼叫端與程式宣稱的行為一致。
+- 所有輪次：核對既有測試與驗收案例是否足以支撐結論；只有測試範圍、新修改或 finding 使既有結果失效時，才實際重跑。數值、邊界與併發行為若沒有測試涵蓋，列為測試缺口並指出應補的具體案例。對改動的欄位與資料流，往上下游追到 repository 與 entity。
+- `impact_scope: file`、brief 的 `risk_flags` 為空的修改：只看 diff、驗收案例與 checklist。
+- 有 `risk_flags` 時，把要主動推翻的假設寫進指令：
+  - `financial`／`data_write`／`schema`／`migration`／`irreversible`：推翻資料 provenance、rollback 路徑與 invariants。
+  - `security`／`authorization`：推翻 trust boundary 與權限假設。
+  - `contract`：主動尋找 consumer 的相容性破口。
+  - `ui`：用平台原生 browser 實際驗證，不以靜態閱讀代替。
+- 第 2 輪起只檢查三件事：上一輪的 findings 是否已修正、`paths` 列出的 delta，以及這些路徑的直接呼叫端。若修改碰到入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前一輪有未確認的節點，才重新展開完整的 execution path。
 
-高風險分類把要主動推翻的假設直接寫進同一位 reviewer 的指令：
+coordinator 這一趟對照完整 diff 與 evidence map，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突，以及本次改動是否與既有功能重複或互相覆蓋。
 
-- `financial`／`data_write`／`schema`／`migration`／`irreversible`：推翻資料 provenance、rollback 路徑與 invariants。
-- `security`／`authorization`：推翻 trust boundary 與權限假設。
-- `contract`：主動尋找 consumer 的相容性破口。
-- `ui`：用平台原生 browser 實際驗證，不以靜態閱讀代替。
+## 結果回填與 freshness
 
-coordinator 這一趟由主對話對照完整 diff 與 shared evidence map，聚焦 subagent 缺乏專案脈絡而判斷不了的部分：與既有慣例是否一致、跨檔案的語意衝突、本次改動與既有功能是否重複或互相覆蓋。已由 shared map 證實的搜尋與測試結果直接引用，不重新建立相同脈絡。
+Reviewer 結果只透過 `review-record` 寫入；summary 保留 blocker、path、symbol／hunk、可觸發情境、影響與最小修正方向。`agent-workflow task-report` 會把 role evidence 呈現給人閱讀。
 
-交給 reviewer 的訊息只帶四項：穩定 diff 的路徑與 base、shared evidence map 的位置、這一輪新增的 impact／validation delta，以及需要主動推翻的風險假設。完整背景與已確認的 PASS 不重複貼上；reviewer 只回報 finding、blocker、FAIL 或未驗證限制，各附依據、影響與可重現位置；全部通過時回傳單行 `PASS`。
+下列任一情況都會讓既有 review 失效，需要重新複審：
+- 已 review 範圍內的內容改變
+- 交付新增了原本 `reviewed_paths` 沒有涵蓋的路徑
+- 分類異動使 `plan_revision` 前進
+- `reviewed_base` 已無法解析
 
-## Review 範圍與工作樹綁定
+Review 指出未列入的呼叫端、入口或共用狀態時，先補進 evidence map，重新評估是否要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
 
-每輪 review 前主對話跑一次 `agent-workflow pre-review`，它同時回傳 `git diff --check` 結果與 `workspace_sha256`；把該 sha256 傳給 `review-record --expected-workspace-sha256 <sha256>`，工作樹在快照後變動時 runtime 會拒絕該筆紀錄，PASS 因此只能對應 reviewer 實際看過的那棵樹。快照到 `review-record` 之間工作樹保持不動（含 stash/pop）；與本任務無關的既有異動在 `task-init` 前處理。
-
-`review-record` 自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與 `delivery_hash`。Gate 對 role evidence fail-closed，下列任一情況都使既有 review 失效並要求重新複審：已 review 範圍內的內容改變、交付新增原 `reviewed_paths` 未涵蓋的 changed path、分類異動使 `plan_revision` 前進，或 `reviewed_base` 已無法解析而算不出 freshness。`reviewed_paths` 必須涵蓋 `reviewed_base` 之後所有變更路徑，含改名與刪除——指向未被改動的路徑會得到永遠不會過期的 digest。重跑時沿用下方的 delta-first 規則，不必重新探索未受影響的脈絡。
-
-## 結果回填
-
-Reviewer 結果只透過 `review-record` 寫入 task.json；summary 保留 blocker、path、symbol／hunk、可觸發情境、影響與最小修正方向。`agent-workflow task-report` 會把 role evidence 呈現給人閱讀，task.md 不再保存第二份 Reviewer ledger。
-
-- Review 指出未列入的呼叫端、入口或共用狀態時：先把這些節點補進 shared evidence map，重新評估這些節點是否需要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍（例如另一功能走同一路徑）時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
-- 回填後的 task 路徑即為唯一版本，後續複審與 knowledge 回寫都以它為準。
-- 有 blocker 時主對話修正、重新執行相關驗證，再重跑上述各趟。
-
-## Review round 與增量錨定
-
-第一輪建立完整脈絡。Blocker 修正後，第二輪起把 prior findings、fix delta、impact delta、validation delta 與 cause 留在 Reviewer summary／review-cause record；可用它導航，但仍須自行核對 diff，task report 不是正確性證據。
-
-開下一輪時可在同一次失敗回報附上歸因：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。這會由 runtime 自動寫入 review-cause telemetry；沒有要立即做學習歸因時，不必另跑 command 阻塞交付。既有資料也可繼續用 `review-cause --action Record` 維護。分類定義與累積後的補救路由見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。
-
-後續輪次採 delta-first：先檢查修復項、直接呼叫端與本輪新增波及項，不重複輸出未變更內容。若修改入口、公開介面、共用狀態、資料／契約、並發／非同步／錯誤邊界，或前輪存在未確認節點，則重新展開完整 execution path。Diff anchor 使用 repo-relative path、symbol 與 diff hunk，行號只作輔助。
+確認的 finding 依 [root-cause](../root-cause/SKILL.md) 追查起因。要立即留下歸因時，可在失敗回報附上：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。分類定義見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。

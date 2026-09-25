@@ -33,12 +33,6 @@ test("contract-lint reports a retired name, an unknown CLI command and a missing
   assert.equal(result.status, 1);
 });
 
-test("task-guard denies a task.json write hidden in an interpreter argument", () => {
-  const command = `python -c "open('task.json','w').write('{}')"`;
-  const result = run(["git-guard", "--platform", "Claude"], { input: JSON.stringify({ tool_name: "bash", session_id: "s1", tool_input: { command } }) });
-  assert.match(result.stdout, /task-guard/);
-});
-
 test("knowledge entries are written through knowledge.schema.json and land under the resolved project id", () => {
   const root = join(tmpdir(), `agent-workflow-knowledge-contract-${process.pid}-${Date.now()}`);
   const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });

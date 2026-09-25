@@ -24,6 +24,7 @@ description: Use after a bug fix or confirmed code-review finding to trace why t
 - 宣稱 `convention_gap` 前，找出專案裡遵守這個慣例的既有程式作為證據。
 - 宣稱 `context_miss` 時，指出本來該讀到的那份文件或規則。
 - 以上都不成立、只是寫錯時，歸為 `logic_error`。
+- 每項最後再標一條防線：缺測試、缺文件、缺規範，或 workflow 缺陷。workflow 缺陷是指 workflow 的某一關本來該擋下卻沒擋，要用 `regression` 的 `miss_category` 指出是哪一關。
 
 ## 3. 選補救
 
@@ -57,7 +58,7 @@ description: Use after a bug fix or confirmed code-review finding to trace why t
 - **使用者同意後才寫**：`AGENTS.md` 規則、任務模板、skill 草稿，以及強度 1、2 的程式修改。先列出提案內容，取得對話中的明確同意。
 - **記進記憶**：證據只有一次、還不確定是否為通則的做法，交給 learn。累積到門檻後由 distill 升級。
 
-在 managed task 的 review 中發現的問題，另外依 [review.md](../workflow/review.md#review-round-與增量錨定) 記錄 review cause，讓 distill 能計算同類問題的次數。
+在 managed task 的 review 中發現的問題，另外依 [review.md](../workflow/review.md#結果回填與-freshness) 記錄 review cause，讓 distill 能計算同類問題的次數。
 
 ## 5. 回報
 

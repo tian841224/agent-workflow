@@ -24,7 +24,12 @@ const RETIRED: { pattern: RegExp; replacement: string }[] = [
   { pattern: /\bdiff_sha256\b/, replacement: "reviewed_diff_sha256 (role evidence) or workspace_sha256 (worktree-fingerprint)" },
   { pattern: /\bstale_pending\b/, replacement: "project-doc --action Stale, which reports one condition only" },
   { pattern: /\brequirements_hash\b/, replacement: "plan_hash" },
-  { pattern: /\bintent_sha256\b/, replacement: "intent_approval.intent_hash, written by agent-workflow approve-intent" }
+  { pattern: /\bintent_sha256\b/, replacement: "intent_approval.intent_hash, written by agent-workflow approve-intent" },
+  { pattern: /\bevidence-record\b/, replacement: "agent-workflow evidence-run for acceptance cases and runtime proofs; analysis steps are a checklist, not evidence" },
+  { pattern: /\bworkflow-plan\b/, replacement: "the plan returned by agent-workflow task-init / task-write" },
+  { pattern: /\bagent-workflow preflight\b/, replacement: "the readiness returned by agent-workflow task-init" },
+  { pattern: /\bstep_classification_incomplete\b/, replacement: "the plan checklist (undecided steps stay on it)" },
+  { pattern: /\bdelivery_validation\b/, replacement: "acceptance.<AC id> runs recorded with evidence-run" }
 ];
 const SCANNED = [".agents", "templates", "adapters", "docs", "README.md", "AGENTS.md"];
 // The vocabulary rules only apply where this framework owns the vocabulary. Bundled third-party
@@ -36,7 +41,8 @@ const FRAMEWORK_OWNED = [
   ".agents/skills/diagnosing-bugs/", ".agents/skills/operational-verification/",
   "templates/", "adapters/", "docs/", "README.md", "AGENTS.md"
 ];
-const SKIPPED = ["docs/history", "node_modules", "dist", "bench", ".git"];
+// Dated history and review records describe the contract as it was when they were written.
+const SKIPPED = ["docs/history", "docs/reviews", "node_modules", "dist", "bench", ".git"];
 
 type Finding = { file: string; line: number; rule: string; detail: string };
 
@@ -169,7 +175,7 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
       // A backticked snake_case token is, in these documents, always a contract name.
       if (frameworkOwned && !suppresses("unknown-term")) for (const match of text.matchAll(/`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/g)) if (!vocabulary.has(match[1])) findings.push({ file: relativePath, line, rule: "unknown-term", detail: `\`${match[1]}\` is not a field, enum value, capability, step id or CLI option defined by the contract` });
       // Step ids are the one contract name agents copy by hand into evidence lines.
-      if (frameworkOwned && !suppresses("unknown-step-id")) for (const match of text.matchAll(/\b([A-Z]{2,3}[0-9])\b/g)) if (!stepIds.has(match[1])) findings.push({ file: relativePath, line, rule: "unknown-step-id", detail: `${match[1]} is not a step id in workflow-policy.json` });
+      if (frameworkOwned && !suppresses("unknown-step-id")) for (const match of text.matchAll(/\b([A-Z]{2,3}[0-9])\b/g)) if (!stepIds.has(match[1]) && !/^AC\d/.test(match[1])) findings.push({ file: relativePath, line, rule: "unknown-step-id", detail: `${match[1]} is not a step id in workflow-policy.json` });
     });
   }
 
@@ -177,8 +183,7 @@ export function contractLint(rootValue: string, commandOptions: Record<string, s
   const skillText = existsSync(skillPath) ? readFileSync(skillPath, "utf8") : "";
   // The policy is the capability-name authority. A router that explicitly points to it does not
   // need to copy every name; retain the fallback check for older routers that still enumerate them.
-  // The pointer counts whether it names the `workflow-plan` verb or the compiled plan it emits.
-  const policyIsNamedAuthority = skillText.includes("schemas/workflow-policy.json") && /workflow-plan|compiled plan/.test(skillText);
+  const policyIsNamedAuthority = skillText.includes("schemas/workflow-policy.json") && /compiled plan/.test(skillText);
   if (!policyIsNamedAuthority) for (const name of capabilityNames) if (!skillText.includes(name)) findings.push({ file: ".agents/skills/workflow/SKILL.md", line: 0, rule: "undocumented-capability", detail: `capability '${name}' exists in workflow-policy.json but the workflow skill never names it` });
 
   const declaredFacts = new Set(((((taskSchema.$defs as JsonObject).workflowFacts as JsonObject).propertyNames as JsonObject).enum as string[]) || []);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output } from "../core.js";
 import { intentHash } from "../intent.js";
+import { nextForState } from "./task-gate.js";
 import { schemaErrors } from "./task-schema.js";
 import { assertMutable, RUNNING_STATUSES, taskPath } from "./task-store.js";
 
@@ -24,7 +25,7 @@ export function approveIntent(value: string, confirmedBy: string, asUser: boolea
       const errors = schemaErrors(current);
       if (errors.length) throw new Error(`approve-intent: resulting task.json fails schema: ${errors.join("; ")}`);
     });
-    output({ valid: true, task: path, intent_hash: hash, intent_approval: state.intent_approval });
+    output({ valid: true, task: path, intent_hash: hash, intent_approval: state.intent_approval, next: nextForState(state, path, process.cwd()) });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

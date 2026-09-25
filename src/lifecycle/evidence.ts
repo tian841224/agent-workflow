@@ -1,12 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { changedPaths, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, stateRoot, workspaceFingerprint } from "../core.js";
-import { intentHash } from "../intent.js";
+import { changedPaths, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, runCommand, sha256, stateRoot, workspaceFingerprint } from "../core.js";
+import { acceptanceCases, intentHash } from "../intent.js";
 import { compilePlanForTaskPath } from "../workflow-policy.js";
 import { recordReviewCause, ReviewCauseInput, roundIsValid } from "../records.js";
 import { covers } from "./ownership.js";
+import { nextForState } from "./task-gate.js";
 import { schemaErrors } from "./task-schema.js";
 import { assertMutable, RUNNING_STATUSES, task, taskPath } from "./task-store.js";
 
@@ -113,8 +114,6 @@ export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): bo
   return false;
 }
 
-// A step is "analysis" (summary only) unless evidence-run observed the command — command and
-// exit_code distinguish the claim from execution proof, which also records output and freshness.
 export type ExecutionProof = { command: string; cwd: string; exitCode: number; outputDigest: string };
 
 function requirementIds(value: string | string[]): string[] {
@@ -122,19 +121,20 @@ function requirementIds(value: string | string[]): string[] {
   return [...new Set(values.flatMap((item) => String(item).split(",")).map((item) => item.trim()).filter(Boolean))];
 }
 
-function selectedEvidenceIds(plan: ReturnType<typeof compilePlanForTaskPath>): Set<string> {
-  return new Set(plan.selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => (capability.steps as JsonObject[]).map((step) => `${String(capability.name)}.${String(step.id)}`)));
+// The ids a run may prove: the plan's runtime proofs plus every acceptance case task.md declares.
+function runnableEvidenceIds(plan: ReturnType<typeof compilePlanForTaskPath>, taskJsonPath: string): Set<string> {
+  const taskMd = join(dirname(taskJsonPath), "task.md");
+  const cases = existsSync(taskMd) ? acceptanceCases(readFileSync(taskMd, "utf8")).cases : [];
+  return new Set([...plan.proofs.map((step) => step.id), ...cases.map((item) => `acceptance.${item.id}`)]);
 }
 
-// Records that the agent completed one evidence-capability step. plan_hash/at are computed here, not
-// accepted from the caller — an agent can no longer backdate a step or attach it to a plan it wasn't
-// actually run against. Execution proof comes only from evidence-run, which observes the process.
-export function evidenceRecord(value: string, requirementId: string | string[], summary: string, actor = "agent"): number {
-  const path = taskPath(value);
-  if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
-  const ids = requirementIds(requirementId);
-  if (!ids.length || !summary) { output({ valid: false, errors: ["evidence-record requires --requirement-id and --summary"] }); return 1; }
-  return appendStepEvidence("evidence-record", path, ids, summary, actor, "attested");
+// Per-path content digests of a reviewed delivery, so the next review round can be scoped to the
+// paths that changed since this one instead of re-reviewing the whole delivery.
+export function pathDigests(repoRoot: string, paths: string[]): Record<string, string> {
+  return Object.fromEntries(paths.map((path) => {
+    const absolute = join(repoRoot, path);
+    return [path, existsSync(absolute) && statSync(absolute).isFile() ? sha256(readFileSync(absolute)) : "deleted"];
+  }));
 }
 
 // Without the cause an agent re-runs the same command blind; a command that writes build or test
@@ -148,42 +148,36 @@ function deliveryChange(before: DeliverySnapshot, after?: DeliverySnapshot): str
   return "the command modified delivered files; gitignore its build/test output or run it outside the repository";
 }
 
-// The one write path both evidence commands funnel through, so the plan/intent stamping, the
-// selected-step check and the schema validation cannot drift between an attested and a runtime record.
-// The plan/intent freshness check (and, for evidence-run, the pre-spawn `expected` comparison) is
-// done again here against `current` — read fresh inside the file lock — rather than trusting the
-// pre-lock computation the caller passed in: a task concurrently rewritten between that pre-lock read
-// and this callback actually running must reject the write outright, not just let task-gate catch it
-// afterward and leave a stale entry sitting in evidence history.
-function appendStepEvidence(command: string, path: string, ids: string[], summary: string, actor: string, trustLevel: "attested" | "runtime", execution?: ExecutionProof, expected?: { plan_hash: string; intent_hash: string; delivery: DeliverySnapshot }, repoRootValue = process.cwd()): number {
+// The plan/intent check and the pre-spawn `expected` comparison are repeated here against `current`
+// (read inside the file lock) rather than trusting the pre-lock read: a task rewritten while the
+// command ran must reject the write, not leave a stale entry in evidence history.
+function appendRunEvidence(path: string, ids: string[], summary: string, actor: string, execution: ExecutionProof, expected: { plan_hash: string; intent_hash: string; delivery: DeliverySnapshot }, repoRootValue: string): number {
+  const command = "evidence-run";
   try {
+    const repoRoot = projectIdentity(repoRootValue).root;
     const state = mutateJsonState<JsonObject>(path, (current) => {
       assertMutable(current, command, RUNNING_STATUSES);
       const plan = compilePlanForTaskPath(current, path);
-      const selectedStepIds = selectedEvidenceIds(plan);
-      const invalid = ids.filter((id) => !selectedStepIds.has(id));
-      if (invalid.length) throw new Error(`${command}: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
-      // The gate never accepts an attested record for these, so failing here saves a close-task round trip.
-      const needsRun = trustLevel === "attested" ? ids.filter((id) => plan.runtime_required_evidence.includes(id)) : [];
-      if (needsRun.length) throw new Error(`${command}: '${needsRun.join(", ")}' require runtime evidence; record them with evidence-run --requirement-id <ids> --summary <text> -- <command>`);
+      const runnable = runnableEvidenceIds(plan, path);
+      const invalid = ids.filter((id) => !runnable.has(id));
+      if (invalid.length) throw new Error(`${command}: '${invalid.join(", ")}' is not an acceptance case or runtime proof of this task; expected one of: ${[...runnable].join(", ") || "(none)"}`);
       const intent_hash = currentIntentHash(path);
-      const repoRoot = projectIdentity(repoRootValue).root;
-      const delivery = execution ? deliverySnapshot(repoRoot, current) : undefined;
-      if (expected && (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash)) throw new Error(`${command}: task changed during evidence-run, re-run required`);
-      if (expected && (!delivery || expected.delivery.mode !== delivery.mode || String(expected.delivery.base || "") !== String(delivery.base || "") || expected.delivery.fingerprint !== delivery.fingerprint || JSON.stringify(expected.delivery.paths) !== JSON.stringify(delivery.paths))) throw new Error(`${command}: delivered worktree changed during evidence-run, re-run required; ${deliveryChange(expected.delivery, delivery)}`);
+      const delivery = deliverySnapshot(repoRoot, current);
+      if (expected.plan_hash !== plan.plan_hash || expected.intent_hash !== intent_hash) throw new Error(`${command}: task changed during evidence-run, re-run required`);
+      if (expected.delivery.mode !== delivery.mode || String(expected.delivery.base || "") !== String(delivery.base || "") || expected.delivery.fingerprint !== delivery.fingerprint || JSON.stringify(expected.delivery.paths) !== JSON.stringify(delivery.paths)) throw new Error(`${command}: delivered worktree changed during evidence-run, re-run required; ${deliveryChange(expected.delivery, delivery)}`);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
       const at = now();
       for (const id of ids) evidence.push({
-        kind: "step", id, status: "recorded", at, plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: trustLevel,
-        ...(execution ? { evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, output_digest: execution.outputDigest, delivery_mode: delivery!.mode, ...(delivery!.base ? { delivery_base: delivery!.base } : {}), delivery_paths: delivery!.paths, delivery_fingerprint: delivery!.fingerprint } : { evidence_kind: "analysis" })
+        kind: "step", id, status: "recorded", at, plan_hash: plan.plan_hash, plan_revision: Number(current.plan_revision || 1), intent_hash, actor, summary, trust_level: "runtime",
+        evidence_kind: "execution", command: execution.command, cwd: execution.cwd, exit_code: execution.exitCode, output_digest: execution.outputDigest, delivery_mode: delivery.mode, ...(delivery.base ? { delivery_base: delivery.base } : {}), delivery_paths: delivery.paths, delivery_fingerprint: delivery.fingerprint
       });
       current.evidence = evidence;
       current.updated_at = now();
       const errors = schemaErrors(current);
       if (errors.length) throw new Error(`${command}: resulting task.json fails schema: ${errors.join("; ")}`);
     });
-    output({ valid: true, task: path, ...(ids.length === 1 ? { id: ids[0] } : { ids }), state_revision: state.state_revision });
-    return 0;
+    output({ valid: execution.exitCode === 0, task: path, ...(ids.length === 1 ? { id: ids[0] } : { ids }), exit_code: execution.exitCode, state_revision: state.state_revision, next: nextForState(state, path, repoRoot) });
+    return execution.exitCode === 0 ? 0 : 1;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }
 
@@ -201,22 +195,22 @@ export function evidenceRun(value: string, requirementId: string | string[], sum
     const current = task(path);
     assertMutable(current, "evidence-run", RUNNING_STATUSES);
     const plan = compilePlanForTaskPath(current, path);
-    const selectedStepIds = selectedEvidenceIds(plan);
-    const invalid = ids.filter((id) => !selectedStepIds.has(id));
-    if (invalid.length) throw new Error(`evidence-run: '${invalid.join(", ")}' is not a selected evidence step for this task; expected one of: ${[...selectedStepIds].join(", ") || "(none)"}`);
+    const runnable = runnableEvidenceIds(plan, path);
+    const invalid = ids.filter((id) => !runnable.has(id));
+    if (invalid.length) throw new Error(`evidence-run: '${invalid.join(", ")}' is not an acceptance case or runtime proof of this task; expected one of: ${[...runnable].join(", ") || "(none)"}`);
     const repoRoot = projectIdentity(cwdValue).root;
     expected = { plan_hash: plan.plan_hash, intent_hash: currentIntentHash(path), delivery: deliverySnapshot(repoRoot, current) };
   }
   catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
   // Nothing holds the task lock across the spawn: a long command must not block every other writer.
-  // appendStepEvidence re-checks both hashes afterwards, so a task edited meanwhile is rejected.
-  const result = spawnSync(argv[0], argv.slice(1), { cwd: cwdValue, encoding: "buffer" });
+  // appendRunEvidence re-checks both hashes afterwards, so a task edited meanwhile is rejected.
+  const result = runCommand(argv, cwdValue);
   if (result.error) { output({ valid: false, errors: [`evidence-run: command could not be started: ${String(result.error.message)}`] }); return 1; }
   const execution: ExecutionProof = {
     command: argv.join(" "), cwd: cwdValue, exitCode: result.status ?? 1,
-    outputDigest: createHash("sha256").update(result.stdout || Buffer.alloc(0)).update(result.stderr || Buffer.alloc(0)).digest("hex")
+    outputDigest: createHash("sha256").update(result.stdout).update(result.stderr).digest("hex")
   };
-  return appendStepEvidence("evidence-run", path, ids, summary, actor, "runtime", execution, expected, cwdValue);
+  return appendRunEvidence(path, ids, summary, actor, execution, expected, cwdValue);
 }
 
 // Records one role capability's review result. The optional workspace digest only guards the
@@ -253,7 +247,7 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
       const delivery = reviewedDiffSha256;
       const intent_hash = currentIntentHash(path);
       const evidence = Array.isArray(current.evidence) ? current.evidence : [];
-      evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, intent_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, delivery_hash: delivery, summary });
+      evidence.push({ kind: "role", id: roleKey, result, at: now(), plan_hash: plan.plan_hash, intent_hash, plan_revision: Number(current.plan_revision || 1), reviewed_base: base, reviewed_paths: paths, reviewed_diff_sha256: reviewedDiffSha256, reviewed_path_digests: pathDigests(repoRoot, paths), delivery_hash: delivery, summary });
       current.evidence = evidence;
       current.updated_at = now();
       const errors = schemaErrors(current);
@@ -261,7 +255,7 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
     });
     const recorded = (state.evidence as JsonObject[]).at(-1) as JsonObject;
     const reviewCause = cause ? recordReviewCause({ ...cause, root: stateRootValue, taskPath: path }) : undefined;
-    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision, ...(reviewCause ? { review_cause: reviewCause } : {}) });
+    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision, ...(reviewCause ? { review_cause: reviewCause } : {}), next: nextForState(state, path, repoRoot) });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

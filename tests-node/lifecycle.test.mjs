@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+import { compile } from "./policy-compiler.mjs";
 
 // task.schema.json requires a fully-populated v3 shape (project_id/worktree_id as 16-hex ids,
 // id matching the task-id pattern, no unknown top-level keys) before task-gate will validate it.
@@ -70,10 +71,13 @@ test("a waiver recorded against one plan_hash does not satisfy the same requirem
   assert.equal(waived.status, 0, waived.stderr);
   const satisfied = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(!satisfied.errors.some((error) => error.includes("role.reviewer")));
-  // impact_scope 改變 plan_hash（見 compileWorkflowPlan），舊 waiver 不應再滿足同一個 requirement_id
+  // plan_hash 只涵蓋 gate 要求的項目；升到 multi_module 會新增 capability 與 proof，
+  // 舊 waiver 不應再滿足同一個 requirement_id（plan_revision 刻意不動，只驗 plan_hash 這一道）
   const state = JSON.parse(readFileSync(path, "utf8"));
-  state.impact_scope = "module";
+  const hashBefore = compile(state).plan_hash;
+  state.impact_scope = "multi_module";
   write(state);
+  assert.notEqual(compile(state).plan_hash, hashBefore, "the classification change must actually shift plan_hash");
   const regated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(regated.errors.some((error) => error.includes("role.reviewer")));
 });
@@ -364,7 +368,9 @@ test("task-write project_docs updates preserve read/digests and return no compil
     cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ project_docs: { updated: ["docs/workflow-runtime.md"] } })
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(Object.keys(JSON.parse(result.stdout)).sort(), ["state_revision", "task", "valid"]);
+  const written = JSON.parse(result.stdout);
+  assert.equal(written.plan, undefined);
+  assert.deepEqual(Object.keys(written).sort(), ["next", "state_revision", "task", "valid"]);
   const state = JSON.parse(readFileSync(path, "utf8"));
   assert.deepEqual(state.project_docs, {
     read: ["docs/architecture.md"], updated: ["docs/workflow-runtime.md"], digests: [{ path: "docs/architecture.md", content_sha256: digest }]
@@ -383,22 +389,24 @@ test("task-write rejects direct project_docs read and digest updates", () => {
   assert.match(JSON.parse(result.stdout).errors[0], /project_docs\.read\/project_docs\.digests/);
 });
 
+// plan_hash covers only what the gate demands, so managed_change reaches it whenever the
+// classification selects any capability: turning it on brings those gate items into force.
 test("managed_change is part of plan identity: flipping it changes plan_hash and bumps plan_revision", () => {
   const root = join(tmpdir(), `agent-workflow-managed-change-plan-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Managed change\n\n## Goal\n\nVerify managed_change reaches plan_hash.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: false })));
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: false, impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
   const before = JSON.parse(readFileSync(path, "utf8"));
-  const beforePlan = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
+  const beforeHash = compile(before).plan_hash;
   const changed = run(["task-write", "--task-path", path], JSON.stringify({ managed_change: true }));
   assert.equal(changed.status, 0, changed.stderr);
   const after = JSON.parse(readFileSync(path, "utf8"));
-  const afterPlan = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
+  const afterHash = JSON.parse(changed.stdout).plan.plan_hash;
   assert.equal(after.managed_change, true);
   assert.equal(after.plan_revision, before.plan_revision + 1);
-  assert.notEqual(beforePlan.plan_hash, afterPlan.plan_hash);
+  assert.notEqual(beforeHash, afterHash);
 });
 
 test("task-write refuses a patch that would make task.json fail schema", () => {
@@ -412,16 +420,17 @@ test("task-write refuses a patch that would make task.json fail schema", () => {
   assert.equal(JSON.parse(readFileSync(path, "utf8")).impact_scope, undefined);
 });
 
-test("workflow-plan and task-gate compute the same plan_hash for the same task.json", () => {
+test("task-write, task-gate and the policy compiler compute the same plan_hash for the same task.json", () => {
   const root = join(tmpdir(), `agent-workflow-gate-hash-parity-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Hash parity\n\n## Goal\n\nVerify plan_hash matches across commands.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ workflow_request: ["reviewer"], impact_scope: "file" })));
-  const run = (args) => JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" }).stdout);
-  const plan = run(["workflow-plan", "--task-path", path]);
+  const run = (args, input) => JSON.parse(spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input }).stdout);
+  const written = run(["task-write", "--task-path", path], JSON.stringify({ workflow_request: ["reviewer"] }));
   const gated = run(["task-gate", "--task-path", path]);
-  assert.equal(plan.plan_hash, gated.compiled.plan_hash);
+  assert.equal(written.plan.plan_hash, gated.compiled.plan_hash);
+  assert.equal(compile(JSON.parse(readFileSync(path, "utf8"))).plan_hash, gated.compiled.plan_hash);
 });
 
 test("concurrent transitions against the same task.json never lose an update (lock contention integrity)", async () => {
@@ -522,8 +531,8 @@ test("task-write refuses the two protected classification downgrades; reclassify
   }
 });
 
-// The observed-execution counterpart to evidence-record: the runtime runs the command and writes
-// down what it saw, so exit_code and the output digest cannot be asserted by the agent.
+// The runtime runs the command and writes down what it saw, so exit_code and the output digest
+// cannot be asserted by the agent.
 test("evidence-run records runtime-trusted execution evidence, and a failing command is not satisfied evidence", () => {
   const root = join(tmpdir(), `agent-workflow-evidence-run-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
@@ -540,33 +549,36 @@ test("evidence-run records runtime-trusted execution evidence, and a failing com
   assert.equal(first.evidence_kind, "execution");
   assert.equal(first.exit_code, 0);
   assert.match(first.output_digest, /^[a-f0-9]{64}$/);
-  // BV2 declares runtime_execution, so an evidence-record claim is refused at write time and points
-  // at evidence-run instead of failing later at close-task.
-  const attested = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1,baseline_validation.BV2", "--summary", "I ran it, honest"]);
-  assert.equal(attested.status, 1, attested.stdout);
-  assert.match(attested.stdout, /baseline_validation\.BV2' require runtime evidence; record them with evidence-run/);
+  // BV1 is an analysis checklist step, not a gate item: it cannot be recorded as evidence at all,
+  // and a refused batch writes nothing.
+  const refused = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV1,baseline_validation.BV2", "--summary", "I ran it, honest", "--", process.execPath, "-e", "0"]);
+  assert.equal(refused.status, 1, refused.stdout);
+  assert.match(refused.stdout, /baseline_validation\.BV1' is not an acceptance case or runtime proof of this task/);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).evidence.length, 1, "a refused batch writes nothing");
   // A recorded non-zero exit is a failure that was written down, not a pass.
-  assert.equal(record(process.execPath, "-e", "process.exit(3)").status, 0);
+  // The run itself reports failure (exit 1, valid: false) but the observation is still written down.
+  const failing = record(process.execPath, "-e", "process.exit(3)");
+  assert.equal(failing.status, 1, failing.stdout);
+  assert.equal(JSON.parse(failing.stdout).valid, false);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).exit_code, 3);
   const failed = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(failed.errors.some((error) => /baseline_validation\.BV2/.test(error)), failed.errors.join("; "));
 });
 
-test("one evidence-run can satisfy multiple selected steps in one command", () => {
+test("one evidence-run can satisfy a runtime proof and an acceptance case in one command", () => {
   const root = join(tmpdir(), `agent-workflow-evidence-run-batch-${process.pid}-${Date.now()}`);
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
-  writeFileSync(join(task, "task.md"), "# Batch\n\n## Goal\n\nVerify batched evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] one command records two steps\n");
+  writeFileSync(join(task, "task.md"), "# Batch\n\n## Goal\n\nVerify batched evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] one command records two gate items\n\n### Acceptance cases\n\n- **AC1** batch run\n  - Given a task with a proof and a case\n  - When one command proves both\n  - Then both are recorded\n  - Verify: `node -e 0`\n");
   const path = join(task, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
-  const result = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--requirement-id", "baseline_validation.BV2", "--summary", "one command covers both selected steps", "--", process.execPath, "-e", "console.log('batch')"]);
+  const result = run(["evidence-run", "--task-path", path, "--requirement-id", "acceptance.AC1", "--requirement-id", "baseline_validation.BV2", "--summary", "one command covers both gate items", "--", process.execPath, "-e", "console.log('batch')"]);
   assert.equal(result.status, 0, result.stdout || result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.deepEqual(output.ids, ["baseline_validation.BV1", "baseline_validation.BV2"]);
+  assert.deepEqual(output.ids, ["acceptance.AC1", "baseline_validation.BV2"]);
   const state = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(state.state_revision, 2, "a batch should take one state revision");
-  assert.deepEqual(state.evidence.map((entry) => entry.id), ["baseline_validation.BV1", "baseline_validation.BV2"]);
+  assert.deepEqual(state.evidence.map((entry) => entry.id), ["acceptance.AC1", "baseline_validation.BV2"]);
   assert.equal(state.evidence[0].output_digest, state.evidence[1].output_digest);
   assert.equal(state.evidence[0].at, state.evidence[1].at);
 });
@@ -704,19 +716,23 @@ test("concurrent task-write cannot let a stale writer undo a classification upgr
 // an agent that discovers it understands less than it thought must be able to say so without asking
 // the user for permission first. Requiring a user-confirmed reclassify to *raise* the bar is exactly
 // backwards, and this pins that the runtime does not do it in either direction.
-test("impact_confidence is freely revisable in both directions, and each change moves plan_revision", () => {
+// plan_revision moves exactly when plan_hash does, and plan_hash covers only the gate items: medium
+// and low demand the same capabilities, so that step keeps plan_revision (and the evidence already
+// recorded against it) while high -> medium and low -> high both move it.
+test("impact_confidence is freely revisable in both directions, and plan_revision moves whenever the gate demand changes", () => {
   const root = join(tmpdir(), `agent-workflow-confidence-${process.pid}-${Date.now()}`);
   mkdirSync(root, { recursive: true });
   const path = join(root, "task.json");
   writeFileSync(path, JSON.stringify(validTask({ managed_change: true, risk_flags: [], impact_confidence: "high" })));
   const run = (input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path], { cwd: process.cwd(), encoding: "utf8", input });
   let revision = JSON.parse(readFileSync(path, "utf8")).plan_revision;
-  for (const confidence of ["medium", "low", "high"]) {
+  for (const [confidence, moves] of [["medium", true], ["low", false], ["high", true]]) {
     const result = run(JSON.stringify({ impact_confidence: confidence }));
     assert.equal(result.status, 0, result.stdout);
     const state = JSON.parse(readFileSync(path, "utf8"));
     assert.equal(state.impact_confidence, confidence);
-    assert.ok(state.plan_revision > revision, `plan_revision did not move for ${confidence}`);
+    if (moves) assert.ok(state.plan_revision > revision, `plan_revision did not move for ${confidence}`);
+    else assert.equal(state.plan_revision, revision, `plan_revision moved for ${confidence} although the gate demand is unchanged`);
     revision = state.plan_revision;
   }
 });
@@ -734,7 +750,7 @@ test("step evidence recorded before a classification round-trip does not satisfy
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
   writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "cross_project", impact_effect: "destructive", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
-  const record = run(["evidence-record", "--task-path", path, "--requirement-id", "impact_discovery.ID1", "--summary", "recorded before the round-trip"]);
+  const record = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "recorded before the round-trip", "--", process.execPath, "-e", "0"]);
   assert.equal(record.status, 0, record.stdout);
   const planHashBefore = JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).plan_hash;
   const toFalse = run(["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "testing round-trip"], JSON.stringify({ managed_change: false }));
@@ -742,11 +758,10 @@ test("step evidence recorded before a classification round-trip does not satisfy
   const backToTrue = run(["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "testing round-trip"], JSON.stringify({ managed_change: true }));
   assert.equal(backToTrue.status, 0, backToTrue.stdout);
   const after = JSON.parse(readFileSync(path, "utf8"));
-  const planHashAfter = JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash;
-  assert.equal(planHashAfter, planHashBefore, "the round-trip must actually reproduce the same plan_hash for this to be a meaningful test");
-  assert.notEqual(after.plan_revision, JSON.parse(readFileSync(path, "utf8")).evidence[0].plan_revision, "plan_revision must have moved even though plan_hash reverted");
   const gated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
-  assert.ok(gated.errors.some((error) => /impact_discovery\.ID1/.test(error) && /plan revision/.test(error)), gated.errors.join("; "));
+  assert.equal(gated.compiled.plan_hash, planHashBefore, "the round-trip must actually reproduce the same plan_hash for this to be a meaningful test");
+  assert.notEqual(after.plan_revision, after.evidence[0].plan_revision, "plan_revision must have moved even though plan_hash reverted");
+  assert.ok(gated.errors.some((error) => /baseline_validation\.BV2/.test(error) && /plan revision/.test(error)), gated.errors.join("; "));
 });
 
 // A terminal task is a dead end in the transition table: nothing moves it back to in_progress, so
@@ -766,7 +781,6 @@ for (const terminal of ["closed", "superseded"]) {
       [["task-write", "--task-path", path], JSON.stringify({ impact_confidence: "low" })],
       [["reclassify", "--task-path", path, "--confirmed-by-user", "user re-assessed", "--reason", "late edit"], JSON.stringify({ impact_confidence: "low" })],
       [["approve-intent", "--task-path", path, "--confirmed-by", "user"], undefined],
-      [["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--summary", "late claim"], undefined],
       [["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "late run", "--", process.execPath, "-e", "0"], undefined],
       [["review-record", "--task-path", path, "--role", "reviewer", "--result", "pass", "--summary", "late review"], undefined],
       [["waive", "--task", path, "--confirmed-by-user", "user said skip", "--requirement-id", "role.reviewer"], undefined]
@@ -795,7 +809,7 @@ test("a paused or blocked task accepts classification writes but no validation e
   for (const status of ["pause", "block"]) {
     const moved = run([status, "--task", path]);
     assert.equal(moved.status, 0, moved.stdout);
-    const refused = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--summary", "recorded while parked"]);
+    const refused = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "recorded while parked", "--", process.execPath, "-e", "0"]);
     assert.notEqual(refused.status, 0, refused.stdout);
     assert.match(JSON.parse(refused.stdout).errors[0], /run 'agent-workflow resume/);
     // Classification still moves: the task has to be able to describe itself while parked.
@@ -804,7 +818,7 @@ test("a paused or blocked task accepts classification writes but no validation e
     const resumed = run(["resume", "--task", path]);
     assert.equal(resumed.status, 0, resumed.stdout);
   }
-  const recorded = run(["evidence-record", "--task-path", path, "--requirement-id", "baseline_validation.BV1", "--summary", "recorded while running"]);
+  const recorded = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "recorded while running", "--", process.execPath, "-e", "0"]);
   assert.equal(recorded.status, 0, recorded.stdout);
 });
 
@@ -826,8 +840,8 @@ test("a waiver does not survive a classification round-trip that restores the sa
     const rewritten = run(["task-write", "--task-path", path], JSON.stringify({ impact_confidence: confidence }));
     assert.equal(rewritten.status, 0, rewritten.stdout);
   }
-  assert.equal(JSON.parse(run(["workflow-plan", "--task-path", path]).stdout).plan_hash, planHashBefore, "the round-trip must reproduce the same plan_hash for this to be a meaningful test");
   const regated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
+  assert.equal(regated.compiled.plan_hash, planHashBefore, "the round-trip must reproduce the same plan_hash for this to be a meaningful test");
   assert.ok(regated.errors.some((error) => error.includes("role.reviewer")), regated.errors.join("; "));
 });
 

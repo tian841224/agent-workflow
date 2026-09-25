@@ -4,13 +4,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
+import { compile as plan, stepIds } from "./policy-compiler.mjs";
 
 const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
-const plan = (task) => {
-  const path = join(tmpdir(), `agent-workflow-policy-completeness-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-  writeFileSync(path, JSON.stringify(task));
-  return JSON.parse(run(["workflow-plan", "--task-path", path]).stdout);
-};
 
 test("an undeclared impact_effect reports an incomplete classification for a capability that needs it", () => {
   const result = plan({ workflow_request: [], risk_flags: [], task_type: "fix", impact_scope: "cross_project", impact_confidence: "high" });
@@ -57,7 +53,7 @@ test("the mutation/security/operational risk flags each force their capability, 
   assert.ok(dataWrite.required.includes("data_impact"), JSON.stringify(dataWrite.required));
   assert.ok(!dataWrite.required.includes("mutation_validation"), JSON.stringify(dataWrite.required));
   // An attested claim must not be able to satisfy these: the proof-of-execution steps have to keep
-  // declaring runtime_execution, which is what forces evidence-run rather than evidence-record.
+  // declaring runtime_execution, which is what makes them gate proofs recorded by evidence-run.
   const policy = JSON.parse(readFileSync(join(process.cwd(), "schemas", "workflow-policy.json"), "utf8"));
   for (const [capability, step] of [["mutation_validation", "MV4"], ["operational_verification", "OV2"]]) {
     const declared = policy.capabilities.find((entry) => entry.name === capability).steps.find((entry) => entry.id === step);
@@ -79,8 +75,7 @@ test("test_integrity is required only by its risk flag, never by workflow_facts 
   // The risk flag is what forces it; the fact then decides which steps are expanded.
   const flagged = plan({ workflow_request: [], risk_flags: ["test_integrity"], task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_facts: { test_skipped: true } });
   assert.ok(flagged.required.includes("test_integrity"), JSON.stringify(flagged.required));
-  const capability = flagged.steps.find((entry) => entry.name === "test_integrity");
-  assert.ok(capability.steps.some((step) => step.id === "TI2"));
+  assert.ok(stepIds(flagged, "test_integrity").includes("TI2"));
 });
 
 // security and ui were the two flags that produced their own evidence capability (or, for ui, an
@@ -93,6 +88,6 @@ test("the security and ui risk flags each require an independent reviewer, order
     assert.ok(result.required.includes("reviewer"), `${flag} did not require reviewer: ${JSON.stringify(result.required)}`);
     // A review that runs before the evidence it is supposed to read back proves nothing, so the
     // reviewer has to sort last among everything selected.
-    assert.equal(result.selected.at(-1), "reviewer", `${flag}: ${JSON.stringify(result.selected)}`);
+    assert.equal(result.selected.at(-1).name, "reviewer", `${flag}: ${JSON.stringify(result.order)}`);
   }
 });

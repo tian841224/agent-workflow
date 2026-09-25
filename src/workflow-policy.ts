@@ -40,6 +40,7 @@ export function evaluateCondition(condition: JsonObject, ctx: WorkflowContext, r
   if (Array.isArray(condition.impact_effect)) return member(ctx.impact_effect, condition.impact_effect);
   if (Array.isArray(condition.impact_confidence)) return member(ctx.impact_confidence, condition.impact_confidence);
   if (typeof condition.managed_change === "boolean") return ctx.managed_change === undefined ? "unknown" : ctx.managed_change === condition.managed_change ? "match" : "no_match";
+  if (typeof condition.code_change === "boolean") return ctx.code_change === undefined ? "unknown" : ctx.code_change === condition.code_change ? "match" : "no_match";
   if (typeof condition.impact_scope_at_least === "string") return rankAtLeast(ctx.impact_scope, condition.impact_scope_at_least, ranks.scope);
   // Reachable only if a condition bypassed loadPolicy's schema validation (e.g. a hand-built
   // policy object in a test) — schema-valid policies always match one of the branches above.
@@ -71,6 +72,7 @@ function undeclaredFields(groups: JsonObject[][], ctx: WorkflowContext): string[
     if (Array.isArray(condition.impact_confidence) && !ctx.impact_confidence) missing.add("impact_confidence");
     if (Array.isArray(condition.task_type) && !ctx.task_type) missing.add("task_type");
     if (typeof condition.managed_change === "boolean" && ctx.managed_change === undefined) missing.add("managed_change");
+    if (typeof condition.code_change === "boolean" && ctx.code_change === undefined) missing.add("code_change");
   };
   for (const group of groups) for (const condition of group) visit(condition);
   return [...missing].sort();
@@ -109,16 +111,14 @@ export function loadPolicy(path: string): JsonObject {
   return loadPolicyRecord(path).policy;
 }
 
-// The one hash-relevant input set (policy + classification) every command must feed
-// compileWorkflowPlan identically, so task-gate / waive / workflow-plan never disagree on
-// plan_hash for the same task.json on disk. task.md's content feeds intent_hash separately (intent.ts).
-export function compilePlanForTaskPath(task: JsonObject, taskJsonPath: string, policyPath = schemaPath("workflow-policy.json")): CompiledWorkflowPlan {
-  const loaded = loadPolicyRecord(policyPath);
-  return compileWorkflowPlan(task, loaded.policy, { policySha256: loaded.sha256 });
+// Every command compiles the task through here so task-gate, waive and evidence writers agree on
+// plan_hash. task.md's content feeds intent_hash separately (intent.ts).
+export function compilePlanForTaskPath(task: JsonObject, _taskJsonPath: string, policyPath = schemaPath("workflow-policy.json")): CompiledWorkflowPlan {
+  return compileWorkflowPlan(task, loadPolicyRecord(policyPath).policy);
 }
 
-// Mirrors the capability-level split: only a proven match selects a step, while an undecidable
-// `when` is reported instead of being resolved either way by default.
+// Only a proven match selects a step; an undecidable `when` is returned separately so the caller
+// decides what an unknown means (the compiler keeps it on the checklist rather than gating on it).
 export function selectSteps(capability: JsonObject, ctx: WorkflowContext, ranks: { scope: JsonObject }): { steps: JsonObject[]; incomplete: JsonObject[] } {
   const steps = Array.isArray(capability.steps) ? capability.steps as JsonObject[] : [];
   const evaluated = steps.map((step) => ({ step, result: evaluateGroups(step.when as JsonObject[][] | undefined, ctx, ranks) }));
@@ -148,24 +148,27 @@ export function orderCapabilities(requested: string[], capabilities: JsonObject[
   return ordered;
 }
 
+export type PlanStep = { id: string; title: string; undecided_by?: string[] };
 export type CompiledWorkflowPlan = {
   required: string[];
   classification_incomplete: JsonObject[];
-  step_classification_incomplete: JsonObject[];
   suggested: JsonObject[];
   requested: string[];
   effective: string[];
   order: string[];
   selected: JsonObject[];
+  // Gate items: runtime-executed proofs plus role results. Attested analysis steps are never here.
   required_evidence: string[];
-  runtime_required_evidence: string[];
+  proofs: PlanStep[];
+  // Analysis steps of the selected capabilities. They steer the work and the reviewer's prompt but
+  // are not gate items: an agent's own claim that it did them proves nothing the gate could check.
+  checklist: PlanStep[];
   exploration_profile: "focused" | "expanded";
   policy_version: number;
-  policy_sha256?: string;
   plan_hash: string;
 };
 
-export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, options: { policySha256?: string } = {}): CompiledWorkflowPlan {
+export function compileWorkflowPlan(task: JsonObject, policy: JsonObject): CompiledWorkflowPlan {
   const capabilities = policy.capabilities as JsonObject[];
   const names = new Set(capabilities.map((capability) => String(capability.name)));
   const requested = Array.isArray(task.workflow_request) ? task.workflow_request.map(String) : [];
@@ -195,17 +198,26 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   }));
   const effective = managedChange ? [...new Set([...required, ...requested])] : [];
   const order = orderCapabilities(effective, capabilities);
-  const step_classification_incomplete: JsonObject[] = [];
-  const runtime_required_evidence: string[] = [];
+  const proofs: PlanStep[] = [];
+  const checklist: PlanStep[] = [];
   const selected = order.map((name) => capabilities.find((capability) => String(capability.name) === name)!).map((capability) => {
     const selection = selectSteps(capability, ctx, ranks);
-    // order is already empty when unmanaged (effective is empty), so this never runs for such a task.
-    step_classification_incomplete.push(...selection.incomplete);
-    for (const step of selection.steps) if (capability.runtime_execution === "required" || step.runtime_execution === "required") runtime_required_evidence.push(`${String(capability.name)}.${String(step.id)}`);
-    return { name: capability.name, kind: capability.kind, section: capability.section, steps: selection.steps.map((step) => ({ id: step.id, title: step.title })) };
+    const allSteps = Array.isArray(capability.steps) ? capability.steps as JsonObject[] : [];
+    const undecided = new Map(selection.incomplete.map((entry) => [String(entry.id), entry.missing as string[]]));
+    // An undecidable step is kept rather than dropped, so an undeclared fact never removes work:
+    // an analysis step joins the checklist, and a runtime step stays a gate proof until the fact
+    // is declared. undecided_by names the facts that, once declared, settle whether it applies.
+    const kept = allSteps.filter((step) => selection.steps.includes(step) || undecided.has(String(step.id)));
+    for (const step of kept) {
+      const missing = undecided.get(String(step.id));
+      const entry: PlanStep = { id: `${String(capability.name)}.${String(step.id)}`, title: String(step.title), ...(missing?.length ? { undecided_by: missing } : {}) };
+      if (capability.runtime_execution === "required" || step.runtime_execution === "required") proofs.push(entry);
+      else checklist.push(entry);
+    }
+    return { name: capability.name, kind: capability.kind, section: capability.section, steps: kept.map((step) => ({ id: step.id, title: step.title })) };
   });
   const required_evidence = [
-    ...selected.filter((capability) => capability.kind === "evidence").flatMap((capability) => capability.steps.map((step) => `${capability.name}.${String(step.id)}`)),
+    ...proofs.map((step) => step.id),
     ...selected.filter((capability) => capability.kind === "role").map((capability) => `role.${capability.name}`)
   ];
   const suggested = (!managedChange ? [] : capabilities.filter((capability) => Array.isArray(capability.suggest_when) && evaluateGroups(capability.suggest_when as JsonObject[][], ctx, ranks) === "match")).map((capability) => ({ name: capability.name, kind: capability.kind, section: capability.section, reason: capability.suggest_reason || "task metadata matched" }));
@@ -217,30 +229,26 @@ export function compileWorkflowPlan(task: JsonObject, policy: JsonObject, option
   const expandedFlag = (flag: string) => expandedRisk.includes(flag) || (flag === "financial" && ctx.impact_scope !== "file");
   const exploration_profile = !managedChange ? "focused" : (ctx.impact_scope === "multi_module" || ctx.impact_scope === "cross_project" || ["medium", "low"].includes(ctx.impact_confidence) || ["schema", "data", "contract", "destructive"].includes(ctx.impact_effect) || ctx.risk_flags.some(expandedFlag) ? "expanded" : "focused");
   const policy_version = Number(policy.version || 0);
-  const selected_step_ids = [...new Set(selected.flatMap((capability) => capability.steps.map((step) => `${String(capability.name)}.${String(step.id)}`)))].sort();
-  // plan_hash covers policy + classification only — not task.md's prose, which is intent_hash's job
-  // (see intent.ts). A task.md typo no longer invalidates evidence/waivers recorded against this plan.
+  // plan_hash covers only what the gate demands (plus the exploration depth), not the policy file or
+  // the raw classification: a policy edit or reclassification that leaves the gate items unchanged
+  // must not invalidate evidence already recorded against them. task.md's prose is intent_hash's job.
   const plan_hash = sha256(canonicalJson({
-    policy_version, policy_sha256: options.policySha256 ?? null,
-    code_change: task.code_change ?? null, managed_change: task.managed_change ?? null,
-    task_type: ctx.task_type, impact_scope: ctx.impact_scope, impact_effect: ctx.impact_effect, impact_confidence: ctx.impact_confidence,
-    risk_flags: [...ctx.risk_flags].sort(), workflow_facts: ctx.facts,
-    required: [...required].sort(), requested: [...requested].sort(), effective: [...effective].sort(), exploration_profile, selected_step_ids
+    effective: [...effective].sort(), required_evidence: [...required_evidence].sort(), exploration_profile
   }));
-  return { required, classification_incomplete, step_classification_incomplete, suggested, requested, effective, order, selected, required_evidence, runtime_required_evidence, exploration_profile, policy_version, ...(options.policySha256 ? { policy_sha256: options.policySha256 } : {}), plan_hash };
+  return { required, classification_incomplete, suggested, requested, effective, order, selected, required_evidence, proofs, checklist, exploration_profile, policy_version, plan_hash };
 }
 
 export function planOutput(plan: CompiledWorkflowPlan): JsonObject {
   return {
     required: plan.required,
     classification_incomplete: plan.classification_incomplete,
-    step_classification_incomplete: plan.step_classification_incomplete,
     suggested: plan.suggested,
     requested: plan.requested,
     selected: plan.selected.map((capability) => capability.name),
     exploration_profile: plan.exploration_profile,
-    steps: plan.selected,
     required_evidence: plan.required_evidence,
+    proofs: plan.proofs,
+    checklist: plan.checklist,
     plan_hash: plan.plan_hash,
     roles: plan.selected.filter((capability) => capability.kind === "role").map((capability) => capability.name)
   } as unknown as JsonObject;

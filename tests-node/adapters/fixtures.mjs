@@ -42,10 +42,11 @@ export const OPERATIONS = {
       Antigravity: antigravityStyle("run_command", { CommandLine: "git reset --hard", Cwd: ANTIGRAVITY_WORKSPACE })
     }
   },
-  task_json_direct_write: {
+  // task.json correctness is owned by the runtime's schema, lock and gate recomputation, not by the
+  // hook, so a direct file-tool edit reaches the platform's own permission on every adapter.
+  task_json_edit_left_to_runtime: {
     guard: "git-guard",
-    expectDeny: true,
-    denyContains: "task-guard",
+    expectDeny: false,
     payloads: {
       Claude: anthropicStyle("edit", { file_path: "tasks/20260101-000000-demo/task.json" }),
       Codex: anthropicStyle("edit", { file_path: "tasks/20260101-000000-demo/task.json" }),

@@ -12,7 +12,9 @@ test("CLI lists the Node command surface", () => {
     encoding: "utf8"
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /workflow-plan/);
+  assert.match(result.stdout, /task-init/);
+  // Retired commands stay out of the surface agents read.
+  for (const retired of ["workflow-plan", "preflight", "evidence-record", "locale-lint"]) assert.doesNotMatch(result.stdout, new RegExp(`^  ${retired}$`, "m"));
   assert.match(result.stdout, /migrate-state/);
 });
 

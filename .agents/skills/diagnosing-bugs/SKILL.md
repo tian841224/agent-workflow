@@ -31,6 +31,10 @@ When the cause is obvious from direct evidence, skip unnecessary diagnostic cere
 
 A successful repro/regression result remains valid while the tested behavior, test command, relevant environment, and inputs have not changed. Do not rerun the same check solely because a later reporting step asks for it. Rerun when executable behavior changed after the result, the environment changed, the test scope changed, or a new finding invalidates the earlier evidence.
 
+## After the fix
+
+Once the fix is confirmed, load [root-cause](../root-cause/SKILL.md) to trace why the defect was possible and add the missing guard.
+
 ## Useful references
 
 Read [feedback-loops.md](feedback-loops.md) only when the straightforward repro path is insufficient and you need alternative loop-building techniques.

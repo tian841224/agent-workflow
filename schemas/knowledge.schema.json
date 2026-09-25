@@ -10,6 +10,18 @@
     "project_id": { "type": ["string", "null"] },
     "origin": { "enum": ["native", "imported"] },
     "kind": { "type": "string", "minLength": 1 },
+    "tags": {
+      "description": "Classification labels (feature, module or business term) used to find this entry again when related work starts.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[^,\\[\\]]+$" }
+    },
+    "paths": {
+      "description": "Repo-relative files or directory prefixes (ending in /) this entry is about; task-init returns the entry when a task touches them.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[^,\\[\\]\\\\]+$" }
+    },
     "source_event": { "type": "string", "minLength": 1 },
     "source_path": { "type": "string", "minLength": 1 },
     "source_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },

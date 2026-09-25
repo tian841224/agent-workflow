@@ -249,6 +249,17 @@
         },
         {
           "required": [
+            "code_change"
+          ],
+          "properties": {
+            "code_change": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": [
             "impact_scope_at_least"
           ],
           "properties": {

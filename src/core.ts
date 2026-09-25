@@ -126,6 +126,46 @@ export function git(cwd: string, args: string[], options: { input?: Buffer; env?
   return { status: result.status ?? 1, stdout: result.stdout || "", stderr: result.stderr || "" };
 }
 
+// Node spawns without a shell, and on Windows only .exe/.com files resolve that way. npm, npx and
+// most package-manager entry points are .cmd shims, so a Verify command such as `npm test` fails
+// with ENOENT unless it is routed through cmd.exe the way Node itself does with `shell: true`.
+export function windowsShim(argv: string[], cwd: string): { file: string; args: string[]; verbatim: boolean } {
+  const plain = { file: argv[0], args: argv.slice(1), verbatim: false };
+  if (process.platform !== "win32") return plain;
+  const extensions = (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((item) => item.toLowerCase());
+  const named = argv[0].toLowerCase();
+  // An extensionless file (npm ships a POSIX script beside npm.cmd) is not runnable on Windows.
+  // A launcher named by path is looked up where it will run, not where this process started.
+  const candidates = (/[\\/]/.test(argv[0]) ? [cwd] : (process.env.PATH || "").split(";").filter(Boolean))
+    .flatMap((directory) => extensions.map((extension) => resolve(cwd, directory, `${argv[0]}${extension}`)));
+  const found = extensions.some((extension) => named.endsWith(extension)) ? argv[0] : candidates.find((candidate) => { try { return statSync(candidate).isFile(); } catch { return false; } });
+  if (!found || !/\.(cmd|bat)$/i.test(found)) return plain;
+  // cmd.exe expands %VAR% even inside quotes, and an expansion can unbalance the quoting and start a
+  // second command, so the recorded argv would no longer be what ran. Such arguments are refused
+  // rather than escaped: there is no quoting that survives both cmd.exe and the shim's own %*.
+  // The resolved launcher is checked too: a PATH directory can carry the same characters.
+  const unsafe = [found, ...argv.slice(1)].find((value) => /[%"\r\n]/.test(value));
+  if (unsafe !== undefined) throw new Error(`${argv[0]} is a .cmd/.bat launcher run through cmd.exe, which cannot pass ${JSON.stringify(unsafe)} unchanged; remove %, quotes and line breaks from the arguments or call the underlying .exe/.js directly`);
+  // A backslash right before the closing quote would escape it once the shim forwards %* to a CRT
+  // program, so trailing backslashes are doubled inside the quotes.
+  const quote = (value: string): string => value && !/[\s&|<>^()!,;=]/.test(value) ? value : `"${value.replace(/(\\+)$/, "$1$1")}"`;
+  const launcher = `"${found.replaceAll("/", "\\")}"`;
+  // /v:off because a registry DelayedExpansion setting would otherwise expand !VAR! inside quotes
+  // the same way % does; /d skips AutoRun commands.
+  return { file: process.env.ComSpec || "cmd.exe", args: ["/d", "/v:off", "/s", "/c", `"${[launcher, ...argv.slice(1).map(quote)].join(" ")}"`], verbatim: true };
+}
+
+// Runs a recorded command (evidence-run, worker-exec). Its output is hashed, never parsed, so the
+// buffer cap only has to be large enough that a verbose test run is not misreported as a failure.
+export function runCommand(argv: string[], cwd: string): { status: number | null; stdout: Buffer; stderr: Buffer; error?: Error } {
+  let shim: ReturnType<typeof windowsShim>;
+  try { shim = windowsShim(argv, cwd); }
+  catch (error) { return { status: null, stdout: Buffer.alloc(0), stderr: Buffer.from(String((error as Error).message)), error: error as Error }; }
+  const { file, args, verbatim } = shim;
+  const result = spawnSync(file, args, { cwd, maxBuffer: GIT_MAX_BUFFER, windowsVerbatimArguments: verbatim });
+  return { status: result.status, stdout: result.stdout || Buffer.alloc(0), stderr: result.stderr || Buffer.alloc(0), error: result.error };
+}
+
 export function mustGit(cwd: string, args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", maxBuffer: GIT_MAX_BUFFER });
 }
