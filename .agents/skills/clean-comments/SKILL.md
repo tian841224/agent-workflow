@@ -1,6 +1,6 @@
 ---
 name: clean-comments
-description: 程式碼註解規範。新增或修改多行、公開合約或高風險判斷依據時載入。
+description: 程式碼註解規範。新增或修改任何程式碼註解時載入。
 ---
 
 # 精簡與結構化程式碼註解規範
@@ -22,11 +22,14 @@ Go 等有慣例的語言，函式註解以函式名稱開頭。
 5. 程式碼本身已說明的事就留給程式碼：語法翻譯、函式上方的步驟流水帳、`var userID string // 使用者 ID` 這類命名複述，一律刪除。
 6. 改既有註解時只在新增判斷依據、新邊界情況或新後果時才動。純換句話說的版本會讓混在同一次改動裡的真正邏輯異動被誤判成潤飾。
 7. 要說明的是「一整條流程」或「跨函式的完整機制」時，寫進 `docs/flows/<slug>.md` 或 `docs/modules/<slug>.md`（見 [project-docs skill](../project-docs/SKILL.md)），程式碼裡只留 1 句目的性註解或指向文件的線索。
+8. 註解描述程式碼現在的行為與原因；修改歷程（例如 `// 修正此方法原有的呼叫機制`、`// 原本用 X，改成 Y`）寫進 commit message 或 PR 說明。
 
 例外：高風險路徑（金流、對外契約、不可逆的降級／關閉操作）上的判斷依據註解可以超過 1 句，把支撐這個判斷的具體事實、查證狀態與誤判後果一併寫出來。
 <!-- enforcement:end -->
 
 ## 正反例
+
+以下為示意，重點在註解放的位置和寫的內容，不是固定句型。
 
 ```go
 // 錯誤：全堆在函式上方、混雜內部實作
@@ -49,4 +52,16 @@ func CheckLargeOutAndPrecheck(machineID string, expectedAmount float64, routeNam
     }
     return (*sessionUsecase).CheckLargeOutAndPrecheck(machineID, expectedAmount, routeName)
 }
+```
+
+```ts
+// 錯誤：描述修改歷程
+// 修正此方法原有的呼叫機制，改成先取 token 再呼叫
+const token = await auth.refresh();
+await api.submit(order, token);
+
+// 正確：描述現在的原因
+// submit 端不接受過期 token，每次送出前重新取得
+const token = await auth.refresh();
+await api.submit(order, token);
 ```

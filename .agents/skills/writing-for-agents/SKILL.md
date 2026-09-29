@@ -15,7 +15,8 @@ A skill's `description`, a line in AGENTS.md — both are the same kind of objec
 
 - Put the lead keyword first — the pointer's trigger word should do its work at the start of the sentence
 - One trigger word per branch; synonyms just say the same branch twice — collapse them into one
-- Don't repeat in the pointer what the body already says
+- The pointer carries only the trigger; details live in the body
+- Trigger text (a `description`, an AGENTS.md pointer line) may carry calibrated urgency, since skills tend to under-trigger; behavior text in the body explains instead of shouting
 
 ## Two kinds of cost
 
@@ -40,9 +41,24 @@ Countervailing constraint: splitting a file out has its own cost (one more read)
 
 An instruction the model would follow by default anyway is a pure context cost when written down, not insurance. The test: does this sentence change the model's behavior relative to its default? Keep it if it changes behavior; delete the whole sentence if it doesn't (not a wording trim). This test is relative to the model, not to the reader's intuition.
 
-## Negation is a failure mode
+Keep what only the author knows: audience, environment facts, the quality bar, tool contracts, hard judgment calls, and the reasons behind constraints. Cruft is a specific instruction the model no longer needs, never a matter of length.
 
-Steering behavior with "don't," "must not," "forbidden" pulls the forbidden behavior into context and makes it more salient, not less common. State the target behavior positively instead ("write exactly one line" beats "don't add explanation"). Keep negation only for hard constraints that can't be stated positively (e.g. secrets/credentials must never be written).
+## Negation is judged by provenance
+
+Style prohibitions without a stated reason ("don't be verbose", banned-phrase lists) pull the forbidden behavior into context; restate them as the target behavior ("write exactly one line"). Keep a prohibition when it encodes a real constraint (security, data, irreversible operations) or a failure that still reproduces on the current model, and put its reason beside it. Classify each line separately.
+
+## Register and specificity
+
+- Write at normal volume. `MUST`/`CRITICAL`/caps are a scoped fix for one instruction shown to be underweighted, with its reason; when every rule is critical the markers carry no information and the output turns rigid.
+- Write requirements as requirements: "Include a summary." Hedges like "try to" or "if possible" get read as permission to skip.
+- Match specificity to fragility: judgment tasks get the goal, constraints, and how to verify; exact step scripts only where exactly one sequence is safe (destructive commands, auth, compliance).
+- Examples get copied in length, tone, and structure. Use several varied ones labeled illustrative, or only ones that pin a format-sensitive output.
+
+## Write the current rule
+
+Write as if the current rules are the only ones that ever existed. Change history ("now", "no longer", "changed to", incident IDs, PR numbers, date conditionals, pinned model names) goes in commit messages, PRs, or `docs/history/`.
+
+Before encoding a single session's stumble as a rule, check that it would have helped most recent sessions. When narrow conditionals pile up, generalize the principle.
 
 ## Single source of truth
 
@@ -51,6 +67,8 @@ A given rule is authoritative in exactly one file; everywhere else points to it,
 ## Sediment
 
 Only-adding-never-removing is the default fate: adding feels safe, removing feels risky. Without an active pruning habit, docs accumulate like sediment layers. Every time you edit, check in passing: does this section still affect current behavior? If not, delete it — don't keep it "just in case."
+
+A rule that a hook, schema, or lint can enforce belongs there, not in prose. Deleting is a hypothesis: grep the repo for the exact text first (contract lint and tests may match it), and if behavior regresses, re-add it in its minimal form.
 
 ## 新增專案 skill
 
