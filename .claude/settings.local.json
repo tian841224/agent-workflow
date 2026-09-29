@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(mkdir -p docs/history && ls docs 2>/dev/null; wc -l agent_workflow/*.py | tail -1)",
-      "Bash(./install.cmd --action Verify)"
+      "Bash(./install.cmd --action Verify)",
+      "Bash(cp .agents/skills/clean-comments/SKILL.md ~/.claude/skills/clean-comments/SKILL.md)",
+      "Bash(cp .agents/skills/writing-for-agents/SKILL.md ~/.claude/skills/writing-for-agents/SKILL.md)"
     ]
   }
 }
