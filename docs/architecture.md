@@ -97,6 +97,8 @@ non_goals:      本次明確不順便處理的項目
 
 ## 安裝與遷移
 
+Repo 內技能的必裝與平台範圍契約見 [managed skill installation](modules/managed-skill-installation.md)。
+
 其他框架（ponytail、hallmark、design-and-refine 等）不複製進本 repo，只在 `adapters/upstream-manifest.json` 記錄上游位置與各平台的安裝指令，由安裝器在安裝時執行；需要本機目錄的指令使用臨時 clone，跑完即刪。方法與新增步驟見 [upstream-integrations.md](modules/upstream-integrations.md)。
 
 `install` 先建立不可覆寫的時間戳備份，再遷移既有 state。遷移可重跑；完成 Verify 前，既有的 managed command 與 runtime 保持原狀。既有 task frontmatter 轉為 `task.json`；`task.md` 就地去除 frontmatter、保留人的意圖內容而不刪除，原始完整檔案另收入備份，無法機械驗證的 evidence 標記為 `legacy-unverified`。managed state 記錄 package version、runtime hash、Node 路徑、platform targets 與 selected skills。Repair 從目前 repo checkout 取 source；只有已安裝 runtime 自我 repair 時才使用記錄 source。

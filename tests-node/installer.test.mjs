@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -20,6 +21,72 @@ test("install writes a standalone Node runtime and required skills", () => {
   assert.match(run(["verify", "--state-root", join(root, "state")]).stdout, /"valid":true/);
 });
 
+test("required platform-scoped skills install only on Codex on install and repair", () => {
+  const root = join(tmpdir(), `agent-workflow-platform-skills-${process.pid}-${Date.now()}`);
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+  const targets = ["--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  for (const action of ["install", "repair"]) {
+    const result = run([action, "--non-interactive", "--skills", "workflow", ...targets]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.ok(JSON.parse(result.stdout).selected_skills.includes("implementation-spec"));
+    for (const platform of ["claude", "codex", "gemini"]) {
+      const skills = platform === "gemini" ? join(root, platform, "config", "skills") : join(root, platform, "skills");
+      assert.ok(existsSync(join(skills, "workflow", "SKILL.md")));
+      assert.ok(lstatSync(join(skills, "workflow")).isSymbolicLink());
+      assert.equal(realpathSync(join(skills, "workflow")), realpathSync(join(root, "home", ".agents", "skills", "workflow")));
+      assert.equal(existsSync(join(skills, "implementation-spec", "SKILL.md")), platform === "codex");
+    }
+    const state = JSON.parse(readFileSync(join(root, "state", "managed-runtime.json"), "utf8"));
+    assert.equal(state.files.some((record) => record.path.startsWith(join(root, "claude", "skills", "implementation-spec"))), false);
+    const verified = run(["verify", "--state-root", join(root, "state")]);
+    assert.equal(verified.status, 0, verified.stdout + verified.stderr);
+  }
+});
+
+test("platform restriction repairs prune only unchanged managed files and reject invalid platforms", () => {
+  const root = join(tmpdir(), `agent-workflow-platform-repair-${process.pid}-${Date.now()}`);
+  const sandbox = join(root, "source");
+  mkdirSync(join(sandbox, "dist"), { recursive: true });
+  for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) copyFileSync(join("dist", bundle), join(sandbox, "dist", bundle));
+  for (const folder of ["adapters", "schemas", ".agents"]) cpSync(folder, join(sandbox, folder), { recursive: true });
+  copyFileSync("AGENTS.md", join(sandbox, "AGENTS.md"));
+  const manifestPath = join(sandbox, "adapters", "managed-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const allowed = manifest.skills["implementation-spec"].platforms;
+  const claudeSkill = join(root, "claude", "skills", "implementation-spec", "SKILL.md");
+  const run = (action) => spawnSync(process.execPath, [join(sandbox, "dist", "agent-workflow.mjs"), action, "--non-interactive", "--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: sandbox, encoding: "utf8", env: isolatedHome(root) });
+  for (const edited of [false, true]) {
+    delete manifest.skills["implementation-spec"].platforms;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const installed = run("install");
+    assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+    assert.ok(existsSync(claudeSkill));
+    const directory = join(root, "claude", "skills", "implementation-spec");
+    unlinkSync(directory);
+    cpSync(join(root, "home", ".agents", "skills", "implementation-spec"), directory, { recursive: true });
+    const statePath = join(root, "state", "managed-runtime.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    state.files = state.files.filter((record) => record.path !== directory);
+    state.files.push({ path: claudeSkill, sha256: createHash("sha256").update(readFileSync(claudeSkill)).digest("hex"), kind: "platform-skill" });
+    writeFileSync(statePath, JSON.stringify(state));
+    if (edited) writeFileSync(claudeSkill, "user-owned modification");
+    manifest.skills["implementation-spec"].platforms = allowed;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const repaired = run("repair");
+    assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+    assert.ok(existsSync(join(root, "home", ".agents", "skills", "implementation-spec", "SKILL.md")), "platform cleanup preserves the shared target");
+    assert.equal(existsSync(claudeSkill), edited);
+    if (edited) assert.equal(readFileSync(claudeSkill, "utf8"), "user-owned modification");
+  }
+  for (const invalid of [[], ["codex"], "Codex", ["Claude", 1]]) {
+    manifest.skills["implementation-spec"].platforms = invalid;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const result = run("repair");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /invalid platforms for skill implementation-spec/);
+  }
+});
+
 test("Ponytail native install is opt-in and dry-run only plans upstream commands", () => {
   const root = join(tmpdir(), `agent-workflow-ponytail-${process.pid}-${Date.now()}`);
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
@@ -29,6 +96,126 @@ test("Ponytail native install is opt-in and dry-run only plans upstream commands
   assert.equal(native.length, 1);
   assert.equal(native[0].results.every((item) => item.status === "planned"), true);
   assert.match(native[0].results.map((item) => item.command).join("\n"), /codex plugin add ponytail@ponytail/);
+});
+
+test("shared skill links migrate copies, preserve other platforms, and validate identity before uninstall", () => {
+  const root = join(tmpdir(), `agent-workflow-links-${process.pid}-${Date.now()}`);
+  const shared = join(root, "home", ".agents", "skills", "workflow");
+  const claude = join(root, "claude", "skills", "workflow");
+  const codex = join(root, "codex", "skills", "workflow");
+  const targets = ["--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const run = (action, extra = []) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", ...targets, ...extra], { encoding: "utf8", env: isolatedHome(root) });
+  const first = run("install", ["--target-agent", "All"]);
+  assert.equal(first.status, 0, first.stderr);
+  unlinkSync(codex);
+  cpSync(shared, codex, { recursive: true });
+  writeFileSync(join(codex, "custom.md"), "local content to preserve");
+  const dry = run("repair", ["--target-agent", "Codex", "--dry-run"]);
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.equal(lstatSync(codex).isSymbolicLink(), false);
+  const repaired = run("repair", ["--target-agent", "Codex"]);
+  assert.equal(repaired.status, 0, repaired.stderr);
+  assert.equal(readFileSync(join(JSON.parse(repaired.stdout).skill_backup, "Codex", "workflow", "custom.md"), "utf8"), "local content to preserve");
+  assert.ok(lstatSync(codex).isSymbolicLink());
+  const records = JSON.parse(readFileSync(join(root, "state", "managed-runtime.json"))).files;
+  assert.ok(records.some((record) => record.path === claude && record.kind === "platform-skill-link"));
+  assert.equal(run("verify").status, 0);
+  writeFileSync(join(shared, "visible.md"), "shared change");
+  assert.equal(readFileSync(join(claude, "visible.md"), "utf8"), "shared change");
+  assert.equal(readFileSync(join(codex, "visible.md"), "utf8"), "shared change");
+  unlinkSync(codex);
+  cpSync(shared, codex, { recursive: true });
+  assert.match(run("verify").stdout, /managed skill link mismatch/);
+  rmSync(codex, { recursive: true });
+  symlinkSync(join(root, "missing"), codex, process.platform === "win32" ? "junction" : "dir");
+  assert.match(run("verify").stdout, /managed skill link mismatch/);
+  assert.notEqual(run("repair", ["--target-agent", "Codex"]).status, 0);
+  unlinkSync(codex);
+  const wrong = join(root, "wrong"); mkdirSync(wrong);
+  writeFileSync(join(wrong, "SKILL.md"), "do not delete");
+  symlinkSync(wrong, codex, process.platform === "win32" ? "junction" : "dir");
+  assert.notEqual(run("verify").status, 0);
+  assert.notEqual(run("repair", ["--target-agent", "Codex"]).status, 0);
+  const statePath = join(root, "state", "managed-runtime.json");
+  const state = JSON.parse(readFileSync(statePath));
+  const linkedFile = join(claude, "SKILL.md");
+  state.files.unshift({ path: linkedFile, sha256: createHash("sha256").update(readFileSync(linkedFile)).digest("hex"), kind: "platform-skill" });
+  writeFileSync(statePath, JSON.stringify(state));
+  const removed = run("uninstall");
+  assert.equal(removed.status, 0, removed.stderr);
+  assert.ok(existsSync(join(shared, "SKILL.md")));
+  assert.ok(existsSync(join(wrong, "SKILL.md")));
+  assert.ok(lstatSync(codex).isSymbolicLink(), "unexpected links remain user-owned");
+  assert.equal(existsSync(claude), false);
+});
+
+test("existing extra skills share one version and conflicts or linked roots fail before writes", () => {
+  const root = join(tmpdir(), `agent-workflow-extra-${process.pid}-${Date.now()}`);
+  const claudeRoot = join(root, "claude", "skills"); const codexRoot = join(root, "codex", "skills");
+  for (const directory of [claudeRoot, codexRoot]) {
+    mkdirSync(join(directory, "local-skill"), { recursive: true });
+    writeFileSync(join(directory, "local-skill", "SKILL.md"), "same content");
+  }
+  const targets = ["--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
+  const run = (action, extra = []) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", ...targets, ...extra], { encoding: "utf8", env: isolatedHome(root) });
+  writeFileSync(join(codexRoot, "local-skill", "SKILL.md"), "different content");
+  const conflict = run("install");
+  assert.notEqual(conflict.status, 0);
+  assert.match(conflict.stderr, /conflicting shared skill local-skill/);
+  assert.equal(existsSync(join(root, "state")), false);
+  assert.equal(readFileSync(join(codexRoot, "local-skill", "SKILL.md"), "utf8"), "different content");
+  writeFileSync(join(codexRoot, "local-skill", "SKILL.md"), "same content");
+  writeFileSync(join(codexRoot, "local-skill", "extra.md"), "preserve non-conflicting extra files");
+  assert.equal(run("install", ["--dry-run"]).status, 0);
+  assert.equal(existsSync(join(root, "state")), false);
+  const installed = run("install"); assert.equal(installed.status, 0, installed.stderr);
+  assert.equal(realpathSync(join(claudeRoot, "local-skill")), realpathSync(join(codexRoot, "local-skill")));
+  assert.equal(readFileSync(join(claudeRoot, "local-skill", "extra.md"), "utf8"), "preserve non-conflicting extra files");
+  assert.ok(readdirSync(JSON.parse(installed.stdout).skill_backup).includes("Codex"));
+  assert.equal(run("repair").status, 0);
+  const shared = join(root, "home", ".agents", "skills");
+  rmSync(codexRoot, { recursive: true });
+  symlinkSync(shared, codexRoot, process.platform === "win32" ? "junction" : "dir");
+  assert.match(run("repair").stderr, /outside the shared skills directory/);
+  assert.ok(existsSync(join(shared, "local-skill", "SKILL.md")));
+});
+
+test("platform target relocation removes old managed links and keeps other platform records", () => {
+  const root = join(tmpdir(), `agent-workflow-relocate-${process.pid}-${Date.now()}`);
+  const state = join(root, "state"); const oldCodex = join(root, "codex-a"); const newCodex = join(root, "codex-b");
+  const claude = join(root, "claude");
+  const run = (action, platform, codex) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", "--state-root", state, "--target-agent", platform, "--claude-target", claude, "--codex-target", codex, "--antigravity-target", join(root, "gemini")], { encoding: "utf8", env: isolatedHome(root) });
+  const installed = run("install", "All", oldCodex); assert.equal(installed.status, 0, installed.stderr);
+  const repaired = run("repair", "Codex", newCodex); assert.equal(repaired.status, 0, repaired.stderr);
+  assert.equal(existsSync(join(oldCodex, "skills", "workflow")), false);
+  assert.ok(lstatSync(join(newCodex, "skills", "workflow")).isSymbolicLink());
+  assert.ok(lstatSync(join(claude, "skills", "workflow")).isSymbolicLink());
+  const records = JSON.parse(readFileSync(join(state, "managed-runtime.json"))).files;
+  assert.equal(records.some((record) => record.path.startsWith(oldCodex)), false);
+  const verified = run("verify", "All", newCodex); assert.equal(verified.status, 0, verified.stdout + verified.stderr);
+  assert.equal(run("uninstall", "All", newCodex).status, 0);
+  assert.equal(existsSync(join(newCodex, "skills", "workflow")), false);
+  assert.ok(existsSync(join(root, "home", ".agents", "skills", "workflow", "SKILL.md")));
+});
+
+test("equivalent shared roots are rejected before writes and Windows link target casing is equivalent", () => {
+  const root = join(tmpdir(), `agent-workflow-identity-${process.pid}-${Date.now()}`);
+  const sharedRoot = join(root, "home", ".agents"); const state = join(root, "state");
+  const run = (action, codex) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", "--target-agent", "Codex", "--state-root", state, "--codex-target", codex], { encoding: "utf8", env: isolatedHome(root) });
+  const rejected = run("install", process.platform === "win32" ? sharedRoot.toUpperCase() : sharedRoot);
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /outside the shared skills directory/);
+  assert.equal(existsSync(state), false);
+  const codex = join(root, "codex");
+  const installed = run("install", codex); assert.equal(installed.status, 0, installed.stderr);
+  if (process.platform === "win32") {
+    const link = join(codex, "skills", "workflow"); const shared = join(sharedRoot, "skills", "workflow");
+    unlinkSync(link); symlinkSync(shared.toUpperCase(), link, "junction");
+    const verified = run("verify", codex); assert.equal(verified.status, 0, verified.stdout + verified.stderr);
+    const aliasRejected = run("repair", sharedRoot.toUpperCase());
+    assert.notEqual(aliasRejected.status, 0);
+    assert.ok(existsSync(join(shared, "SKILL.md")));
+  }
 });
 
 test("Design Lab installs Claude through the marketplace and Codex/Antigravity from a temporary clone", () => {
@@ -125,13 +312,16 @@ test("a global CLI shim resolves its recorded source from the managed state root
   const state = join(root, "state");
   const bin = join(root, "npm");
   mkdirSync(bin, { recursive: true });
-  const env = { ...process.env, AGENT_WORKFLOW_STATE_ROOT: state, USERPROFILE: root, HOME: root };
+  const env = { ...process.env, AGENT_WORKFLOW_STATE_ROOT: state, AGENT_WORKFLOW_CLI_DIR: bin, USERPROFILE: root, HOME: root };
   const setup = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "install", "--non-interactive", "--skills", "workflow", "--state-root", state, "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], {
     cwd: process.cwd(),
     env,
     encoding: "utf8"
   });
   assert.equal(setup.status, 0, setup.stderr);
+  const cliRecords = JSON.parse(readFileSync(join(state, "managed-runtime.json"))).files.filter((record) => record.kind === "cli-shim");
+  assert.ok(cliRecords.length);
+  assert.ok(cliRecords.every((record) => record.path.startsWith(bin)));
   copyFileSync(join(state, "runtime", "agent-workflow.mjs"), join(bin, "agent-workflow"));
   const run = spawnSync(process.execPath, [join(bin, "agent-workflow"), "verify", "--non-interactive"], {
     cwd: root,

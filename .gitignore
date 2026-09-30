@@ -13,4 +13,7 @@ bench/results/
 bench/results-v3/
 bench/worktrees/
 dist/
-docs/
+docs/*
+!docs/modules/
+docs/modules/*
+!docs/modules/managed-skill-installation.md

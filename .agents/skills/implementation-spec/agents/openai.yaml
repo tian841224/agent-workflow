@@ -1,0 +1,7 @@
+interface:
+
+  display_name: "開發規格計畫"
+
+  short_description: "將開發計畫寫成可直接實作、交付與驗收的程式開發規格書，明確定義行為與契約"
+
+  default_prompt: "使用 $implementation-spec，將這項開發需求寫成可交付的程式開發規格書，包含實作設計、資料與介面契約、異常處理及驗收條件。"

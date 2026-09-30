@@ -161,6 +161,8 @@ task.md 的驗收案例寫法：
 | Codex | `~/.codex/AGENTS.md` | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader}.toml` |
 | Antigravity | `~/.gemini/GEMINI.md` | `~/.gemini/config/skills` | `config/hooks.json` | 無，平行開發一律循序 |
 
+技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 僅建立 Codex 連結。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
+
 重跑 `npm run setup` 即可更新，`agent-workflow verify` 檢查安裝是否完整。升級前，先把進行中的 managed task 結案或 supersede：plan 的計算方式改變時，進行中 task 的驗證紀錄會失效。
 
 選用的原生整合由各自的上游 repo 安裝，不收進本 repo 的 skills。
@@ -180,6 +182,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | --- | --- |
 | [workflow](.agents/skills/workflow/SKILL.md) | 分流 managed change，從定義驗收標準一路到結案 |
 | [planning](.agents/skills/planning/SKILL.md) | 釐清架構方向、重要取捨或真正模糊的需求 |
+| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | 可交付的開發規格計畫；僅 Codex 必裝 |
 | [grill-me](.agents/skills/grill-me/SKILL.md) | 使用者要求深入提問，或需要釐清高風險假設 |
 | [project-docs](.agents/skills/project-docs/SKILL.md) | 開發前補上這次碰到的模組文件、改動後更新失準的文件、記錄專案決策 |
 | [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組介面、責任邊界、seam 與 adapter |
@@ -201,8 +204,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
 | [adhd-comms](.agents/skills/adhd-comms/SKILL.md) | 使用者要求回覆重點先行、易掃讀，同時保留必要證據 |
 | [humanizer](.agents/skills/humanizer/SKILL.md) | 依要求重寫文字，或修正明確的 AI 腔調 |
-
-另有 repository 內的 [doc-coauthoring](.agents/skills/doc-coauthoring/SKILL.md)，用於規格、提案與較大型文件。它列在 manifest 的 unmanaged_skills 清單，不屬於 installer 管理的 skill catalog。
+| [doc-coauthoring](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫規格、提案、RFC 與較大型技術文件 |
 
 ### 原生 agent
 

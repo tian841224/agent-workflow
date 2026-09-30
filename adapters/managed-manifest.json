@@ -2,7 +2,7 @@
   "schema_version": 7,
   "runtime": ["dist/agent-workflow.mjs", "adapters/", "schemas/"],
   "canonical": ["templates/"],
-  "unmanaged_skills": ["doc-coauthoring"],
+  "unmanaged_skills": [],
   "agents": {
     "worker": {"codex": {"sandbox_mode": "workspace-write", "orchestration_writable": true}},
     "reader": {"claude": {"tools": "Read, Glob, Grep", "model": "haiku"}, "codex": {"sandbox_mode": "read-only"}}
@@ -14,6 +14,7 @@
     "architecture-review": {"required": false, "description": "架構、跨層耦合與遷移風險審查"},
     "diagnosing-bugs": {"required": false, "description": "原因不明、間歇性或效能型問題的證據導向診斷"},
     "planning": {"required": true, "description": "高影響方向、技術取捨與真正模糊需求的規劃"},
+    "implementation-spec": {"required": true, "platforms": ["Codex"], "description": "將開發計畫寫成可直接實作、交付與驗收的程式開發規格書"},
     "learn": {"required": true, "description": "只保存使用者明確要求或確認的可重複使用結論"},
     "root-cause": {"required": true, "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
@@ -25,6 +26,7 @@
     "localization-tw": {"required": true, "description": "翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 AGENTS.md 常駐規則與每次提交訊息時注入的 skill 規則處理"},
     "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證"},
     "adhd-comms": {"required": false, "description": "使用者要求重點先行、易掃讀的回覆格式時使用"},
-    "humanizer": {"required": false, "description": "使用者要求或草稿出現明確 AI 腔調時重寫，預設只交付最終稿"}
+    "humanizer": {"required": false, "description": "使用者要求或草稿出現明確 AI 腔調時重寫，預設只交付最終稿"},
+    "doc-coauthoring": {"required": false, "description": "撰寫規格、提案、RFC 與需要脈絡整理的長篇技術文件"}
   }
 }

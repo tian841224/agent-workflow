@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -8,7 +8,7 @@ import { stdin as input, stdout as outputStream } from "node:process";
 import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, output, parseFrontmatter, projectIdentity, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
 
 type Platform = "Claude" | "Codex" | "Antigravity";
-type FileRecord = { path: string; sha256: string; kind: string };
+type FileRecord = { path: string; sha256: string; kind: string; target?: string };
 type InstallOptions = { action: "Install" | "Repair" | "Verify" | "Uninstall"; target: string; root: string; skills?: string; integrations: string[]; nonInteractive: boolean; dryRun: boolean; claude: string; codex: string; antigravity: string; };
 
 const platforms: Record<Platform, { entrypoint: string; hook: string[]; skills: string[] }> = {
@@ -108,6 +108,48 @@ function copyFile(source: string, destination: string, records: FileRecord[], ki
 function copyTree(source: string, destination: string, records: FileRecord[], kind: string, dryRun: boolean): void {
   for (const file of filesAt(source)) copyFile(file, join(destination, relative(source, file)), records, kind, dryRun);
 }
+function linkedAncestor(path: string): boolean {
+  for (let current = resolve(path); ; current = dirname(current)) {
+    if (lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink()) return true;
+    if (dirname(current) === current) return false;
+  }
+}
+function pathKey(path: string): string { return process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path); }
+function rootIdentity(path: string): string {
+  let parent = resolve(path); const suffix: string[] = [];
+  while (!existsSync(parent) && dirname(parent) !== parent) { suffix.unshift(basename(parent)); parent = dirname(parent); }
+  return pathKey(join(existsSync(parent) ? realpathSync.native(parent) : parent, ...suffix));
+}
+function linkMatches(path: string, target: string): boolean {
+  return Boolean(lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) && rootIdentity(resolve(dirname(path), readlinkSync(path))) === rootIdentity(target) && existsSync(target);
+}
+function skillEntries(directory: string): Map<string, string> {
+  const entries = new Map<string, string>();
+  const visit = (path: string): void => {
+    for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = join(path, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`nested skill link requires manual migration: ${child}`);
+      entries.set(relative(directory, child), entry.isDirectory() ? "directory" : sha256(readFileSync(child)));
+      if (entry.isDirectory()) visit(child);
+    }
+  };
+  visit(directory);
+  return entries;
+}
+function skillDigest(directory: string): string { return sha256(JSON.stringify([...skillEntries(directory)])); }
+function linkSkill(target: string, destination: string, backup: string, records: FileRecord[], dryRun: boolean): void {
+  if (linkedAncestor(dirname(destination))) throw new Error(`skills root must be an ordinary directory: ${dirname(destination)}`);
+  const existing = lstatSync(destination, { throwIfNoEntry: false });
+  if (existing?.isSymbolicLink() && !linkMatches(destination, target)) throw new Error(`unexpected skill link: ${destination}; expected ${target}`);
+  if (existing && !existing.isSymbolicLink() && !existing.isDirectory()) throw new Error(`skill path is not a directory: ${destination}`);
+  if (!dryRun && !existing?.isSymbolicLink()) {
+    mkdirSync(dirname(destination), { recursive: true });
+    if (existing) { mkdirSync(dirname(backup), { recursive: true }); renameSync(destination, backup); }
+    try { symlinkSync(resolve(target), destination, process.platform === "win32" ? "junction" : "dir"); }
+    catch (error) { if (existing) renameSync(backup, destination); throw error; }
+  }
+  records.push({ path: destination, target: resolve(target), sha256: sha256(resolve(target)), kind: "platform-skill-link" });
+}
 function npmBinDirectory(options: InstallOptions): string | undefined {
   if (process.env.AGENT_WORKFLOW_CLI_DIR) return process.env.AGENT_WORKFLOW_CLI_DIR;
   if (stateRoot(options.root) !== stateRoot()) return undefined;
@@ -144,7 +186,7 @@ function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): 
   };
   removeEmptyDirectories(runtime);
 }
-const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "canonical-template", "platform-agent"]);
+const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "platform-skill-link", "canonical-template", "platform-agent"]);
 type AgentPlatformConfig = { tools?: string; model?: string; sandbox_mode?: string; orchestration_writable?: boolean };
 // Native subagent definitions generated from the canonical `.agents/agents/*.md` bodies. Each platform
 // discovers them from its own directory (Claude `agents/*.md`, Codex `agents/*.toml`); Antigravity has
@@ -191,22 +233,42 @@ function ensureClaudeOrchestrationDirectory(settingsPath: string, state: string,
   return directory;
 }
 function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, dryRun: boolean): void {
-  const keep = new Set(records.filter((record) => MANAGED_ASSET_KINDS.has(record.kind)).map((record) => resolve(record.path)));
-  const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map((root) => resolve(root));
+  const keep = new Set(records.filter((record) => MANAGED_ASSET_KINDS.has(record.kind)).map((record) => pathKey(record.path)));
+  const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map(pathKey);
   for (const item of Array.isArray(previous.files) ? previous.files : []) {
     if (!item || typeof item !== "object") continue;
     const record = item as JsonObject;
     if (typeof record.kind !== "string" || !MANAGED_ASSET_KINDS.has(record.kind)) continue;
     if (typeof record.path !== "string" || typeof record.sha256 !== "string") continue;
     const path = resolve(record.path);
-    if (keep.has(path) || !managedRoots.some((root) => path === root || path.startsWith(root + sep)) || !existsSync(path)) continue;
+    const key = pathKey(path);
+    if (keep.has(key) || !managedRoots.some((root) => key === root || key.startsWith(root + sep))) continue;
+    if (record.kind === "canonical-skill") continue;
+    if (record.kind === "platform-skill-link") {
+      if (typeof record.target === "string" && safeSkillLink(record, previous) && linkMatches(path, record.target) && !dryRun) unlinkSync(path);
+      continue;
+    }
+    if (linkedAncestor(path) || !existsSync(path)) continue;
     try { if (sha256(readFileSync(path)) === record.sha256 && !dryRun) rmSync(path); } catch { /* preserve files that cannot be checked */ }
   }
 }
 function catalog(root: string): Record<string, JsonObject> {
   const value = readJson(join(root, "adapters", "managed-manifest.json")).skills;
   if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("managed manifest has no skills catalog");
+  for (const [name, meta] of Object.entries(value as Record<string, JsonObject>)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !meta || typeof meta !== "object" || Array.isArray(meta)) throw new Error(`invalid skill entry: ${name}`);
+    if (meta.platforms !== undefined && (!Array.isArray(meta.platforms) || !meta.platforms.length || meta.platforms.some((platform) => typeof platform !== "string" || !Object.hasOwn(platforms, platform)))) {
+      throw new Error(`invalid platforms for skill ${name}: expected a non-empty list of Claude, Codex or Antigravity`);
+    }
+  }
   return value as Record<string, JsonObject>;
+}
+function safeSkillLink(record: JsonObject, managed: JsonObject): boolean {
+  if (typeof record.path !== "string" || typeof record.target !== "string") return false;
+  const name = basename(record.path);
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || rootIdentity(record.target) !== rootIdentity(join(home(), ".agents", "skills", name)) || linkedAncestor(record.target)) return false;
+  const targets = (managed.targets || {}) as JsonObject;
+  return (Object.keys(platforms) as Platform[]).some((platform) => typeof targets[platform] === "string" && pathKey(record.path as string) === pathKey(join(resolve(targets[platform] as string), ...platforms[platform].skills, name)) && !linkedAncestor(dirname(record.path as string)));
 }
 function requiredSkills(value: Record<string, JsonObject>): string[] { return Object.entries(value).filter(([, meta]) => meta.required === true).map(([name]) => name); }
 async function selectSkills(value: Record<string, JsonObject>, options: InstallOptions, previous: JsonObject): Promise<string[]> {
@@ -506,49 +568,137 @@ export async function install(options: InstallOptions): Promise<number> {
     // Fail before anything is written, so a typo does not leave a half-finished install.
     if (unknown.length) throw new Error(`unknown integration: ${unknown.join(", ")} (known: ${Object.keys(known).join(", ")})`);
   }
+  const skillCatalog = catalog(source);
+  const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(skillCatalog, options, previous); const records: FileRecord[] = [];
+  const canonical = join(home(), ".agents"); const sharedSkills = join(canonical, "skills"); const targetRoots = roots(options);
+  const skillBackup = join(state, "migrations", `skills-${now().replace(/[:.]/g, "-")}-${process.pid}`);
+  const imports = new Map<string, string[]>();
+  const materializedSkills = new Set(selectedSkills);
+  const exposures: { platform: Platform; name: string; destination: string }[] = [];
+  const platformSkillRoots = selected.map((platform) => rootIdentity(join(targetRoots[platform], ...platforms[platform].skills))); const sharedIdentity = rootIdentity(sharedSkills);
+  if (new Set(platformSkillRoots).size !== platformSkillRoots.length || platformSkillRoots.some((root) => root === sharedIdentity || root.startsWith(sharedIdentity + sep) || sharedIdentity.startsWith(root + sep))) throw new Error("platform skills roots must be distinct and outside the shared skills directory");
+  if (linkedAncestor(sharedSkills)) throw new Error(`shared skills root must be an ordinary directory: ${sharedSkills}`);
+  // Preflight every exposure before writing: unknown skills have no authoritative version to pick.
+  for (const platform of selected) {
+    const skillRoot = join(targetRoots[platform], ...platforms[platform].skills);
+    if (linkedAncestor(skillRoot)) throw new Error(`skills root must be an ordinary directory: ${skillRoot}`);
+    const names = new Set(selectedSkills.filter((skill) => !Array.isArray(skillCatalog[skill].platforms) || (skillCatalog[skill].platforms as Json[]).includes(platform)));
+    if (existsSync(skillRoot)) for (const name of readdirSync(skillRoot)) {
+      const allowed = skillCatalog[name]?.platforms;
+      if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) && (!Array.isArray(allowed) || allowed.includes(platform)) && existsSync(join(skillRoot, name, "SKILL.md"))) names.add(name);
+    }
+    for (const name of names) {
+      if (skillCatalog[name]) materializedSkills.add(name);
+      const destination = join(skillRoot, name); const shared = join(sharedSkills, name); const existing = lstatSync(destination, { throwIfNoEntry: false });
+      if (linkedAncestor(shared)) throw new Error(`shared skill must be an ordinary directory: ${shared}`);
+      if (existing?.isSymbolicLink()) {
+        if (!linkMatches(destination, shared)) throw new Error(`unexpected skill link: ${destination}; expected ${shared}`);
+      } else if (existing) {
+        if (!existing.isDirectory()) throw new Error(`skill path is not a directory: ${destination}`);
+        const entries = skillEntries(destination);
+        if (!skillCatalog[name]) {
+          const originals = imports.get(name) || [];
+          for (const authority of [...(existsSync(shared) ? [shared] : []), ...originals]) {
+            const authoritativeEntries = skillEntries(authority);
+            if ([...entries].some(([path, digest]) => authoritativeEntries.has(path) && authoritativeEntries.get(path) !== digest)) throw new Error(`conflicting shared skill ${name}: ${destination} differs from ${authority}; originals preserved`);
+          }
+          imports.set(name, [...originals, destination]);
+        }
+      }
+      exposures.push({ platform, name, destination });
+    }
+  }
+  for (const skill of materializedSkills) {
+    const sourceSkill = join(source, ".agents", "skills", skill); const shared = join(sharedSkills, skill);
+    if (!existsSync(join(sourceSkill, "SKILL.md"))) throw new Error(`skill source is missing: ${sourceSkill}`);
+    skillDigest(sourceSkill);
+    if (linkedAncestor(shared)) throw new Error(`shared skill must be an ordinary directory: ${shared}`);
+    if (existsSync(shared)) skillDigest(shared);
+  }
   const migration = migrateState(state, options.dryRun);
-  const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(catalog(source), options, previous); const records: FileRecord[] = [];
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
   for (const folder of ["adapters", "schemas"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
   pruneRuntime(runtime, records, options.dryRun);
   if (selectedSkills.includes("localization-tw")) writeLocalizationPolicy(source, runtime, records, options.dryRun);
   const cliDirectory = installCliShims(join(source, "dist", "agent-workflow.mjs"), options, records);
-  const canonical = join(home(), ".agents");
   // Templates are agent-facing reference documents, not runtime inputs, so they belong beside the
   // canonical skills every agent reads rather than in the runtime tree next to the bundle.
   if (existsSync(join(source, "templates"))) copyTree(join(source, "templates"), join(canonical, "templates"), records, "canonical-template", options.dryRun);
-  for (const skill of selectedSkills) { const sourceSkill = join(source, ".agents", "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(canonical, "skills", skill), records, "canonical-skill", options.dryRun); }
-  const targetRoots = roots(options); const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
+  if (!options.dryRun) for (const [name, originals] of imports) for (const original of originals) cpSync(original, join(sharedSkills, name), { recursive: true, force: false });
+  for (const skill of materializedSkills) {
+    const sourceSkill = join(source, ".agents", "skills", skill); const shared = join(sharedSkills, skill);
+    if (!options.dryRun && existsSync(shared) && skillDigest(sourceSkill) !== skillDigest(shared)) cpSync(shared, join(skillBackup, "canonical", skill), { recursive: true, errorOnExist: true, force: false });
+    copyTree(sourceSkill, shared, records, "canonical-skill", options.dryRun);
+  }
+  for (const exposure of exposures) linkSkill(join(sharedSkills, exposure.name), exposure.destination, join(skillBackup, exposure.platform, exposure.name), records, options.dryRun);
+  const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
   const presentSkills = existsSync(join(canonical, "skills")) ? readdirSync(join(canonical, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : [];
   if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, options.dryRun, presentSkills);
   const node = process.execPath;
   for (const platform of selected) {
-    const root = targetRoots[platform]; const skillRoot = join(root, ...platforms[platform].skills);
-    for (const skill of selectedSkills) { const sourceSkill = join(canonical, "skills", skill); if (existsSync(sourceSkill)) copyTree(sourceSkill, join(skillRoot, skill), records, "platform-skill", options.dryRun); }
+    const root = targetRoots[platform];
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform === "Antigravity", source);
     installAgents(source, platform, root, state, records, options.dryRun);
     if (platform === "Claude") ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
   }
-  pruneManagedAssets(previous, records, canonical, selected, targetRoots, options.dryRun);
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
+  const previousRoots = { ...targetRoots, ...Object.fromEntries(Object.entries(previousTargets).filter(([, value]) => typeof value === "string").map(([name, value]) => [name, resolve(value as string)])) };
+  pruneManagedAssets(previous, records, canonical, selected, previousRoots, options.dryRun);
+  // A single-platform repair must keep the other platforms visible to Verify and Uninstall.
+  for (const item of Array.isArray(previous.files) ? previous.files : []) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as FileRecord;
+    if (typeof record.path !== "string" || records.some((current) => pathKey(current.path) === pathKey(record.path))) continue;
+    const inSelectedPlatform = selected.some((platform) => pathKey(record.path).startsWith(pathKey(previousRoots[platform]) + sep) || pathKey(record.path).startsWith(pathKey(targetRoots[platform]) + sep));
+    if (!inSelectedPlatform && record.kind !== "runtime" && record.kind !== "cli-shim" && record.kind !== "canonical-template") records.push(record);
+  }
   if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true } : {}) } });
   const integrations = options.integrations;
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;
-  output({ ok: !failed, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, native, migration }); return failed ? 1 : 0;
+  output({ ok: !failed, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, native, migration, skill_backup: !options.dryRun && existsSync(skillBackup) ? skillBackup : null }); return failed ? 1 : 0;
 }
 export function verify(options: InstallOptions): number {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const managedPath = join(state, "managed-runtime.json"); const errors: string[] = [];
-  if (!existsSync(managedPath)) errors.push("managed state is missing"); else { const managed = readJson(managedPath); if (managed.runtime_kind !== "node") errors.push("managed runtime is not Node"); const bundle = join(runtime, "agent-workflow.mjs"); if (!existsSync(bundle)) errors.push("runtime bundle is missing"); else if (managed.runtime_hash !== sha256(readFileSync(bundle))) errors.push("runtime bundle hash mismatch"); const source = typeof managed.source === "string" ? managed.source : ""; if (!source || !existsSync(join(source, "dist", "agent-workflow.mjs"))) errors.push("recorded source bundle is missing"); else if (existsSync(bundle) && sha256(readFileSync(join(source, "dist", "agent-workflow.mjs"))) !== sha256(readFileSync(bundle))) errors.push("source and installed runtime bundle differ"); for (const item of Array.isArray(managed.files) ? managed.files : []) { if (!item || typeof item !== "object") continue; const record = item as JsonObject; if (typeof record.path !== "string" || typeof record.sha256 !== "string") { errors.push("managed state contains an invalid file record"); continue; } if (!existsSync(record.path)) errors.push(`managed file is missing: ${record.path}`); else if (sha256(readFileSync(record.path)) !== record.sha256) errors.push(`managed file hash mismatch: ${record.path}`); } }
+  if (!existsSync(managedPath)) errors.push("managed state is missing"); else {
+    const managed = readJson(managedPath);
+    if (managed.runtime_kind !== "node") errors.push("managed runtime is not Node");
+    const bundle = join(runtime, "agent-workflow.mjs");
+    if (!existsSync(bundle)) errors.push("runtime bundle is missing"); else if (managed.runtime_hash !== sha256(readFileSync(bundle))) errors.push("runtime bundle hash mismatch");
+    const source = typeof managed.source === "string" ? managed.source : "";
+    if (!source || !existsSync(join(source, "dist", "agent-workflow.mjs"))) errors.push("recorded source bundle is missing");
+    else if (existsSync(bundle) && sha256(readFileSync(join(source, "dist", "agent-workflow.mjs"))) !== sha256(readFileSync(bundle))) errors.push("source and installed runtime bundle differ");
+    for (const item of Array.isArray(managed.files) ? managed.files : []) {
+      if (!item || typeof item !== "object") continue;
+      const record = item as JsonObject;
+      if (typeof record.path !== "string" || typeof record.sha256 !== "string") { errors.push("managed state contains an invalid file record"); continue; }
+      try {
+        if (record.kind === "platform-skill-link") {
+          if (!safeSkillLink(record, managed) || typeof record.target !== "string" || record.sha256 !== sha256(resolve(record.target)) || !linkMatches(record.path, record.target)) errors.push(`managed skill link mismatch: ${record.path}`);
+        } else if (!existsSync(record.path)) errors.push(`managed file is missing: ${record.path}`);
+        else if (sha256(readFileSync(record.path)) !== record.sha256) errors.push(`managed file hash mismatch: ${record.path}`);
+      } catch { errors.push(`managed path cannot be verified: ${record.path}`); }
+    }
+  }
   output({ valid: errors.length === 0, runtime_root: runtime, node: process.execPath, errors }); return errors.length ? 1 : 0;
 }
 export function uninstall(options: InstallOptions): number {
   const state = stateRoot(options.root); const managedPath = join(state, "managed-runtime.json"); if (!existsSync(managedPath)) { output({ ok: true, removed: 0 }); return 0; }
   const managed = readJson(managedPath); let removed = 0;
-  for (const item of Array.isArray(managed.files) ? managed.files : []) { if (!item || typeof item !== "object") continue; const record = item as JsonObject; if (typeof record.path === "string" && typeof record.sha256 === "string" && existsSync(record.path) && sha256(readFileSync(record.path)) === record.sha256) { if (!options.dryRun) rmSync(record.path); removed += 1; } }
+  for (const item of Array.isArray(managed.files) ? managed.files : []) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as JsonObject;
+    if (typeof record.path !== "string" || typeof record.sha256 !== "string" || record.kind === "canonical-skill") continue;
+    if (record.kind === "platform-skill-link") {
+      if (safeSkillLink(record, managed) && typeof record.target === "string" && linkMatches(record.path, record.target)) { if (!options.dryRun) unlinkSync(record.path); removed += 1; }
+      continue;
+    }
+    if (linkedAncestor(record.path)) continue;
+    if (existsSync(record.path) && sha256(readFileSync(record.path)) === record.sha256) { if (!options.dryRun) rmSync(record.path); removed += 1; }
+  }
   const claudeRoot = managed.targets && typeof managed.targets === "object" && !Array.isArray(managed.targets) ? (managed.targets as JsonObject).Claude : undefined;
   const claudeSettings = typeof claudeRoot === "string" ? join(claudeRoot, ...platforms.Claude.hook) : "";
   if (!options.dryRun && claudeSettings && existsSync(claudeSettings)) {
