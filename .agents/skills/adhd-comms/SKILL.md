@@ -1,6 +1,6 @@
 ---
 name: adhd-comms
-description: Use when the user asks for action-first, easy-to-scan replies or a lower reading load.
+description: "需要低閱讀負擔、先說結論且容易掃讀的回覆時使用；依照本技能調整資訊順序與呈現方式。"
 ---
 
 # adhd-comms

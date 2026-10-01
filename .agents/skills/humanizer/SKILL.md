@@ -1,6 +1,6 @@
 ---
 name: humanizer
-description: Rewrite AI-sounding prose when requested or when a concrete style problem needs correction; preserve meaning, facts, and voice.
+description: "使用者要求潤飾生硬或像 AI 產生的文字，或文字確有此問題時使用；保留原意、事實與原有語氣。"
 license: MIT
 metadata:
   version: "2.11.2"

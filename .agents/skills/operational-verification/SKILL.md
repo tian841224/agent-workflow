@@ -1,6 +1,6 @@
 ---
 name: operational-verification
-description: Use when installing, synchronizing, provisioning, migrating, deploying, or validating an external integration, especially before claiming an environment is ready or a change is live.
+description: "安裝、同步、設定、遷移、部署或驗證外部整合時使用；依目標環境的證據確認結果，並區分本機與遠端或正式環境的驗證範圍。"
 ---
 
 # Operational verification

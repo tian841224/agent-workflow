@@ -1,6 +1,6 @@
 ---
 name: task-retrospective
-description: Load only when the user requests analysis of workflow execution, hook/skill usage, timing, errors, retries, or friction.
+description: "使用者要求分析任務實際執行過程時才使用；檢視 workflow、hook、skill、耗時、錯誤、重試或操作阻礙。"
 ---
 
 # Task Retrospective

@@ -1,6 +1,6 @@
 ---
 name: writing-for-agents
-description: Use when editing `.agents/` agent or skill docs; apply pointer、progressive disclosure 與 no-op／negation 規則。
+description: "編輯 `.agents/` 內的 agent 或 skill 文件時使用；依循 context pointer、漸進揭露、no-op 與 negation 規則撰寫。"
 ---
 
 # Writing Documents for Agents to Read

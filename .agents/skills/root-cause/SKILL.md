@@ -1,6 +1,6 @@
 ---
 name: root-cause
-description: Use after a bug fix or confirmed code-review finding to trace why the defect was possible and write the missing test, shared mechanism, project doc, or rule that prevents recurrence.
+description: "修正 bug 或確認 review 問題後使用；追查缺陷為何可能發生及未被攔截，並補上合適的測試、共用機制、專案文件或規則。"
 ---
 
 # root-cause

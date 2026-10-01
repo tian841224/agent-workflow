@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Use for explicit grilling or high-risk plan assumptions; use `planning` first when requirements are still vague.
+description: "使用者明確要求盤問計畫，或需要驗證高風險計畫假設時使用；需求仍不明確時先使用 planning 釐清方向。"
 ---
 
 # Grill Me

@@ -1,6 +1,6 @@
 ---
 name: distill
-description: Use when repeated corrections or review causes should become a reusable rule.
+description: "相同更正或 review 問題反覆出現、需要整理成可重用規則時使用；將已確認的教訓整理並保存到合適的位置。"
 ---
 
 # distill

@@ -1,6 +1,6 @@
 ---
 name: learn
-description: Save durable user-requested memories, corrections, decisions, and confirmed reusable fixes.
+description: "需要保存使用者明確要求記錄的長期記憶、更正、決策或已確認的可重用修正時使用；只記錄未來任務仍適用的結論。"
 ---
 
 # learn

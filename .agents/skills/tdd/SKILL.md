@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Load when the compiled workflow plan selects `tdd`; defines red-green-refactor execution and seam evidence.
+description: "compiled workflow plan 選用 tdd 時使用；以紅燈、綠燈、重構推動行為變更，並明確測試邊界與驗證證據。"
 ---
 
 # Test-Driven Development

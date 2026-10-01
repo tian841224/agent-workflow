@@ -1,6 +1,6 @@
 ---
 name: codebase-design
-description: Use for deep-module, interface, seam, and adapter design when the workflow plan or another review skill points here.
+description: "workflow 計畫或其他 review skill 指向本技能時使用；設計 deep module、介面、模組接縫與 adapter 邊界。"
 ---
 
 # Codebase Design

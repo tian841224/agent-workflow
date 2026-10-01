@@ -1,6 +1,6 @@
 ---
 name: doc-coauthoring
-description: Use for substantial documentation, proposals, technical specs, decision docs, RFCs, or similar structured writing where context transfer and reader clarity matter.
+description: "撰寫或完善需要清楚交接脈絡的文件時使用，例如提案、技術規格、決策文件或 RFC；依需要進行資料蒐集、草擬、修訂與讀者檢查。"
 ---
 
 # Doc Co-Authoring Workflow

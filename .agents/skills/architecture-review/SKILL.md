@@ -1,6 +1,6 @@
 ---
 name: architecture-review
-description: Use when reviewing software architecture, detecting cross-layer coupling, oversized modules, contract drift, or migration risks in an existing codebase.
+description: "需要檢視既有系統架構時使用；找出跨層耦合、過大的模組、契約漂移與遷移風險，並提供有證據的分析。"
 ---
 
 # Architecture review

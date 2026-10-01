@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: Debugging discipline for hard-to-find, intermittent, performance, or otherwise unclear failures. Use when the cause is not already established and a diagnostic feedback loop would materially reduce guesswork.
+description: "遇到原因尚未確定、難以重現、間歇性或效能異常時使用；用最短的診斷路徑建立可重現證據、隔離原因並確認症狀已消失。"
 ---
 
 # Debugging Discipline

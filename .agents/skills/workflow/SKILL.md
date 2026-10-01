@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: 由 managed_change 決定是否進入 managed workflow；進入後依 compiled plan 執行影響行為、資料、契約、安全性、交付或 verification integrity 的變更。
+description: "需要判斷是否進入 managed workflow，或執行已編譯計畫要求的流程時使用；適用於影響行為、資料、契約、安全性、交付或驗證完整性的變更。"
 ---
 
 # agent-workflow

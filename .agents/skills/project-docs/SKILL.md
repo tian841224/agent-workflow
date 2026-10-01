@@ -1,6 +1,6 @@
 ---
 name: project-docs
-description: Load when task-init context reports doc_gap, when a change makes a project doc inaccurate, or when a project decision must be recorded; covers docs layout, index and doc_type rules.
+description: "task-init 回報 doc_gap、變更會使專案文件失準，或需要記錄專案決策時使用；依專案文件的目錄、索引與 doc_type 規則維護文件。"
 ---
 
 # Project Docs

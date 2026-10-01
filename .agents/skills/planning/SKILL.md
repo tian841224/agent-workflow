@@ -1,6 +1,6 @@
 ---
 name: planning
-description: Use for architecture direction, feature planning, refactoring strategy, technical trade-offs, or genuinely unclear requirements where choosing a direction matters before implementation.
+description: "需要選擇架構方向、功能方案、重構策略或技術取捨，或需求確實尚未釐清時使用；目標與完成條件已明確的工作直接執行。"
 ---
 
 # Simple Planning Skill
