@@ -14,7 +14,7 @@
     "architecture-review": {"required": false, "description": "架構、跨層耦合與遷移風險審查"},
     "diagnosing-bugs": {"required": false, "description": "原因不明、間歇性或效能型問題的證據導向診斷"},
     "planning": {"required": true, "description": "高影響方向、技術取捨與真正模糊需求的規劃"},
-    "implementation-spec": {"required": true, "platforms": ["Codex"], "description": "將開發計畫寫成可直接實作、交付與驗收的程式開發規格書"},
+    "implementation-spec": {"required": true, "description": "將開發計畫寫成可直接實作、交付與驗收的程式開發規格書"},
     "learn": {"required": true, "description": "只保存使用者明確要求或確認的可重複使用結論"},
     "root-cause": {"required": true, "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},

@@ -21,7 +21,7 @@ test("install writes a standalone Node runtime and required skills", () => {
   assert.match(run(["verify", "--state-root", join(root, "state")]).stdout, /"valid":true/);
 });
 
-test("required platform-scoped skills install only on Codex on install and repair", () => {
+test("required implementation-spec installs on every platform on install and repair", () => {
   const root = join(tmpdir(), `agent-workflow-platform-skills-${process.pid}-${Date.now()}`);
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
   const targets = ["--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")];
@@ -34,10 +34,14 @@ test("required platform-scoped skills install only on Codex on install and repai
       assert.ok(existsSync(join(skills, "workflow", "SKILL.md")));
       assert.ok(lstatSync(join(skills, "workflow")).isSymbolicLink());
       assert.equal(realpathSync(join(skills, "workflow")), realpathSync(join(root, "home", ".agents", "skills", "workflow")));
-      assert.equal(existsSync(join(skills, "implementation-spec", "SKILL.md")), platform === "codex");
+      assert.equal(existsSync(join(skills, "implementation-spec", "SKILL.md")), true);
+      assert.equal(lstatSync(join(skills, "implementation-spec")).isSymbolicLink(), true);
+      assert.equal(realpathSync(join(skills, "implementation-spec")), realpathSync(join(root, "home", ".agents", "skills", "implementation-spec")));
     }
     const state = JSON.parse(readFileSync(join(root, "state", "managed-runtime.json"), "utf8"));
-    assert.equal(state.files.some((record) => record.path.startsWith(join(root, "claude", "skills", "implementation-spec"))), false);
+    for (const [platform, skillsPath] of [["claude", join(root, "claude", "skills")], ["codex", join(root, "codex", "skills")], ["gemini", join(root, "gemini", "config", "skills")]]) {
+      assert.equal(state.files.some((record) => record.path === join(skillsPath, "implementation-spec") && record.kind === "platform-skill-link"), true, `${platform} link is recorded`);
+    }
     const verified = run(["verify", "--state-root", join(root, "state")]);
     assert.equal(verified.status, 0, verified.stdout + verified.stderr);
   }
@@ -52,7 +56,7 @@ test("platform restriction repairs prune only unchanged managed files and reject
   copyFileSync("AGENTS.md", join(sandbox, "AGENTS.md"));
   const manifestPath = join(sandbox, "adapters", "managed-manifest.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const allowed = manifest.skills["implementation-spec"].platforms;
+  const allowed = ["Codex"];
   const claudeSkill = join(root, "claude", "skills", "implementation-spec", "SKILL.md");
   const run = (action) => spawnSync(process.execPath, [join(sandbox, "dist", "agent-workflow.mjs"), action, "--non-interactive", "--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: sandbox, encoding: "utf8", env: isolatedHome(root) });
   for (const edited of [false, true]) {
@@ -76,6 +80,10 @@ test("platform restriction repairs prune only unchanged managed files and reject
     assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
     assert.ok(existsSync(join(root, "home", ".agents", "skills", "implementation-spec", "SKILL.md")), "platform cleanup preserves the shared target");
     assert.equal(existsSync(claudeSkill), edited);
+    assert.equal(existsSync(join(root, "gemini", "config", "skills", "implementation-spec")), false, "restricted platforms are pruned");
+    const codexSkill = join(root, "codex", "skills", "implementation-spec");
+    assert.equal(existsSync(join(codexSkill, "SKILL.md")), true, "selected platform keeps the skill");
+    assert.equal(realpathSync(codexSkill), realpathSync(join(root, "home", ".agents", "skills", "implementation-spec")));
     if (edited) assert.equal(readFileSync(claudeSkill, "utf8"), "user-owned modification");
   }
   for (const invalid of [[], ["codex"], "Codex", ["Claude", 1]]) {

@@ -23,7 +23,7 @@ covers:
 
 - `skills.<name>.platforms` 是可選的非空平台清單，值為 `Claude`、`Codex`、`Antigravity`；省略時適用所有平台。無效清單使安裝失敗，避免錯誤設定被當成全平台安裝。
 - 選取的技能保存於 canonical `~/.agents/skills`；建立平台連結時套用清單，不連結整個 skills 根目錄。
-- implementation-spec 必裝，平台範圍由 [managed manifest](../../adapters/managed-manifest.json) 指定。
+- implementation-spec 必裝且未設定 `platforms`，因此適用 Claude Code、Codex 與 Antigravity 全平台。
 - 寫入前檢查所有選取平台：技能根目錄與共用技能必須是普通目錄；拒絕指向其他目標的既有連結、巢狀連結與不同內容的非 catalog 技能。
 - 選取平台內既有的有效技能（根目錄有 `SKILL.md` 且名稱合法）也轉為共用實體連結。已安裝的 catalog 技能以 repo 更新 canonical；這不會額外將未選取的 optional 技能加入其他平台。非 catalog 技能合併缺少的檔案，不覆寫既有檔案；同一路徑內容不同時失敗並保留原狀。`.system` 與 plugin cache 不在這個流程內。
 - 普通平台目錄先改名保存到 state 的 `migrations/skills-<timestamp>-<pid>/<platform>/<name>`，再建立連結；連結建立失敗會還原原目錄，不退回副本。跨磁碟改名不支援時保留原目錄並失敗。
