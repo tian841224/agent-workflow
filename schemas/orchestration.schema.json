@@ -14,8 +14,10 @@
       "properties": {
         "parent_task_path": { "type": "string" },
         "repo_root": { "type": "string" },
-        "max_workers": { "type": "integer", "minimum": 2, "default": 3 },
-        "min_files_per_worker": { "type": "integer", "minimum": 1, "default": 3 },
+        "max_workers": { "type": "integer", "minimum": 1, "default": 3 },
+        "min_files_per_worker": { "description": "Legacy input accepted for compatibility; file counts do not determine parallel payoff.", "type": "integer", "minimum": 1 },
+        "parallel_reason": { "description": "Optional legacy metadata; the runtime does not decide whether to use subagents.", "type": "string" },
+        "coordinator_risks": { "type": "array", "items": { "$ref": "#/$defs/coordinator-risk" } },
         "shared_files": { "type": "array", "items": { "type": "string" } },
         "coordinator_acceptance": { "type": "array", "items": { "type": "string" } },
         "has_order_dependency": { "type": "boolean" },
@@ -37,6 +39,16 @@
           }
         }
       }
+    },
+    "coordinator-risk": {
+      "type": "object",
+      "required": ["flag", "paths", "reason"],
+      "properties": {
+        "flag": { "enum": ["schema", "migration", "irreversible"] },
+        "paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
     },
     "assignment": {
       "description": "The assignment Prepare/Retry writes into each worker's execution-packet.json.",
@@ -141,10 +153,12 @@
           },
           "additionalProperties": false
         },
-        "workers": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/worker" } },
+        "workers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/worker" } },
         "plan": {
           "type": "object",
           "properties": {
+            "parallel_reason": { "type": "string" },
+            "coordinator_risks": { "type": "array", "items": { "$ref": "#/$defs/coordinator-risk" } },
             "shared_files": { "description": "Coordinator-owned files every worker reads but none may write.", "type": "array", "items": { "type": "string" } },
             "coordinator_acceptance": { "description": "Cross-worker acceptance cases the parent runs after Apply.", "type": "array", "items": { "type": "string", "pattern": "^AC\\d+$" } }
           },

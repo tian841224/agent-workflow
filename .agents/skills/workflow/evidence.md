@@ -50,8 +50,8 @@ Runs once, after source, tests, and documents are stable:
 ## Scope
 
 Keep analysis proportional to the checklist and the task impact. A direct, well-reproduced fix does not
-need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Whether a parallel
-split is worthwhile is decided in [orchestration.md](orchestration.md#when-to-split).
+need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Each platform agent decides whether to use native subagents; chosen implementation batches follow
+[orchestration.md](orchestration.md).
 
 ## Validation command
 

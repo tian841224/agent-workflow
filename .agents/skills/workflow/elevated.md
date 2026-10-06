@@ -13,7 +13,5 @@ coordinator writes ordered slices before implementation. Every slice names its g
 acceptance criteria, local verification command, and dependencies. A dependent slice waits until the
 previous slice's local feedback passes. Each slice receives local feedback only; the whole task gets
 one Reviewer after every slice is stable. Keep slices in the coordinator's working plan; they
-are not new task state or ExecutionPacket authority. When task-init returned
-`parallel_hint.candidate: true`, first check whether independent slices can run as parallel workers
-([orchestration.md](orchestration.md)). Once all slices are stable,
+are not new task state or ExecutionPacket authority. Each platform agent decides whether to use native subagents. When it chooses parallel implementation, follow [orchestration.md](orchestration.md). Once all slices are stable,
 follow [Finalization](evidence.md#finalization).

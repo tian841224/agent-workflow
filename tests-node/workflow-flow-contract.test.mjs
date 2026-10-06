@@ -120,3 +120,25 @@ test("lifecycle finalization stays a single authority: only transitions.ts close
   assert.deepEqual(gateImports.filter((name) => name !== "nextForState"), [], "orchestration may only import nextForState from the lifecycle gate");
   assert.doesNotMatch(protocol, /\bevaluateTaskGate\b|\bcloseTask\b/, "orchestration must not re-evaluate the gate itself; the parent coordinator closes the task after Apply");
 });
+
+
+test("native agents own subagent decisions and orchestration only validates chosen splits", () => {
+  const workflow = read(".agents/skills/workflow/SKILL.md");
+  const orchestration = read(".agents/skills/workflow/orchestration.md");
+  assert.match(workflow, /是否啟動原生 sub-agent 由各平台 agent 自行判斷/);
+  assert.match(workflow, /選擇平行實作時/);
+  assert.doesNotMatch(workflow, /主動評估平行開發|parallel_hint/);
+  assert.match(orchestration, /native agent has chosen parallel implementation/);
+  assert.match(orchestration, /without recommending an execution mode/);
+  assert.match(orchestration, /Worker count is the agent's choice/);
+  assert.match(orchestration, /disjoint file_ownership/);
+  assert.match(orchestration, /Parent risk flags, required proofs and approvals remain intact/);
+  for (const file of ["README.md", "docs/architecture.md"]) {
+    assert.match(read(file), /是否啟動原生 sub-agent 由各平台 agent 自行判斷/);
+    assert.doesNotMatch(read(file), /parallel_hint|主動評估實際工作邊界/);
+  }
+  const transitions = read("src/lifecycle/transitions.ts");
+  const protocol = read("src/orchestration/protocol.ts");
+  assert.doesNotMatch(transitions, /parallelHint|parallel_hint/);
+  assert.doesNotMatch(protocol, /worthwhileReasons|recommendation|worthwhile/);
+});

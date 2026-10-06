@@ -279,7 +279,7 @@
       "additionalProperties": false
     },
     "orchestrate": {
-      "description": "Protocol 3 orchestration responses, plus the read-only view of a retired protocol 2 state. Assess adds worthwhile, recommendation and reasons; Prepare adds dispatch; every protocol 3 action returns next.",
+      "description": "Protocol 3 orchestration responses, plus the read-only view of a retired protocol 2 state. Assess validates a supplied split and returns eligible/errors; Prepare adds dispatch. Native agents decide whether to use subagents.",
       "type": "object",
       "properties": {
         "protocol": { "type": "integer" },
@@ -287,8 +287,7 @@
         "batch": { "type": "object" },
         "valid": { "type": "boolean" },
         "eligible": { "type": "boolean" },
-        "worthwhile": { "type": "boolean" },
-        "recommendation": { "enum": ["parallel", "sequential"] },
+        "coordinator_risks": { "type": "array", "items": { "type": "object" } },
         "reasons": { "type": "array", "items": { "type": "string" } },
         "dispatch": { "type": "array", "items": { "type": "object", "properties": { "worker_id": { "type": "string" }, "packet_path": { "type": "string" }, "worktree": { "type": "string" }, "result_path": { "type": "string" } }, "additionalProperties": false } },
         "worker_id": { "type": "string" },
@@ -395,7 +394,6 @@
         "plan": { "$ref": "#/$defs/plan" },
         "procedures": { "type": "array", "items": { "type": "string" } },
         "readiness": { "type": "object" },
-        "parallel_hint": { "$ref": "#/$defs/parallelHint" },
         "context": { "$ref": "#/$defs/taskContext" },
         "next": { "$ref": "#/$defs/nextActions" },
         "errors": { "type": "array", "items": { "type": "string" } }
@@ -457,16 +455,6 @@
         "id": { "type": "string" },
         "title": { "type": "string" },
         "undecided_by": { "description": "Classification fields still undeclared; declaring them with task-write settles whether this step applies.", "type": "array", "items": { "type": "string" } }
-      },
-      "additionalProperties": false
-    },
-    "parallelHint": {
-      "description": "First filter for a parallel split, returned for managed code-change tasks. candidate false comes with the reasons; the split plan itself is judged by orchestrate Assess.",
-      "type": "object",
-      "required": ["candidate", "reasons"],
-      "properties": {
-        "candidate": { "type": "boolean" },
-        "reasons": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     }

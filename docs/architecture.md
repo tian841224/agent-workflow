@@ -55,7 +55,7 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 
 `src/orchestration/protocol.ts` 以 protocol 3 提供唯一的 deterministic multi-worker control plane；protocol 2 phase tracker 已退役，只保留 `--protocol 2 --action Read` 讀取遺留 state。資格條件、action 序列與 state machine 見 [orchestration.md](../.agents/skills/workflow/orchestration.md)，狀態 authority 是 `schemas/orchestration.schema.json`，與 task state 走同一把檔案鎖。parent 在 Apply 後回到同一條 finalization（見 [evidence.md](../.agents/skills/workflow/evidence.md#finalization)）。三平台 native dispatch 只負責啟動並回傳 stable `run_id`，不重新解釋 ExecutionPacket 或 workflow policy。
 
-平行是否啟動分成兩段可計算的判斷。第一段是 `task-init` 的 `parallel_hint`，只看分類、exploration profile 與驗收案例數，決定值不值得考慮切分。第二段是 `orchestrate Assess`，對 coordinator 的切分計畫同時檢查 eligible 與 worthwhile。eligible 包括：ownership 不重疊、`shared_files` 不在任何 worker 範圍內、每條驗收案例恰好分配一次。worthwhile 包括：每個 worker 至少有一條驗收案例與足夠的預計檔案，而且 parent 沒有需要依序處理的風險。平行一定會增加總 token，因此門檻刻意偏嚴，預設仍是循序 slices。
+是否啟動原生 sub-agent 由各平台 agent 自行判斷。Framework 提供工作包隔離、責任範圍檢查與整合驗收；Assess 只驗證已提供的切分，不推薦執行模式。操作契約集中在 [orchestration.md](../.agents/skills/workflow/orchestration.md)。
 
 worker 的單位是一組 parent 驗收案例，packet 的 `assignment` 帶這些案例的全文。worker 的 receipt 由 `worker-exec --acceptance` 寫在 worktree 內的保留目錄：Codex 的 sandbox 只能寫 workspace roots，所以回報只能留在 worktree 裡；Collect 讀取後會把這個目錄排除在交付之外。receipt 只用來提早退回未完成的 worker，parent 在 Apply 後仍要重跑全部案例。installer 從 `.agents/agents/*.md` 產生 Claude（`agents/*.md`）與 Codex（`agents/*.toml`，worker 的 sandbox 可寫範圍包含 state root 的 orchestration 目錄）的原生 agent 定義，並把同一個目錄加入 Claude 的 `additionalDirectories`；Antigravity 沒有原生 subagent，一律循序。
 

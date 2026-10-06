@@ -1,7 +1,7 @@
 import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormatsRaw from "ajv-formats";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { buildExecutionPacket } from "../execution/execution-packet.js";
 import { AcceptanceCase, acceptanceCases } from "../intent.js";
 import { nextForState } from "../lifecycle/task-gate.js";
@@ -11,7 +11,7 @@ import {
   JsonObject, canonicalJson, changedPaths, git, isWithin, mutateJsonState, normalizeRepoPath, now, output, readJson, runCommand,
   sha256, schemaPath, stateRoot, workspaceFingerprint, writeAtomic, writeJson
 } from "../core.js";
-import { DEFAULT_MIN_FILES_PER_WORKER, WORKER_STATE_DIRECTORY, worthwhileReasons } from "./parallel.js";
+import { CoordinatorRisk, WORKER_STATE_DIRECTORY } from "./parallel.js";
 
 export type ProtocolOptions = Map<string, string | boolean | string[]>;
 
@@ -37,7 +37,8 @@ type ProtocolPlan = {
   has_order_dependency?: boolean;
   shared_persistent_state?: boolean;
   max_workers?: number;
-  min_files_per_worker?: number;
+  coordinator_risks: CoordinatorRisk[];
+  input_errors?: string[];
 };
 
 type NextAction = { command: string; why: string };
@@ -53,6 +54,7 @@ const addFormats = addFormatsRaw as unknown as (instance: InstanceType<typeof Aj
 const protocolValidator = new Ajv2020({ allErrors: true, strict: false });
 addFormats(protocolValidator);
 const validateProtocolState = protocolValidator.compile(JSON.parse(readFileSync(schemaPath("orchestration.schema.json"), "utf8")) as JsonObject);
+const validateSplitPlan = protocolValidator.compile({ $ref: "https://agent-workflow.local/schemas/orchestration.schema.json#/$defs/split-plan" });
 
 const PHASES = new Set(["planned", "prepared", "executing", "collecting", "integrating", "applied", "cleaning", "cleaned", "failed", "cancelled"]);
 const WORKER_STATUSES = new Set(["prepared", "bound", "running", "completed", "blocked", "failed", "cancelled"]);
@@ -89,6 +91,7 @@ function assertProtocolState(state: JsonObject): void {
 
 const repoPath = (path: string): string => normalizeRepoPath(path.replaceAll("\\", "/").replace(/^\.\//, ""));
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+const validOwnershipPath = (path: string, root: string): boolean => Boolean(path) && !isAbsolute(path) && isWithin(resolve(root, path), root) && repoPath(relative(root, resolve(root, path))) === path.replace(/\/$/, "");
 
 function asWorkers(value: unknown): WorkerPlan[] {
   if (!Array.isArray(value)) return [];
@@ -115,9 +118,11 @@ function parentAcceptance(parentTaskPath: string | undefined): AcceptanceCase[] 
 }
 
 function validatePlan(plan: ProtocolPlan, repoRoot: string, cases?: AcceptanceCase[]): string[] {
-  const errors: string[] = [];
-  if (!Number.isInteger(plan.max_workers) || Number(plan.max_workers) < 2) errors.push("max_workers must be an integer >= 2");
-  if (plan.workers.length < 2) errors.push("at least two workers are required");
+  const parent = parentState(plan);
+  const errors: string[] = [...(plan.input_errors || [])];
+  if (parent.subtask_role === "worker") errors.push("workers execute their packet; only the coordinator may split a parent task");
+  if (!Number.isInteger(plan.max_workers) || Number(plan.max_workers) < 1) errors.push("max_workers must be an integer >= 1");
+  if (!plan.workers.length) errors.push("at least one worker is required");
   if (plan.workers.length > Math.max(1, plan.max_workers || 3)) errors.push(`worker count exceeds max_workers (${plan.max_workers || 3})`);
   if (plan.has_order_dependency) errors.push("order dependency makes this batch ineligible for parallel execution");
   if (plan.shared_persistent_state) errors.push("shared persistent state makes this batch ineligible for parallel execution");
@@ -130,8 +135,8 @@ function validatePlan(plan: ProtocolPlan, repoRoot: string, cases?: AcceptanceCa
     if (!worker.completion_criteria && !worker.acceptance.length) errors.push(`worker ${worker.id} needs acceptance cases or completion_criteria`);
     if (!worker.file_ownership.length) errors.push(`worker ${worker.id} needs file_ownership`);
     for (const value of worker.file_ownership) {
-      if (!value || value.startsWith("/") || value.split("/").includes("..")) errors.push(`worker ${worker.id} has invalid ownership path: ${value}`);
-      if (owned.some((previous) => previous === value || previous.startsWith(`${value}/`) || value.startsWith(`${previous}/`))) errors.push(`ownership overlaps: ${value}`);
+      if (!validOwnershipPath(value, repoRoot)) errors.push(`worker ${worker.id} has invalid ownership path: ${value}`);
+      if (owned.some((previous) => covers([previous], value) || covers([value], previous))) errors.push(`ownership overlaps: ${value}`);
       owned.push(value);
       if (isWithin(resolve(repoRoot, value), repoRoot) === false) errors.push(`ownership escapes repository: ${value}`);
     }
@@ -143,6 +148,14 @@ function validatePlan(plan: ProtocolPlan, repoRoot: string, cases?: AcceptanceCa
   for (const shared of plan.shared_files) {
     const holder = plan.workers.find((worker) => covers(worker.file_ownership, shared));
     if (holder) errors.push(`shared file ${shared} falls inside worker ${holder.id}'s ownership; shared files stay with the coordinator`);
+  }
+  for (const risk of plan.coordinator_risks) {
+    if (!risk.paths.length || !risk.reason.trim()) errors.push(`coordinator risk ${risk.flag} needs paths and a reason explaining independent worker work`);
+    for (const path of risk.paths) {
+      if (!validOwnershipPath(path, repoRoot)) errors.push(`invalid coordinator risk path: ${path}`);
+      const holder = plan.workers.find((worker) => worker.file_ownership.some((owned) => covers([owned], path) || covers([path], owned)));
+      if (holder) errors.push(`coordinator risk ${risk.flag} path ${path} overlaps worker ${holder.id}'s ownership`);
+    }
   }
   const assigned = [...plan.workers.flatMap((worker) => worker.acceptance), ...plan.coordinator_acceptance];
   if (cases) {
@@ -240,14 +253,14 @@ function taskMarkdown(worker: WorkerPlan, parentMarkdown?: string): string {
 // What one worker has to deliver, carried in its packet: the parent's own acceptance cases for this
 // worker (not the parent's whole Completion criteria), its write boundary, the coordinator's files it
 // may only read, and where it reports.
-function assignmentFor(worker: WorkerPlan, plan: Pick<ProtocolPlan, "shared_files">, cases: AcceptanceCase[] | undefined, worktree: string, packetPath: string, attempt: number): JsonObject {
+function assignmentFor(worker: WorkerPlan, plan: Pick<ProtocolPlan, "shared_files"> & Partial<Pick<ProtocolPlan, "coordinator_risks">>, cases: AcceptanceCase[] | undefined, worktree: string, packetPath: string, attempt: number): JsonObject {
   const assigned = (cases || []).filter((item) => worker.acceptance.includes(item.id));
   const exec = `agent-workflow worker-exec --assignment-path "${packetPath}" --cwd "${worktree}"`;
   return {
     worker_id: worker.id, attempt, goal: worker.goal,
     ...(worker.completion_criteria ? { completion_criteria: worker.completion_criteria } : {}),
     acceptance: assigned.map((item) => ({ id: item.id, title: item.title, given: item.given, when: item.when, then: item.then, command: item.command, verify: `${exec} --acceptance ${item.id} -- ${item.command}` })),
-    worktree, file_ownership: worker.file_ownership, planned_files: worker.planned_files, shared_files_read_only: plan.shared_files,
+    worktree, file_ownership: worker.file_ownership, planned_files: worker.planned_files, shared_files_read_only: [...new Set([...plan.shared_files, ...(plan.coordinator_risks || []).flatMap((risk) => risk.paths)])],
     result_path: join(worktree, WORKER_STATE_DIRECTORY, "result.json"),
     run_command: `${exec} -- <command>`
   } as unknown as JsonObject;
@@ -259,7 +272,7 @@ function writePacket(taskJsonPath: string, worktree: string, assignment: JsonObj
   return packetPath;
 }
 
-function createChildTask(worker: WorkerPlan, batchId: string, parent: JsonObject, parentTaskPath: string | undefined, root: string, repoRoot: string, worktree: string, plan: Pick<ProtocolPlan, "shared_files">, cases: AcceptanceCase[] | undefined, attempt = 1): { taskPath: string; packetPath: string; taskId: string } {
+function createChildTask(worker: WorkerPlan, batchId: string, parent: JsonObject, parentTaskPath: string | undefined, root: string, repoRoot: string, worktree: string, plan: Pick<ProtocolPlan, "shared_files"> & Partial<Pick<ProtocolPlan, "coordinator_risks">>, cases: AcceptanceCase[] | undefined, attempt = 1): { taskPath: string; packetPath: string; taskId: string } {
   const childId = taskId(batchId, worker.id);
   const taskDir = worker.task_path ? resolve(worker.task_path) : join(root, "projects", String(parent.project_id || "orchestration"), "tasks", childId);
   if (!isWithin(taskDir, root)) throw new Error(`worker ${worker.id} task_path must stay under state root`);
@@ -364,6 +377,7 @@ function readPlan(options: ProtocolOptions): ProtocolPlan {
   const planPath = stringOption(options, "plan-path");
   if (!planPath || !existsSync(planPath)) throw new Error("this protocol 3 action requires --plan-path");
   const raw = readJson(planPath) as JsonObject;
+  const inputErrors = validateSplitPlan(raw) ? [] : (validateSplitPlan.errors || []).map((error) => `split plan ${error.instancePath || "/"} ${error.message}`);
   const plan: ProtocolPlan = {
     parent_task_path: typeof raw.parent_task_path === "string" ? raw.parent_task_path : undefined,
     repo_root: typeof raw.repo_root === "string" ? raw.repo_root : undefined,
@@ -371,7 +385,8 @@ function readPlan(options: ProtocolOptions): ProtocolPlan {
     shared_files: strings(raw.shared_files).map(repoPath),
     coordinator_acceptance: strings(raw.coordinator_acceptance).map((id) => id.toUpperCase()),
     shared_persistent_state: raw.shared_persistent_state === true, max_workers: raw.max_workers === undefined ? 3 : Number(raw.max_workers),
-    min_files_per_worker: raw.min_files_per_worker === undefined ? DEFAULT_MIN_FILES_PER_WORKER : Number(raw.min_files_per_worker)
+    coordinator_risks: Array.isArray(raw.coordinator_risks) ? raw.coordinator_risks.map((value) => { const risk = asObject(value); return { flag: String(risk.flag || ""), paths: strings(risk.paths).map(repoPath), reason: String(risk.reason || "") }; }) : [],
+    input_errors: inputErrors
   };
   const parentTaskOverride = stringOption(options, "parent-task-path");
   if (parentTaskOverride) plan.parent_task_path = parentTaskOverride;
@@ -458,7 +473,7 @@ function prepare(options: ProtocolOptions, root: string, id: string): number {
   const state: JsonObject = {
     schema_version: 3, protocol: 3, id, experimental: false, phase: "prepared", state_revision: 1, created_at: now(), updated_at: now(),
     parent: { task_path: plan.parent_task_path || "", task_id: String(parent.id || ""), repo_root: repoRoot, snapshot_commit: snapshot.commit, snapshot_workspace_fingerprint: snapshot.fingerprint, workspace_fingerprint: workspaceFingerprint(repoRoot) },
-    workers, plan: { shared_files: plan.shared_files, coordinator_acceptance: plan.coordinator_acceptance },
+    workers, plan: { shared_files: plan.shared_files, coordinator_acceptance: plan.coordinator_acceptance, coordinator_risks: plan.coordinator_risks },
     integration: { status: "pending", root: join(directory, "integration") }, host_bindings: [], journal: [{ at: now(), action: "Prepare", status: "completed" }], history: []
   };
   assertProtocolState(state);
@@ -480,15 +495,12 @@ function assess(options: ProtocolOptions, id: string): number {
   const repoRoot = resolve(stringOption(options, "repo-root", plan.repo_root || process.cwd()));
   const cases = parentAcceptance(plan.parent_task_path);
   const errors = validatePlan(plan, repoRoot, cases);
-  const parent = plan.parent_task_path && existsSync(plan.parent_task_path) ? readJson(plan.parent_task_path) : {};
-  const reasons = worthwhileReasons(plan.workers, parent, plan.min_files_per_worker);
-  const eligible = errors.length === 0; const worthwhile = reasons.length === 0;
-  const recommendation = eligible && worthwhile ? "parallel" : "sequential";
+  const eligible = errors.length === 0;
   const planPath = stringOption(options, "plan-path");
-  const next: NextAction[] = recommendation === "parallel"
-    ? [{ command: orchestrateCommand(options, "Prepare", id, `--plan-path "${planPath}"`), why: "the split is safe and worth its setup; tell the user how the work is split, then prepare the batch" }]
-    : [{ command: "continue with ordered slices in the parent task (workflow/elevated.md)", why: [...errors, ...reasons].join("; ") }];
-  output({ protocol: 3, action: "Assess", eligible, worthwhile, recommendation, repo_root: repoRoot, worker_count: plan.workers.length, errors, reasons, next }); return 0;
+  const next: NextAction[] = eligible
+    ? [{ command: orchestrateCommand(options, "Prepare", id, `--plan-path "${planPath}"`), why: "the supplied split passes validation; prepare it if the agent chooses parallel implementation" }]
+    : [{ command: "correct the split plan before Prepare", why: errors.join("; ") }];
+  output({ protocol: 3, action: "Assess", eligible, coordinator_risks: plan.coordinator_risks, repo_root: repoRoot, worker_count: plan.workers.length, errors, next }); return 0;
 }
 
 function bind(options: ProtocolOptions, root: string, id: string): number {
@@ -597,6 +609,12 @@ function apply(options: ProtocolOptions, root: string, id: string): number {
   output({ protocol: 3, action: "Apply", batch: next, next: [{ command: orchestrateCommand(options, "Cleanup", id), why: "remove the worker worktrees and retire the child tasks" }, ...parentNext] }); return 0;
 }
 
+// Older batch records keep completion criteria only in the authoritative assignment packet.
+function workerCompletionCriteria(worker: JsonObject): string {
+  const packetPath = String(worker.packet_path || "");
+  return packetPath && existsSync(packetPath) ? String(asObject(readJson(packetPath).assignment).completion_criteria || "") : "";
+}
+
 // A retry starts the worker over from the snapshot. With --plan-path the worker's assignment is
 // replaced first (typically a widened ownership after an ownership request), which needs a new child
 // task and packet; without it only the packet's attempt changes.
@@ -608,15 +626,17 @@ function retry(options: ProtocolOptions, root: string, id: string): number {
   const parentTaskPath = String(parentRecord.task_path || "") || undefined;
   const cases = parentAcceptance(parentTaskPath);
   const batchPlan = asObject(state.plan);
+  const coordinatorRisks: CoordinatorRisk[] = Array.isArray(batchPlan.coordinator_risks) ? batchPlan.coordinator_risks.map((value) => { const risk = asObject(value); return { flag: String(risk.flag || ""), paths: strings(risk.paths), reason: String(risk.reason || "") }; }) : [];
+  const packetPlan = { shared_files: strings(batchPlan.shared_files), coordinator_risks: coordinatorRisks };
   let replacement: WorkerPlan | undefined;
   if (stringOption(options, "plan-path")) {
     const plan = readPlan(options);
     replacement = plan.workers.find((worker) => worker.id === workerId);
     if (!replacement) throw new Error(`plan has no worker ${workerId}`);
     const others = workersOf(state).filter((worker) => String(worker.id) !== workerId).map((worker) => ({
-      id: String(worker.id), goal: String(worker.goal || worker.id), completion_criteria: "", acceptance: strings(worker.acceptance), planned_files: strings(worker.planned_files), file_ownership: strings(worker.file_ownership)
+      id: String(worker.id), goal: String(worker.goal || worker.id), completion_criteria: workerCompletionCriteria(worker), acceptance: strings(worker.acceptance), planned_files: strings(worker.planned_files), file_ownership: strings(worker.file_ownership)
     }));
-    const errors = validatePlan({ ...plan, workers: [...others, replacement], shared_files: strings(batchPlan.shared_files), coordinator_acceptance: strings(batchPlan.coordinator_acceptance) }, repoRoot, cases);
+    const errors = validatePlan({ ...plan, parent_task_path: parentTaskPath, workers: [...others, replacement], ...packetPlan, coordinator_acceptance: strings(batchPlan.coordinator_acceptance) }, repoRoot, cases);
     if (errors.length) throw new Error(`Retry plan rejected: ${errors.join("; ")}`);
   }
   const attempt = Number(before.attempt || 1) + 1;
@@ -625,11 +645,11 @@ function retry(options: ProtocolOptions, root: string, id: string): number {
   if (replacement) {
     retireChildTask(String(before.task_path || ""));
     const parent = parentTaskPath && existsSync(parentTaskPath) ? readJson(parentTaskPath) : {};
-    const child = createChildTask(replacement, `${id}-r${attempt}`, parent, parentTaskPath, root, repoRoot, worktree, { shared_files: strings(batchPlan.shared_files) }, cases, attempt);
+    const child = createChildTask(replacement, `${id}-r${attempt}`, parent, parentTaskPath, root, repoRoot, worktree, packetPlan, cases, attempt);
     record = workerRecordFor(replacement, child, worktree, attempt);
   } else {
-    const current: WorkerPlan = { id: workerId, goal: String(before.goal || workerId), completion_criteria: "", acceptance: strings(before.acceptance), planned_files: strings(before.planned_files), file_ownership: strings(before.file_ownership) };
-    writePacket(String(before.task_path), worktree, assignmentFor(current, { shared_files: strings(batchPlan.shared_files) }, cases, worktree, String(before.packet_path), attempt));
+    const current: WorkerPlan = { id: workerId, goal: String(before.goal || workerId), completion_criteria: workerCompletionCriteria(before), acceptance: strings(before.acceptance), planned_files: strings(before.planned_files), file_ownership: strings(before.file_ownership) };
+    writePacket(String(before.task_path), worktree, assignmentFor(current, packetPlan, cases, worktree, String(before.packet_path), attempt));
   }
   linkDependencies(repoRoot, worktree);
   const next = saveState(root, id, (current) => {

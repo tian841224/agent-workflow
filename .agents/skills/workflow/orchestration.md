@@ -1,53 +1,38 @@
 # Parallel orchestration
 
-Read this when task-init returns `parallel_hint.candidate: true`. Experimental until it has run on a
-real task. `agent-workflow orchestrate` (protocol 3) is the only control plane for parallel workers;
-the parent task keeps classification, acceptance, Reviewer and closure.
+Read this when the native agent has chosen parallel implementation. Each platform agent decides whether to use subagents with its available native tools. The framework supplies no candidacy, payoff recommendation or mandatory assessment step. Protocol 3 manages implementation work packages; the parent retains classification, acceptance, Reviewer and closure. Read-only helpers use the platform's native tools.
 
-## When to split
+## Validating a chosen split
 
-A split pays only when it clearly saves wall-clock time: every worker re-reads its context, so total
-tokens go up. Ordered slices in the parent task ([elevated.md](elevated.md)) stay the default.
+Run Assess only to validate a supplied split. It returns eligible and errors, without recommending an execution mode. Valid plans have disjoint file_ownership, planned_files inside ownership, shared_files outside worker scopes, and every parent acceptance case assigned exactly once to a worker or coordinator_acceptance. Each worker has an acceptance case or independently verifiable completion_criteria. Declared worker dependencies and shared persistent state are rejected. Legacy min_files_per_worker and parallel_reason are accepted metadata and do not select execution mode.
 
-1. `parallel_hint.candidate` is true. Its `reasons` say why not when it is false; then stay sequential.
-2. Write the split plan (below) and run `Assess`. It checks two things and recommends `parallel` only
-   when both hold:
-   - **eligible** (safe): at least two workers, disjoint `file_ownership`, `planned_files` inside each
-     worker's ownership, `shared_files` inside nobody's ownership, and every parent acceptance case
-     assigned exactly once — to one worker or to `coordinator_acceptance`.
-   - **worthwhile** (worth it): each worker owns at least one acceptance case and at least
-     `min_files_per_worker` (default 3) planned files, and the parent carries no risk flag that needs
-     one ordered sequence (`migration`, `irreversible`, `schema`, `unclear_requirements`).
-3. On `recommendation: parallel`, state in the progress message which cases and paths each worker
-   owns, then follow `next`. On `sequential`, continue with ordered slices.
-
-Antigravity has no native subagent, so its tasks always stay sequential.
+After the agent chooses to proceed, follow Prepare and native dispatch. Use the platform's available tools; when native dispatch is unavailable, finish in the parent. Worker count is the agent's choice within the supplied max_workers budget.
 
 ## How to split
 
 1. **By behavior first.** Group acceptance cases that can be verified independently; each group is one
    worker. Then find the directory prefixes that group changes; those are its `file_ownership`.
 2. **Contracts before dispatch.** Shared types and interfaces, route or DI registration, index
-   exports, configuration, lockfiles and migrations are `shared_files`. The coordinator writes them
+   exports, configuration and lockfiles are `shared_files`. The coordinator writes them
    before `Prepare`; the snapshot carries them into every worktree, and workers build against them
    read-only.
 3. **No waiting between workers.** When one group needs another's output, remove the dependency by
    writing the contract first; when that is impossible, keep those groups in ordered slices.
 4. **Cross-worker cases stay with the parent.** An end-to-end case spanning several groups goes in
    `coordinator_acceptance` and runs after `Apply`.
-5. **Two or three workers.** `max_workers` defaults to 3; more workers multiply context and
-   integration cost faster than they save time.
+5. **Coordinator-owned paths.** Optional coordinator_risks declarations reserve {flag, paths, reason} for work exclusive to the coordinator, outside worker ownership. Complete that work before Prepare or after Apply. Shared contracts are completed before dispatch. Parent risk flags, required proofs and approvals remain intact; they do not choose whether to use subagents.
 
 ```json
 {
   "parent_task_path": "<parent task.json>",
   "repo_root": "<repo>",
-  "max_workers": 3,
+  "max_workers": 2,
+  "coordinator_risks": [{"flag": "schema", "paths": ["schemas/orchestration.schema.json"], "reason": "Coordinator completes the schema contract before Prepare."}],
   "shared_files": ["src/types/order.ts", "src/routes.ts"],
   "coordinator_acceptance": ["AC5"],
   "workers": [
     {"id": "api", "goal": "...", "acceptance": ["AC1", "AC2"], "file_ownership": ["src/api/"], "planned_files": ["src/api/order.ts", "src/api/validate.ts", "src/api/order.test.ts"]},
-    {"id": "ui", "goal": "...", "acceptance": ["AC3", "AC4"], "file_ownership": ["src/ui/order/"], "planned_files": ["src/ui/order/form.tsx", "src/ui/order/list.tsx", "e2e/order.spec.ts"]}
+    {"id": "ui", "goal": "...", "acceptance": ["AC3", "AC4"], "file_ownership": ["src/ui/order/", "e2e/order.spec.ts"], "planned_files": ["src/ui/order/form.tsx", "src/ui/order/list.tsx", "e2e/order.spec.ts"]}
   ]
 }
 ```
@@ -71,9 +56,7 @@ orchestrate --action Cleanup --id <id>
 - Claude: Agent tool, `subagent_type: agent-workflow-worker`, `run_in_background: true`.
 - Codex: the spawn_agent tool with agent type `agent-workflow-worker`.
 
-While workers run, the coordinator does non-overlapping work (for example the next shared contract or
-the `coordinator_acceptance` test), leaving the parent worktree's delivered files unchanged: `Apply`
-refuses a parent that changed since `Prepare`.
+While workers run, the coordinator can inspect results or prepare notes outside the parent delivery. Keep the parent delivery unchanged from Prepare until Apply: Apply refuses parent drift. Coordinator-owned risk operations run before Prepare or after Apply, not during the batch.
 
 **What the runtime guarantees.**
 - `Prepare` snapshots the dirty parent, creates one detached worktree per worker, and links the
@@ -89,7 +72,7 @@ refuses a parent that changed since `Prepare`.
 
 - **Rejected worker.** `Retry --worker-id <w>` starts a new attempt. When the rejection is an
   ownership request, first update that worker in the plan and pass `--plan-path`; `Retry` validates
-  the widened ownership against the other workers and issues a new packet.
+  the widened ownership against the other workers, shared contracts and exclusive coordinator risk paths, and issues a new packet.
 - **Integration conflict.** Split the ownership differently and start a new batch.
 - **Parent drift at Apply.** Review the parent's new diff and start a new batch; the user's edit is
   never overwritten.

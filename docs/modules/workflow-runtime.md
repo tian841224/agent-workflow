@@ -33,14 +33,12 @@ The command registry is `commandOptions` in `src/cli.ts`; the managed lifecycle 
 
 `expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > all slices complete > evidence-run acceptance cases and proofs > task-level Reviewer > close-task (evaluates gate)`
 
-Focused file-local work stays direct. Expanded, cross-module, high-risk, or multi-behavior work uses
-ordered slices unless `task-init` reports `parallel_hint.candidate` and `orchestrate --action Assess`
-judges the split both safe and worthwhile. Eligible parallel work uses protocol 3 to snapshot the dirty parent, create detached worktrees, build child
+Each platform agent decides whether to use native subagents. When it chooses parallel implementation, follow [orchestration.md](../../.agents/skills/workflow/orchestration.md); Assess validates the supplied split without recommending an execution mode. Protocol 3 snapshots the dirty parent, creates detached worktrees, builds child
 `ExecutionPacket`s, collect immutable artifacts, integrate, and apply once. The task-level Reviewer
 starts only after all workers and overall affected/regression validation are complete. The timing rule
 is owned by [workflow review procedure](../../.agents/skills/workflow/review.md).
 
-`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；focused task 只取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
+`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；只有已宣告 coordinator role 的 task 加入工作包管理指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 
 `pre-review > reviewer > review-record`：`pre-review` 一次回傳 `git diff --check` 結果與該工作樹的 `workspace_sha256`；帶 `--task-path` 時另外回傳這一輪的 review brief（第一輪是完整 delivery，之後只有上一輪之後內容有變動的路徑，並附上一輪的結論、驗收案例與 checklist）。`review-record` 可接受這個 transient `--expected-workspace-sha256`；若工作樹已變更就拒絕寫入，review 欄位與每個路徑的 digest 仍由 runtime 依目前 diff 計算。
 

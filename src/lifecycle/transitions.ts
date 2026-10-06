@@ -1,10 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, stateRoot, withFileLock, writeJson } from "../core.js";
-import { acceptanceCases, intentHash, intentValidationErrors } from "../intent.js";
+import { intentHash, intentValidationErrors } from "../intent.js";
 import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
 import { resolveProcedures } from "../execution/execution-packet.js";
-import { parallelHint } from "../orchestration/parallel.js";
 import { taskContext } from "../task-context.js";
 import { nextActions } from "./next.js";
 import { evaluateTaskGate, nextForState } from "./task-gate.js";
@@ -131,14 +130,10 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       const plan = compilePlanForTaskPath(created, path);
       if (emitOutput) {
         const repoRoot = identity.root;
-        const taskMd = join(dirname(path), "task.md");
-        const acceptanceCount = existsSync(taskMd) ? acceptanceCases(readFileSync(taskMd, "utf8")).cases.length : 0;
-        const managedCode = created.managed_change === true && created.code_change === true;
         const context = contextPaths.length ? taskContext(repoRoot, root, identity.projectId, contextPaths, taskId, path) : undefined;
         output({
           valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created, Boolean(context?.doc_gap)),
           readiness: readinessSummary(readinessChecks(path, repoRootValue, stateRootValue, created)),
-          ...(managedCode ? { parallel_hint: parallelHint(created, plan.exploration_profile, acceptanceCount) } : {}),
           ...(context ? { context } : {}),
           next: nextForState(created, path, repoRoot)
         });

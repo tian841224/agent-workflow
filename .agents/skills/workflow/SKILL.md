@@ -15,7 +15,7 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
    - `context`：相關的專案文件、記憶，以及改過同一批路徑的已結案 task
 
    `readiness.ready` 為 false 時先處理 blockers。開發前先讀 context 列出的文件與記憶。有 `doc_gap` 時，依 [project-docs](../project-docs/SKILL.md) 為這次碰到的模組補一份文件。分類補充見 [capability-selection.md](capability-selection.md)。
-5. 實作。plan 的 `checklist` 是實作與 review 都要涵蓋的分析項目；`proofs` 和驗收案例一樣，要用 `evidence-run` 實際執行。註解只遵守 `AGENTS.md` 的短規則；新增或重寫多行註解、public/doc comments、高風險判斷依據時，才讀 [clean-comments](../clean-comments/SKILL.md)。安裝、同步、部署、migration、provisioning 或外部整合時，另讀 [operational-verification](../operational-verification/SKILL.md)。
+5. 實作。是否啟動原生 sub-agent 由各平台 agent 自行判斷；選擇平行實作時，依 [orchestration.md](orchestration.md) 管理工作包。plan 的 `checklist` 是實作與 review 都要涵蓋的分析項目；`proofs` 和驗收案例一樣，要用 `evidence-run` 實際執行。註解只遵守 `AGENTS.md` 的短規則；新增或重寫多行註解、public/doc comments、高風險判斷依據時，才讀 [clean-comments](../clean-comments/SKILL.md)。安裝、同步、部署、migration、provisioning 或外部整合時，另讀 [operational-verification](../operational-verification/SKILL.md)。
 6. 之後照每個指令輸出的 `next` 走：它列出 gate 目前的缺口，以及補上缺口的完整指令，依序是 acceptance 與 proof 的 `evidence-run` → Reviewer（見 [review.md](review.md)）→ `close-task`。驗收失敗就修正後重跑，直到全部通過。驗證順序與 freshness 見 [evidence.md](evidence.md)。
 7. bug 修好或 review 確認問題後，依 [root-cause](../root-cause/SKILL.md) 補上防止再發生的測試、文件、規範或 workflow 修正。使用者做的決策、更正與可重用結論，依 [learn](../learn/SKILL.md) 記錄。
 
@@ -36,4 +36,4 @@ task 狀態一律經由下列指令寫入。`<task>` 是 task 目錄，也可以
 - expanded exploration 與 ordered slices：[elevated.md](elevated.md)
 - 分類、reclassify 與 freeze-required intent：[capability-selection.md](capability-selection.md)、[risk-flags.md](risk-flags.md)
 - 記憶的讀取與寫入：[memory.md](memory.md)
-- `task-init` 回傳 `parallel_hint.candidate: true` 時，判斷並執行多 worker 平行開發：[orchestration.md](orchestration.md)
+- Agent 選擇平行實作時的工作包管理：[orchestration.md](orchestration.md)

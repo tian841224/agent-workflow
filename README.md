@@ -64,12 +64,14 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
       目標與 Given/When/Then 驗收案例（不明確時先問答，由使用者確認）
         |
         v
-      task-init --paths --> 計畫、readiness、相關文件／記憶／歷程、parallel_hint、next
+      task-init --paths --> 計畫、readiness、相關文件／記憶／歷程、next
         |
-        +-- focused  --> 直接走 `implementation -> focused feedback`
+        各平台 agent 自行判斷是否啟動原生 sub-agent
+        |
+        +-- focused  --> 無可獨立工作包時，直接走 `implementation -> focused feedback`
         |
         +-- expanded --> 依序完成切片，每片先取得局部回饋
-        |               （parallel_hint 成立且切分值得時，改由多個 worker 平行開發）
+        |               （選擇平行實作時，依 Protocol 3 管理獨立 worker）
         v
       交付內容穩定 --> 逐條執行驗收案例（evidence-run），失敗就修正重跑
         |
@@ -94,10 +96,7 @@ task.md 的驗收案例寫法：
 
 ### 多 sub-agent 平行開發（experimental）
 
-主對話是 coordinator，預設循序完成各個 slice。平行會增加總 token，因此只在明顯節省時間時才啟動。判斷分兩段，兩段都通過才平行：
-
-1. `task-init` 回傳的 `parallel_hint` 成立：程式修改、影響面到 module 以上或 exploration 為 expanded、至少 3 條驗收案例，而且沒有 `migration`、`irreversible`、`schema`、`unclear_requirements` 這類需要依序處理的風險。
-2. coordinator 依驗收案例切出工作包：每包有自己的案例，以及互不重疊的檔案範圍；共用的契約檔由 coordinator 先寫好。接著由 `orchestrate Assess` 檢查切分是否安全、每包的工作量是否值得平行。
+是否啟動原生 sub-agent 由各平台 agent 自行判斷，framework 不產生候選提示、效益推薦或強制評估步驟。選擇平行實作後，工作包隔離、責任範圍檢查與整合驗收以 [parallel orchestration](.agents/skills/workflow/orchestration.md) 為準。
 
 通過後，runtime 會完成下列事情：
 - 建立 dirty-worktree snapshot、各 worker 的 worktree，以及 packet（含該 worker 負責的驗收案例）。
@@ -159,7 +158,7 @@ task.md 的驗收案例寫法：
 | --- | --- | --- | --- | --- |
 | Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills` | `settings.json`（並把平行開發的 worktree 目錄加入 `additionalDirectories`） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
 | Codex | `~/.codex/AGENTS.md` | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader}.toml` |
-| Antigravity | `~/.gemini/GEMINI.md` | `~/.gemini/config/skills` | `config/hooks.json` | 無，平行開發一律循序 |
+| Antigravity | `~/.gemini/GEMINI.md` | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
 技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
 
@@ -277,4 +276,4 @@ Claude Code             Codex              Antigravity
 | v6 | 累積跨平台記憶 | 加入共用記憶與提煉機制，將可重用結論整理為待審 skill 草稿。 | 從每次任務重新摸索，改為可查詢且有範圍的 knowledge；草稿須經使用者核准才會生效，避免未驗證經驗污染流程。 |
 | v7 | 統一驗證並降低重複成本 | 整合 hooks、前置檢查、最終驗證與結案路徑，保留切片局部回饋，減少重複確認與不必要的文件載入。 | 從多個角色各自重跑檢查，改為共用 impact map、delivery fingerprint 與單一結案 gate；在維持 verification integrity 的前提下縮短往返。 |
 | v7.1 | 以驗收案例為完成依據 | 開發前寫 Given／When／Then 驗收案例，由 runtime 逐條執行；分析步驟改為 checklist；指令輸出附 `next`；程式修改一律獨立 Review，第二輪起只審變動範圍；`task-init --paths` 帶出相關文件、記憶與歷程；記憶加上 tags 與 paths。 | 從 agent 逐條自述的 evidence 改為可執行的驗收；policy 修改不再讓進行中 task 的驗證失效；移除任務狀態檔的 guard 與三個重複的記錄／診斷指令，減少往返與誤擋。 |
-| v7.2 | 平行開發可實際運作 | `parallel_hint` 與 `Assess` 可以計算何時值得平行；依驗收案例切分工作包；installer 安裝三平台的原生 worker／reader；worker 在 worktree 內自行驗收，Collect 退回未完成的 worker。 | 從「只有 protocol、從未觸發」改為有觸發條件、有安裝好的 worker、失敗可以 Retry 的平行流程；門檻刻意偏嚴，預設仍是循序。 |
+| v7.2 | 平行工作包管理 | 原生 agent 自行決定是否使用 sub-agent；Protocol 3 管理隔離 worktree、packet、驗收 receipt 與 Retry。 | Framework 負責實作工作的隔離、收件與整合驗收。 |
