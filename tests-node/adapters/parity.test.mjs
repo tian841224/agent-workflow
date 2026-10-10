@@ -42,11 +42,10 @@ for (const [opName, op] of Object.entries(OPERATIONS)) {
   });
 }
 
-test("adapter templates contain exactly one PreToolUse guard and no proof lifecycle", () => {
+test("adapter templates retain context hooks without an automatic Git guard", () => {
   for (const path of ["adapters/claude/settings.hooks.json", "adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     const body = readFileSync(path, "utf8");
-    assert.equal((body.match(/git-guard --platform/g) || []).length, 1, path);
-    assert.doesNotMatch(body, /skill-guard|PostToolUse|SessionEnd/, path);
+    assert.doesNotMatch(body, /git-guard|PreToolUse|skill-guard|PostToolUse|SessionEnd/, path);
     // Claude/Codex have a per-turn UserPromptSubmit event and no longer pay for a separate
     // SessionStart scan; Antigravity has no prompt-submit lifecycle, so its one PreInvocation hook
     // is still the startup navigation event.
@@ -62,14 +61,20 @@ test("platform adapters do not start a separate clean-comments Stop agent", () =
   const preToolUse = JSON.stringify(claudeHooks.PreToolUse || []);
   assert.doesNotMatch(stop, /clean-comments|"type":"agent"/);
   assert.doesNotMatch(preToolUse, /clean-comments/);
-  // The guard only does Git safety, and Git runs only through a shell or an MCP tool, so the matcher
-  // keeps those and skips every file tool instead of spawning a no-op hook on each edit.
-  const matcher = new RegExp(`^(?:${claudeHooks.PreToolUse[0].matcher})$`);
-  for (const tool of ["Bash", "PowerShell", "mcp__git__git_commit", "mcp__filesystem__write_file"]) assert.match(tool, matcher, tool);
-  for (const tool of ["Read", "Grep", "Glob", "Write", "Edit", "MultiEdit", "NotebookEdit"]) assert.doesNotMatch(tool, matcher, tool);
+  assert.equal(claudeHooks.PreToolUse, undefined);
   for (const path of ["adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     assert.doesNotMatch(readFileSync(path, "utf8"), /clean-comments/, path);
   }
+});
+
+test("Git safety requires human authorization rather than agent self-authorization", () => {
+  const instructions = readFileSync("AGENTS.md", "utf8");
+  assert.match(instructions, /破壞性 Git 操作與隱藏 Git 執行/);
+  assert.match(instructions, /不得自行授權/);
+  assert.match(instructions, /平台放行.*不代表使用者授權/);
+  const rules = readFileSync("adapters/codex/execpolicy.rules", "utf8");
+  assert.doesNotMatch(rules, /decision="forbidden"/);
+  assert.match(rules, /pattern=\["git", "push", "--force"\], decision="prompt"/);
 });
 
 test("required localization skill and the before-reply vocabulary are the locale enforcement", () => {

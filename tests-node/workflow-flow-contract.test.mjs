@@ -122,20 +122,26 @@ test("lifecycle finalization stays a single authority: only transitions.ts close
 });
 
 
-test("native agents own subagent decisions and orchestration only validates chosen splits", () => {
+test("native parallel decisions use direct assignments without a required orchestration protocol", () => {
   const workflow = read(".agents/skills/workflow/SKILL.md");
   const orchestration = read(".agents/skills/workflow/orchestration.md");
-  assert.match(workflow, /是否啟動原生 sub-agent 由各平台 agent 自行判斷/);
-  assert.match(workflow, /選擇平行實作時/);
+  assert.match(workflow, /實作前判斷工作能否獨立完成/);
+  assert.match(workflow, /適合平行時使用平台原生 subagent/);
+  assert.match(workflow, /由主 agent 整合並驗證結果/);
   assert.doesNotMatch(workflow, /主動評估平行開發|parallel_hint/);
-  assert.match(orchestration, /native agent has chosen parallel implementation/);
-  assert.match(orchestration, /without recommending an execution mode/);
-  assert.match(orchestration, /Worker count is the agent's choice/);
-  assert.match(orchestration, /disjoint file_ownership/);
-  assert.match(orchestration, /Parent risk flags, required proofs and approvals remain intact/);
+  assert.doesNotMatch(orchestration, /Run Assess|follow Prepare|orchestrate --action|Protocol 3 manages/);
+  assert.match(orchestration, /Finalization/);
+  const worker = read(".agents/agents/worker.md");
+  assert.match(worker, /directly in the coordinator's message/);
+  assert.match(worker, /Do not revert other contributors' changes/);
+  assert.match(worker, /coordinator selects the workspace and isolation/);
+  assert.match(worker, /Legacy packet assignments/);
   for (const file of ["README.md", "docs/architecture.md"]) {
-    assert.match(read(file), /是否啟動原生 sub-agent 由各平台 agent 自行判斷/);
+    assert.match(read(file), /平台原生 subagent/);
     assert.doesNotMatch(read(file), /parallel_hint|主動評估實際工作邊界/);
+  }
+  for (const file of [".agents/skills/workflow/SKILL.md", ".agents/skills/workflow/evidence.md", ".agents/skills/workflow/elevated.md"]) {
+    assert.doesNotMatch(read(file), /orchestration\.md/, `${file} must not require a separate parallel procedure`);
   }
   const transitions = read("src/lifecycle/transitions.ts");
   const protocol = read("src/orchestration/protocol.ts");

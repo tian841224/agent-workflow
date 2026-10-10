@@ -17,3 +17,4 @@ docs/*
 !docs/modules/
 docs/modules/*
 !docs/modules/managed-skill-installation.md
+!docs/modules/platform-hooks.md

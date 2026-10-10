@@ -137,6 +137,16 @@ function skillEntries(directory: string): Map<string, string> {
   return entries;
 }
 function skillDigest(directory: string): string { return sha256(JSON.stringify([...skillEntries(directory)])); }
+function unchangedSkill(directory: string, previous: JsonObject, kind: string): boolean {
+  try {
+    const tree = [...skillEntries(directory)];
+    const entries = tree.filter(([, digest]) => digest !== "directory");
+    const recorded = (Array.isArray(previous.files) ? previous.files : []).filter((item): item is JsonObject =>
+      Boolean(item && typeof item === "object" && !Array.isArray(item) && item.kind === kind && typeof item.path === "string" && pathKey(item.path).startsWith(pathKey(directory) + sep)));
+    return tree.every(([path, digest]) => digest !== "directory" || entries.some(([file]) => file.startsWith(path + sep))) && entries.length > 0 && entries.length === recorded.length && entries.every(([path, digest]) =>
+      recorded.some((item) => pathKey(String(item.path)) === pathKey(join(directory, path)) && item.sha256 === digest));
+  } catch { return false; }
+}
 function linkSkill(target: string, destination: string, backup: string, records: FileRecord[], dryRun: boolean): void {
   if (linkedAncestor(dirname(destination))) throw new Error(`skills root must be an ordinary directory: ${dirname(destination)}`);
   const existing = lstatSync(destination, { throwIfNoEntry: false });
@@ -569,12 +579,16 @@ export async function install(options: InstallOptions): Promise<number> {
     if (unknown.length) throw new Error(`unknown integration: ${unknown.join(", ")} (known: ${Object.keys(known).join(", ")})`);
   }
   const skillCatalog = catalog(source);
+  const retiredSkills = readJson(join(source, "adapters", "managed-manifest.json")).retired_skills || [];
+  if (!Array.isArray(retiredSkills) || retiredSkills.some((name) => typeof name !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || skillCatalog[name])) throw new Error("invalid retired_skills: expected non-catalog skill names");
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(skillCatalog, options, previous); const records: FileRecord[] = [];
   const canonical = join(home(), ".agents"); const sharedSkills = join(canonical, "skills"); const targetRoots = roots(options);
   const skillBackup = join(state, "migrations", `skills-${now().replace(/[:.]/g, "-")}-${process.pid}`);
   const imports = new Map<string, string[]>();
   const materializedSkills = new Set(selectedSkills);
   const exposures: { platform: Platform; name: string; destination: string }[] = [];
+  const retirements: { platform: Platform; name: string; path: string; status: string }[] = [];
+  const retirementActions: (() => void)[] = [];
   const platformSkillRoots = selected.map((platform) => rootIdentity(join(targetRoots[platform], ...platforms[platform].skills))); const sharedIdentity = rootIdentity(sharedSkills);
   if (new Set(platformSkillRoots).size !== platformSkillRoots.length || platformSkillRoots.some((root) => root === sharedIdentity || root.startsWith(sharedIdentity + sep) || sharedIdentity.startsWith(root + sep))) throw new Error("platform skills roots must be distinct and outside the shared skills directory");
   if (linkedAncestor(sharedSkills)) throw new Error(`shared skills root must be an ordinary directory: ${sharedSkills}`);
@@ -582,10 +596,27 @@ export async function install(options: InstallOptions): Promise<number> {
   for (const platform of selected) {
     const skillRoot = join(targetRoots[platform], ...platforms[platform].skills);
     if (linkedAncestor(skillRoot)) throw new Error(`skills root must be an ordinary directory: ${skillRoot}`);
+    for (const name of retiredSkills as string[]) {
+      const destination = join(skillRoot, name); const shared = join(sharedSkills, name);
+      const existing = lstatSync(destination, { throwIfNoEntry: false });
+      if (!existing) continue;
+      const oldRecords = (Array.isArray(previous.files) ? previous.files : []).filter((item): item is FileRecord => Boolean(item && typeof item === "object" && !Array.isArray(item) && typeof item.path === "string" && (pathKey(item.path) === pathKey(destination) || pathKey(item.path).startsWith(pathKey(destination) + sep))));
+      const link = oldRecords.find((item) => item.kind === "platform-skill-link" && pathKey(item.path) === pathKey(destination));
+      const safeLink = Boolean(link && safeSkillLink(link, previous) && link.target === resolve(shared) && link.sha256 === sha256(resolve(shared)) && linkMatches(destination, shared) && unchangedSkill(shared, previous, "canonical-skill"));
+      const safeCopy = Boolean(!existing.isSymbolicLink() && existing.isDirectory() && unchangedSkill(destination, previous, "platform-skill"));
+      const safe = safeLink || safeCopy;
+      retirements.push({ platform, name, path: destination, status: safe ? (options.dryRun ? "planned" : "retired") : "preserved" });
+      if (safe) retirementActions.push(() => {
+        if (safeLink) unlinkSync(destination);
+        else { const backup = join(skillBackup, platform, name); mkdirSync(dirname(backup), { recursive: true }); renameSync(destination, backup); }
+      });
+      // Prevent generic pruning from deleting a preserved, user-modified retirement candidate.
+      if (!safe) records.push(...oldRecords);
+    }
     const names = new Set(selectedSkills.filter((skill) => !Array.isArray(skillCatalog[skill].platforms) || (skillCatalog[skill].platforms as Json[]).includes(platform)));
     if (existsSync(skillRoot)) for (const name of readdirSync(skillRoot)) {
       const allowed = skillCatalog[name]?.platforms;
-      if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) && (!Array.isArray(allowed) || allowed.includes(platform)) && existsSync(join(skillRoot, name, "SKILL.md"))) names.add(name);
+      if (!retiredSkills.includes(name) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) && (!Array.isArray(allowed) || allowed.includes(platform)) && existsSync(join(skillRoot, name, "SKILL.md"))) names.add(name);
     }
     for (const name of names) {
       if (skillCatalog[name]) materializedSkills.add(name);
@@ -616,6 +647,7 @@ export async function install(options: InstallOptions): Promise<number> {
     if (existsSync(shared)) skillDigest(shared);
   }
   const migration = migrateState(state, options.dryRun);
+  if (!options.dryRun) for (const retire of retirementActions) retire();
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
   for (const folder of ["adapters", "schemas"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
@@ -659,7 +691,7 @@ export async function install(options: InstallOptions): Promise<number> {
   const integrations = options.integrations;
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;
-  output({ ok: !failed, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, native, migration, skill_backup: !options.dryRun && existsSync(skillBackup) ? skillBackup : null }); return failed ? 1 : 0;
+  output({ ok: !failed, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, retired_skills: retirements, native, migration, skill_backup: !options.dryRun && existsSync(skillBackup) ? skillBackup : null }); return failed ? 1 : 0;
 }
 export function verify(options: InstallOptions): number {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const managedPath = join(state, "managed-runtime.json"); const errors: string[] = [];

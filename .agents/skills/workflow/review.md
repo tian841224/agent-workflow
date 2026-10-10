@@ -23,6 +23,7 @@
 
 ## 強度依 brief 調整
 
+- diff 的註解符合 入口文件的「程式碼註解」觸發規則，或程式改動可能使既有註解失準時，讀 [clean-comments](../clean-comments/SKILL.md) 核對註解與實作；後者包含未修改但受影響的註解。其餘 Review 不固定載入。
 - 所有輪次：核對既有測試與驗收案例是否足以支撐結論；只有測試範圍、新修改或 finding 使既有結果失效時，才實際重跑。數值、邊界與併發行為若沒有測試涵蓋，列為測試缺口並指出應補的具體案例。對改動的欄位與資料流，往上下游追到 repository 與 entity。
 - `impact_scope: file`、brief 的 `risk_flags` 為空的修改：只看 diff、驗收案例與 checklist。
 - 有 `risk_flags` 時，把要主動推翻的假設寫進指令：

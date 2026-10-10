@@ -10,6 +10,100 @@ import { test } from "node:test";
 // so every spawned install/repair gets its own home instead of racing on the developer's ~/.agents.
 const isolatedHome = (root) => ({ ...process.env, HOME: join(root, "home"), USERPROFILE: join(root, "home") });
 
+function retirementFixture() {
+  const root = join(tmpdir(), `agent-workflow-retirement-${process.pid}-${Date.now()}`);
+  const source = join(root, "source");
+  mkdirSync(join(source, "dist"), { recursive: true });
+  for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) copyFileSync(join("dist", bundle), join(source, "dist", bundle));
+  for (const folder of ["adapters", "schemas", ".agents"]) cpSync(folder, join(source, folder), { recursive: true });
+  copyFileSync("AGENTS.md", join(source, "AGENTS.md"));
+  const manifestPath = join(source, "adapters", "managed-manifest.json");
+  const current = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const legacy = structuredClone(current);
+  legacy.retired_skills = [];
+  for (const name of current.retired_skills) {
+    legacy.skills[name] = { required: false };
+    mkdirSync(join(source, ".agents", "skills", name), { recursive: true });
+    writeFileSync(join(source, ".agents", "skills", name, "SKILL.md"), `---\nname: ${name}\n---\nLegacy content\n`);
+  }
+  writeFileSync(manifestPath, JSON.stringify(legacy));
+  const run = (action, target = "All", extra = []) => spawnSync(process.execPath, [join(source, "dist", "agent-workflow.mjs"), action, "--non-interactive", "--target-agent", target, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini"), ...extra], { cwd: source, encoding: "utf8", env: isolatedHome(root) });
+  assert.equal(run("install", "All", ["--skills", "all"]).status, 0);
+  writeFileSync(manifestPath, JSON.stringify(current));
+  return { root, run };
+}
+
+test("retired skills leave the catalog and repair removes only selected unchanged managed links", () => {
+  const { root, run } = retirementFixture();
+  const codex = join(root, "codex", "skills", "adhd-comms");
+  const claude = join(root, "claude", "skills", "adhd-comms");
+  const dry = run("repair", "Codex", ["--dry-run"]);
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.equal(JSON.parse(dry.stdout).retired_skills[0].status, "planned");
+  assert.ok(existsSync(codex));
+  for (let i = 0; i < 2; i++) {
+    const repaired = run("repair", "Codex");
+    assert.equal(repaired.status, 0, repaired.stderr);
+    assert.equal(existsSync(codex), false);
+    assert.ok(existsSync(claude), "unselected platform remains installed");
+    assert.ok(existsSync(join(root, "home", ".agents", "skills", "adhd-comms", "SKILL.md")), "recovery copy survives");
+  }
+  assert.equal(run("repair").status, 0);
+  assert.equal(existsSync(claude), false);
+  assert.equal(run("verify").status, 0);
+  for (const name of ["adhd-comms", "humanizer"]) assert.match(run("install", "All", ["--skills", name]).stderr, /unknown skill/);
+  const installed = run("install", "All", ["--skills", "all"]);
+  assert.equal(installed.status, 0, installed.stderr);
+  for (const name of ["adhd-comms", "humanizer"]) assert.equal(JSON.parse(installed.stdout).selected_skills.includes(name), false);
+});
+
+test("retirement preserves changed shared content, unexpected targets, extras and unknown user skills", () => {
+  const { root, run } = retirementFixture();
+  writeFileSync(join(root, "home", ".agents", "skills", "adhd-comms", "SKILL.md"), "user-edited content");
+  const codex = join(root, "codex", "skills", "humanizer");
+  unlinkSync(codex);
+  const wrong = join(root, "user-target"); mkdirSync(wrong);
+  writeFileSync(join(wrong, "SKILL.md"), "user-owned target");
+  symlinkSync(wrong, codex, process.platform === "win32" ? "junction" : "dir");
+  const claude = join(root, "claude", "skills", "humanizer");
+  unlinkSync(claude);
+  cpSync(join(root, "home", ".agents", "skills", "humanizer"), claude, { recursive: true });
+  writeFileSync(join(claude, "extra.md"), "user extra");
+  for (let i = 0; i < 2; i++) {
+    const repaired = run("repair");
+    assert.equal(repaired.status, 0, repaired.stderr);
+    assert.ok(JSON.parse(repaired.stdout).retired_skills.some((item) => item.status === "preserved"));
+    assert.equal(readFileSync(join(root, "codex", "skills", "adhd-comms", "SKILL.md"), "utf8"), "user-edited content");
+    assert.equal(realpathSync(codex), realpathSync(wrong));
+    assert.equal(readFileSync(join(claude, "extra.md"), "utf8"), "user extra");
+  }
+  const statePath = join(root, "state", "managed-runtime.json");
+  const state = JSON.parse(readFileSync(statePath));
+  state.files = state.files.filter((item) => !item.path.startsWith(claude));
+  writeFileSync(statePath, JSON.stringify(state));
+  assert.equal(run("repair").status, 0, "unknown user skill is preserved without import");
+  assert.equal(lstatSync(claude).isSymbolicLink(), false);
+});
+
+test("retirement archives unchanged legacy copies and keeps their canonical recovery copy", () => {
+  const { root, run } = retirementFixture();
+  const directory = join(root, "codex", "skills", "humanizer");
+  const shared = join(root, "home", ".agents", "skills", "humanizer");
+  unlinkSync(directory); cpSync(shared, directory, { recursive: true });
+  const path = join(directory, "SKILL.md");
+  const statePath = join(root, "state", "managed-runtime.json");
+  const state = JSON.parse(readFileSync(statePath));
+  state.files = state.files.filter((item) => item.path !== directory);
+  state.files.push({ path, kind: "platform-skill", sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
+  writeFileSync(statePath, JSON.stringify(state));
+  const result = run("repair", "Codex");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(directory), false);
+  assert.ok(existsSync(join(JSON.parse(result.stdout).skill_backup, "Codex", "humanizer", "SKILL.md")));
+  assert.ok(existsSync(join(shared, "SKILL.md")));
+  assert.equal(run("repair", "Codex").status, 0);
+});
+
 test("install writes a standalone Node runtime and required skills", () => {
   const root = join(tmpdir(), `agent-workflow-test-${process.pid}-${Date.now()}`);
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
@@ -18,7 +112,29 @@ test("install writes a standalone Node runtime and required skills", () => {
   assert.equal(JSON.parse(installed.stdout).ok, true);
   assert.ok(existsSync(join(root, "state", "runtime", "agent-workflow.mjs")));
   assert.ok(existsSync(join(root, "codex", "skills", "workflow", "SKILL.md")));
+  for (const name of ["adhd-comms", "humanizer"]) assert.equal(existsSync(join(root, "codex", "skills", name)), false);
   assert.match(run(["verify", "--state-root", join(root, "state")]).stdout, /"valid":true/);
+});
+
+test("install and repair emit native workers that accept direct assignments", () => {
+  const root = join(tmpdir(), `agent-workflow-native-worker-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const claudeTarget = join(root, "claude");
+  const codexTarget = join(root, "codex");
+  for (const action of ["install", "repair"]) {
+    const run = spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", "--state-root", state,
+      "--claude-target", claudeTarget, "--codex-target", codexTarget, "--antigravity-target", join(root, "gemini")],
+    { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    for (const file of [join(claudeTarget, "agents", "agent-workflow-worker.md"), join(codexTarget, "agents", "agent-workflow-worker.toml")]) {
+      const body = readFileSync(file, "utf8");
+      assert.match(body, /directly in the coordinator's message/);
+      assert.match(body, /Do not revert other contributors' changes/);
+      assert.match(body, /Use a result file or particular format only when the coordinator asks/);
+      assert.match(body, /Direct native assignments do not require a packet/);
+      assert.doesNotMatch(body, /message names one|its `assignment` is your whole job/);
+    }
+  }
 });
 
 test("required implementation-spec installs on every platform on install and repair", () => {
@@ -361,8 +477,47 @@ test("repeated repairs do not duplicate a platform's own managed hooks (Windows 
   assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
   assert.equal(run(["repair", "--non-interactive", "--state-root", state, ...targets]).status, 0);
-  const preToolUse = JSON.stringify(JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks.PreToolUse);
-  assert.equal((preToolUse.match(/git-guard --platform Claude/g) || []).length, 1);
+  const hooks = JSON.parse(readFileSync(join(claudeTarget, "settings.json"), "utf8")).hooks;
+  assert.doesNotMatch(JSON.stringify(hooks.PreToolUse || []), /git-guard/);
+  const prompt = JSON.stringify(hooks.UserPromptSubmit);
+  assert.equal((prompt.match(/locale-context --platform Claude/g) || []).length, 1);
+  assert.equal((prompt.match(/memory-context --platform Claude/g) || []).length, 1);
+});
+
+test("repair removes retired Git guards on all platforms while preserving mixed user hooks", () => {
+  const root = join(tmpdir(), `agent-workflow-retire-git-policy-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const claudeTarget = join(root, "claude");
+  const codexTarget = join(root, "codex");
+  const geminiTarget = join(root, "gemini");
+  const targets = ["--claude-target", claudeTarget, "--codex-target", codexTarget, "--antigravity-target", geminiTarget];
+  const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", "--state-root", state, ...targets], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+  assert.equal(run("install").status, 0);
+  const user = { type: "command", command: "echo user-git-policy" };
+  for (const [platform, path] of [["Claude", join(claudeTarget, "settings.json")], ["Codex", join(codexTarget, "hooks.json")]]) {
+    const current = JSON.parse(readFileSync(path, "utf8"));
+    current.hooks.PreToolUse = [{ matcher: "*", hooks: [{ type: "command", command: `node "${join(state, "runtime", "agent-workflow-hook.mjs")}" git-guard --platform ${platform}` }, user] }];
+    writeFileSync(path, JSON.stringify(current));
+  }
+  const antigravityPath = join(geminiTarget, "config", "hooks.json");
+  const current = JSON.parse(readFileSync(antigravityPath, "utf8"));
+  current["agent-workflow-git-guard"] = { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "legacy git-guard" }] }] };
+  current["user-git-policy"] = { PreToolUse: [{ matcher: "*", hooks: [user] }] };
+  writeFileSync(antigravityPath, JSON.stringify(current));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const repaired = run("repair");
+    assert.equal(repaired.status, 0, repaired.stderr || repaired.stdout);
+    for (const path of [join(claudeTarget, "settings.json"), join(codexTarget, "hooks.json"), antigravityPath]) {
+      const body = readFileSync(path, "utf8");
+      assert.doesNotMatch(body, /git-guard/, path);
+      assert.match(body, /user-git-policy/, path);
+      assert.match(body, /locale-context/, path);
+      assert.match(body, /memory-context/, path);
+      const parsed = JSON.parse(body);
+      const groups = parsed.hooks?.PreToolUse || parsed["user-git-policy"].PreToolUse;
+      assert.deepEqual(groups, [{ matcher: "*", hooks: [user] }]);
+    }
+  }
 });
 
 test("install keeps clean-comments out of runtime hooks while retaining locale lint", () => {

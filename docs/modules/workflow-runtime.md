@@ -27,18 +27,24 @@ The command registry is `commandOptions` in `src/cli.ts`; the managed lifecycle 
 
 ## Flow
 
-`task.md (Goal/Scope/Completion criteria + Given/When/Then acceptance cases) > task-init --paths (returns compiled plan, readiness, context, next) > selected procedures`
+Managed development follows the Plan mode and user specification approval procedure in [workflow](../../.agents/skills/workflow/SKILL.md), using [implementation-spec](../../.agents/skills/implementation-spec/SKILL.md) before entering the runtime; other managed tasks keep the goal/scope/completion-criteria path. Native mode switching and user approval are agent procedures, not guarantees enforced by the runtime gate.
+
+`Plan mode (managed development) > implementation-spec > user specification approval > task.md (Goal/Scope/Completion criteria + Given/When/Then acceptance cases) > task-init --paths (returns compiled plan, readiness, context, next) > approve-intent --as-user > selected procedures`
 
 `focused: implementation > focused feedback > evidence-run acceptance cases and proofs > Reviewer (code tasks except mechanical) > close-task (evaluates gate)`
 
 `expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > all slices complete > evidence-run acceptance cases and proofs > task-level Reviewer > close-task (evaluates gate)`
 
-Each platform agent decides whether to use native subagents. When it chooses parallel implementation, follow [orchestration.md](../../.agents/skills/workflow/orchestration.md); Assess validates the supplied split without recommending an execution mode. Protocol 3 snapshots the dirty parent, creates detached worktrees, builds child
-`ExecutionPacket`s, collect immutable artifacts, integrate, and apply once. The task-level Reviewer
-starts only after all workers and overall affected/regression validation are complete. The timing rule
-is owned by [workflow review procedure](../../.agents/skills/workflow/review.md).
+Native parallel decisions follow [workflow](../../.agents/skills/workflow/SKILL.md). The coordinator
+uses available platform subagent tools and assigns goals, file scopes and acceptance directly.
+Isolation and worker count are task-specific; the normal workflow requires no orchestration CLI or
+packet. After integration, the parent executes all acceptance cases and proofs before the task-level
+Reviewer. Review timing is owned by [workflow review procedure](../../.agents/skills/workflow/review.md).
 
-`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；只有已宣告 coordinator role 的 task 加入工作包管理指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
+The Protocol 3 runtime and packet interface remain available for legacy callers. Their snapshots,
+detached worktrees, receipts and integration actions apply only when explicitly using that interface.
+
+`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；只有已宣告 coordinator role 的 task 加入相容的 coordinator 指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 
 `pre-review > reviewer > review-record`：`pre-review` 一次回傳 `git diff --check` 結果與該工作樹的 `workspace_sha256`；帶 `--task-path` 時另外回傳這一輪的 review brief（第一輪是完整 delivery，之後只有上一輪之後內容有變動的路徑，並附上一輪的結論、驗收案例與 checklist）。`review-record` 可接受這個 transient `--expected-workspace-sha256`；若工作樹已變更就拒絕寫入，review 欄位與每個路徑的 digest 仍由 runtime 依目前 diff 計算。
 

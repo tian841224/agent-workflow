@@ -7,22 +7,21 @@ command card.
 
 ## Shared analysis
 
-Build one concise evidence map for the task: entrypoints, affected callers, shared state, important
-error or concurrency branches, validation commands, and known gaps. Cover the plan's `checklist` items
+Build one concise evidence map for the task: entrypoints, affected callers, shared state, external
+contracts, important error, retry or concurrency branches, validation commands, and known gaps. Cover the plan's `checklist` items
 in that map, adding only the conclusion unique to each item. The map is working context for the
 implementation and the reviewer brief; it is not recorded as evidence.
 
 ## Recording
 
 Only runtime-executed runs count. `evidence-run` executes the command itself and records its exit code,
-output digest and the delivery fingerprint. One run may prove several ids: pass every acceptance case
-and proof its command covers in one `--requirement-id` list. A run that exits non-zero is recorded as a
+output digest and the delivery fingerprint. A run that exits non-zero is recorded as a
 failure; fix the delivery and run again until it passes.
 
 ## Setup and handoff
 
-`task-init` returns `readiness` with fixed environment failures grouped before exploration,
-implementation, or validation starts. A handoff names the current task state, worktree diff, changed
+Reuse the environment checks that passed in `task-init`'s `readiness`; recheck when the environment
+changes or a new error calls the result into question. A handoff names the current task state, worktree diff, changed
 paths, and blockers; one coordinator owns writes to a worktree at a time, and the incoming coordinator
 checks those items before continuing.
 
@@ -50,8 +49,8 @@ Runs once, after source, tests, and documents are stable:
 ## Scope
 
 Keep analysis proportional to the checklist and the task impact. A direct, well-reproduced fix does not
-need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Each platform agent decides whether to use native subagents; chosen implementation batches follow
-[orchestration.md](orchestration.md).
+need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Native parallel
+decisions follow [workflow](SKILL.md); worker feedback does not replace the parent's final evidence.
 
 ## Validation command
 

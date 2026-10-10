@@ -40,7 +40,7 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
 | 功能 | 實際用途 |
 | --- | --- |
 | 任務分流 | 會改變程式行為的修改走 managed workflow；純文件、問答與唯讀分析直接處理 |
-| 開發前的目標與驗收 | task.md 寫好目標與 Given／When／Then 驗收案例；需求不明確時依 planning／grill-me 問答釐清 |
+| 開發前的規格與驗收 | Managed 開發任務先進入 Plan mode，依 implementation-spec 產出 task.md 規格，使用者確認後才開發；規格深度隨影響調整 |
 | 開發前的脈絡 | `task-init --paths` 一次回傳相關的專案文件、記憶，以及改過同一批路徑的已結案 task；缺文件時，只補這次碰到的模組 |
 | 計畫編譯 | 依影響範圍、風險與信心選取能力；必須實際執行的步驟列為 `proofs` 進入 gate，其餘分析步驟成為 `checklist` |
 | 驗收與 freshness | runtime 實際執行每條驗收案例的指令，記錄 exit code、輸出摘要與交付指紋；交付一改變，舊紀錄就失效 |
@@ -48,8 +48,8 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
 | 獨立 Review | 程式修改一律由獨立的唯讀 Reviewer 審查（局部的純機械性修改除外），強度依風險調整；第二輪起只審上一輪之後有變動的路徑 |
 | 根因追查 | bug 修好或 review 確認問題後，判斷是缺測試、缺文件、缺規範還是 workflow 缺陷，並補上對應的防線 |
 | 記憶與學習 | 使用者的決策、更正與可重用結論依 tags 與路徑分類保存；專案決策寫進專案文件，個人偏好寫進共用記憶 |
-| 平行開發（experimental） | 值得平行時，依驗收案例切成數個工作包，交給平台原生 worker 在各自的 worktree 同時開發，再統一整合 |
-| 平台 hooks | Git 破壞性操作防護、輸出前注入 localization-tw skill 的規則，以及依任務自動篩選注入的記憶 |
+| 平行開發 | 實作前由 agent 判斷工作是否能獨立完成；適合時使用平台原生 subagent，分配責任範圍，再由主 agent 整合驗證 |
+| 平台 hooks | 輸出前注入 localization-tw skill 的規則，以及依任務自動篩選注入的記憶；Git 操作依入口規則取得使用者授權 |
 
 ### 一個 managed task 如何完成
 
@@ -61,17 +61,25 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
   +-- managed change
         |
         v
-      目標與 Given/When/Then 驗收案例（不明確時先問答，由使用者確認）
+      目標與方向（不明確時先問答，由使用者確認）
+        |
+        v
+      +-- 開發任務 --> Plan mode --> implementation-spec 產出規格
+      |                               （行為、設計、契約、驗收）
+      |                                 |
+      |                               使用者確認 --> 保存 task.md
+      |
+      +-- 其餘任務 --> task.md 寫明目標、範圍與完成條件
         |
         v
       task-init --paths --> 計畫、readiness、相關文件／記憶／歷程、next
         |
-        各平台 agent 自行判斷是否啟動原生 sub-agent
+        agent 判斷工作是否適合平行，依平台能力使用原生 subagent
         |
         +-- focused  --> 無可獨立工作包時，直接走 `implementation -> focused feedback`
         |
         +-- expanded --> 依序完成切片，每片先取得局部回饋
-        |               （選擇平行實作時，依 Protocol 3 管理獨立 worker）
+        |               （獨立工作可交給原生 subagent，相依工作維持循序）
         v
       交付內容穩定 --> 逐條執行驗收案例（evidence-run），失敗就修正重跑
         |
@@ -94,16 +102,13 @@ task.md 的驗收案例寫法：
   - Verify: `npx playwright test e2e/login.spec.ts -g AC1`
 ```
 
-### 多 sub-agent 平行開發（experimental）
+### 原生 subagent 平行開發
 
-是否啟動原生 sub-agent 由各平台 agent 自行判斷，framework 不產生候選提示、效益推薦或強制評估步驟。選擇平行實作後，工作包隔離、責任範圍檢查與整合驗收以 [parallel orchestration](.agents/skills/workflow/orchestration.md) 為準。
+平行開發的判斷入口見 [workflow](.agents/skills/workflow/SKILL.md)。Agent 依任務及平台能力決定工作切分、worker 數量與隔離方式，直接指派目標、責任範圍與驗收條件，不需先執行固定的 orchestration 流程。
 
-通過後，runtime 會完成下列事情：
-- 建立 dirty-worktree snapshot、各 worker 的 worktree，以及 packet（含該 worker 負責的驗收案例）。
-- 把 parent 的依賴目錄連結到各 worktree。
-- 交給安裝好的平台原生 worker（Claude、Codex）同時執行，每個 worker 都在自己的 worktree 驗收。
+Worker 只修改指派範圍，保留其他人的修改，回報實際驗證結果與 blocker。主 agent 整合後執行 task 的全部驗收案例與 proofs，再依 plan 完成 Reviewer 與結案；worker 的局部驗證不能取代整體證據。沒有可用原生 subagent 的平台採循序執行。
 
-收件、整合與套用，以 artifact digest、衝突檢查與 parent fingerprint 保護交付。套用後 parent 重跑全部驗收案例，再交給單一 Reviewer。Antigravity 沒有原生 subagent，一律循序。操作契約見 [parallel orchestration](.agents/skills/workflow/orchestration.md)。
+既有 Protocol 3 runtime CLI 與 state 保留相容性；原生平行開發不以它們為前置條件。
 
 ### 記憶如何累積
 
@@ -156,7 +161,7 @@ task.md 的驗收案例寫法：
 
 | 平台 | 入口規則 | skills | hooks | 原生 agent |
 | --- | --- | --- | --- | --- |
-| Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills` | `settings.json`（並把平行開發的 worktree 目錄加入 `additionalDirectories`） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
+| Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills` | `settings.json`（保留舊 orchestration CLI 的 `additionalDirectories` 相容設定） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
 | Codex | `~/.codex/AGENTS.md` | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader}.toml` |
 | Antigravity | `~/.gemini/GEMINI.md` | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
@@ -181,7 +186,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | --- | --- |
 | [workflow](.agents/skills/workflow/SKILL.md) | 分流 managed change，從定義驗收標準一路到結案 |
 | [planning](.agents/skills/planning/SKILL.md) | 釐清架構方向、重要取捨或真正模糊的需求 |
-| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | 可交付的開發規格計畫；Claude Code、Codex 與 Antigravity 必裝 |
+| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | Managed 開發任務在 Plan mode 產出待使用者確認的 task.md 規格，或撰寫可交付的開發規格；Claude Code、Codex 與 Antigravity 必裝 |
 | [grill-me](.agents/skills/grill-me/SKILL.md) | 使用者要求深入提問，或需要釐清高風險假設 |
 | [project-docs](.agents/skills/project-docs/SKILL.md) | 開發前補上這次碰到的模組文件、改動後更新失準的文件、記錄專案決策 |
 | [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組介面、責任邊界、seam 與 adapter |
@@ -201,15 +206,13 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、部署、migration 與外部整合的實際環境驗證 |
 | [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的結論或 review 原因提煉改善；草稿核准後才生效 |
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
-| [adhd-comms](.agents/skills/adhd-comms/SKILL.md) | 使用者要求回覆重點先行、易掃讀，同時保留必要證據 |
-| [humanizer](.agents/skills/humanizer/SKILL.md) | 依要求重寫文字，或修正明確的 AI 腔調 |
 | [doc-coauthoring](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫規格、提案、RFC 與較大型技術文件 |
 
 ### 原生 agent
 
 | Agent | 用途 |
 | --- | --- |
-| [worker](.agents/agents/worker.md) | 平行開發時，在自己的 worktree 完成分配到的驗收案例，並回報結果檔 |
+| [worker](.agents/agents/worker.md) | 接受主 agent 直接指派的目標與檔案範圍，完成驗收並回報修改、結果與 blocker |
 | [reader](.agents/agents/reader.md) | 唯讀的程式查詢與彙整，使用最低成本的模型 |
 
 ## 專案架構與主要元件
@@ -226,7 +229,7 @@ Claude Code             Codex              Antigravity
      +-----------+--------+---------+-------------+
      |           |                  |             |
  計畫編譯   任務 / 驗收 / gate   平行開發      文件 / 記憶 / 歷程
- (policy)   (next 指引)         (protocol 3)  (task-init context)
+ (policy)   (next 指引)         (原生 subagent) (task-init context)
      |           |                  |             |
      +-----------+--------+---------+-------------+
                           |
@@ -254,7 +257,7 @@ Claude Code             Codex              Antigravity
     |   `-- tasks/<task-id>/
     |       |-- task.md      人可讀的目標、範圍與驗收案例
     |       `-- task.json    runtime 管理的任務狀態與驗證紀錄
-    |-- orchestration/v3/    平行開發批次：snapshot、worker worktrees、artifacts
+    |-- orchestration/v3/    舊 CLI 相容資料：snapshot、worker worktrees、artifacts
     |-- worktree-leases/     每個 worktree 同時只能有一個 code task
     |-- skill-drafts/        待核准的 skill 草稿
     |-- skills/              已核准的 skills

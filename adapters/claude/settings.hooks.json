@@ -15,18 +15,6 @@
           }
         ]
       }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash|PowerShell|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" git-guard --platform Claude --state-root \"{{STATE_ROOT}}\"",
-            "timeout": 15
-          }
-        ]
-      }
     ]
   }
 }

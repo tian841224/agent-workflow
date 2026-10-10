@@ -5,6 +5,26 @@
   "description": "The stdout object each contract-bearing command emits. Agent documents quote these field names, so they need a definition to be checked against — without one, a renamed output field drifts silently. $defs are keyed by command name.",
   "type": "object",
   "$defs": {
+    "install": {
+      "type": "object",
+      "properties": {
+        "retired_skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["platform", "name", "path", "status"],
+            "properties": {
+              "platform": { "enum": ["Claude", "Codex", "Antigravity"] },
+              "name": { "type": "string" },
+              "path": { "type": "string" },
+              "status": { "enum": ["planned", "retired", "preserved"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "repair": { "$ref": "#/$defs/install" },
     "execution-packet": {
       "oneOf": [
         {
