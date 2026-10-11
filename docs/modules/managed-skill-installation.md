@@ -26,9 +26,9 @@ covers:
 
 產生的內容寫入 `~/.agents/AGENTS.md`、Codex 的 `AGENTS.md` 與 Antigravity 的 `GEMINI.md`。Claude 的 `CLAUDE.md` 支援引入語法，managed 區塊只有兩行：`@~/.agents/AGENTS.md` 引入共用入口，`@agent-workflow/delegation.md` 引入 Claude 專屬派工規則。
 
-平台專屬的設定放在 `adapters/<platform>/`。`adapters/claude/delegation.md` 只在選取 Claude 時安裝到 `<Claude 根目錄>/agent-workflow/delegation.md`；原生 agent 的平台設定（Claude 的 `tools`、`model`、`effort`，Codex 的 sandbox）寫在 manifest `agents.<name>.<platform>`，產生定義時才分別套用。
+平台專屬的指示放在 `adapters/<platform>/`。`adapters/claude/delegation.md` 只在選取 Claude 時安裝到 `<Claude 根目錄>/agent-workflow/delegation.md`；Claude 原生角色的設定維持共用 manifest。Codex 的設定 authority 是 [Codex adapter 設定](../../adapters/codex/managed-config.json)，只在選取 Codex 時讀取。
 
-Codex 的入口另在同一個受管區塊內追加 manifest 的 `codex.coordinator_source`。[Codex coordinator 指示](../../adapters/codex/coordinator.md) 是委派、平行條件及當次原生模型選擇的 authority；共用 `~/.agents/AGENTS.md` 與 Antigravity 入口維持共用內容；Claude 維持共用入口與專屬規則的引入方式。各入口各自保留區塊外的使用者文字。
+Codex 的入口另在同一個受管區塊內追加專用設定所指定的 coordinator 來源。[Codex coordinator 指示](../../adapters/codex/coordinator.md) 是委派、平行條件及當次原生模型選擇的 authority；共用 `~/.agents/AGENTS.md` 與 Antigravity 入口維持共用內容；Claude 維持共用入口與專屬規則的引入方式。各入口各自保留區塊外的使用者文字。
 
 Codex 指示透過既有 task runtime 登錄拆分評估與原生狀態快照；此 gate 的紀錄與信任邊界見 [Workflow runtime](workflow-runtime.md#codex-coordinator-gate)。安裝產物與 Verify 不會自行證明一次任務真的平行執行。
 
@@ -46,11 +46,11 @@ Codex 指示透過既有 task runtime 登錄拆分評估與原生狀態快照；
 
 ### Native agents
 
-`agents.<name>.platforms` 是可選的非空清單，僅接受有原生角色產物的 `Claude`、`Codex`；省略時適用兩者。角色內容預設取 `.agents/agents/<name>.md`，`agents.<name>.source` 可指定 repo 內的其他來源；平台的 `agents.<name>.codex.instructions_source` 追加專用補充。來源必須是 repo 內的普通檔案，缺少來源、越界路徑、無效平台或無法嵌入 TOML 的內容在任何安裝寫入之前失敗。
+共用 manifest 的 `agents` 供 Claude 產生角色；Codex 使用專用設定內的 `agents`。角色內容預設取 `.agents/agents/<name>.md`，`source` 指定其他 body，`agents.<name>.instructions_source` 追加補充；Codex 的自訂來源與 coordinator 必須是 `adapters/codex/` 內的普通檔案。可選的 `platforms` 是非空原生平台清單，Codex 設定僅接受 Codex；缺少來源、越界路徑、無效平台或無法嵌入 TOML 的內容在任何安裝寫入之前失敗。未選取的平台設定不讀取，因此缺少或損壞 Codex 設定不影響 Claude 安裝。
 
-Reader／Worker 的 authority 仍是共用角色 body，Codex 只追加[子代理交接](../../adapters/codex/agents/subagent.md)；[Planner](../../adapters/codex/agents/planner.md) 使用 Codex 專用來源與平台限制。Claude 的角色 body、tools、model、effort 維持共用 manifest 設定；Antigravity 不生成原生角色。
+共用角色 body 仍供各平台使用；Codex 的角色來源與補充由專用 adapter 擁有。Claude 的角色 body、tools、model、effort 維持共用 manifest 設定；Antigravity 不生成原生角色。
 
-Codex 在 `~/.codex/agents/agent-workflow-{reader,worker,planner}.toml` 產生 standalone 角色檔，包含 name、description、developer instructions、sandbox 與固定的 reasoning effort。Reader 為 medium、Worker 為 max、Planner 為 high；三者省略 model，由 coordinator 從當次原生 spawn 公開的模型與 effort 清單選擇完整 ID。角色檔由原生 Codex 自動發現，安裝器不另在 `config.toml` 註冊角色，也不建立模型 resolver 或快取。`adapters/` 隨 package 與 runtime 複製，專用來源沿用既有 source 與 repair 流程。
+Codex 原生角色檔只產生於 `~/.codex/agents/`，由平台自動發現；模型與 effort 規則見專用 adapter authority。npm package 保留 `adapters/codex/` 原始來源，共用 runtime 不保存該子樹或專屬設定；Install／Repair 從 repo 或 `managed-runtime.json` 記錄的 package／repo 來源讀取，來源缺失時明確失敗。Verify 檢查已產生的受管檔案與雜湊。
 
 ## Shared state
 
@@ -64,7 +64,7 @@ managed-runtime.json 的 selected_skills 記錄 repo 選取結果，不代表每
 - 來源已刪除檔案的清理只套用在本次有重新寫入的 canonical 技能（選取的技能與選取平台上已存在的 catalog 技能）；本次未重新寫入的技能（退役技能，以及未選取且不在選取平台上的技能）其 canonical 實體與紀錄維持原狀，供回復與其他平台的退役判斷使用。
 - Uninstall 保留 canonical 技能實體與 migrations 備份，僅移除仍屬預期目標的 managed 平台連結。錯誤目標、使用者替換的目錄或未知連結保留。
 - Claude 的共用規則來自引入，`~/.agents/AGENTS.md` 不存在時 Claude 讀不到共用規則。Uninstall 保留各平台入口檔，也保留 `CLAUDE.md` 引入的 `delegation.md`；Verify 以雜湊檢查這份檔案。
-- Claude 專屬內容不放進 `AGENTS.md`、`.agents/` 或 `.agents/rules/`：前兩者會安裝到所有平台，後者是 Antigravity 的 workspace 規則目錄。`tests-node/claude-delegation.test.mjs` 檢查其他平台的安裝內容不含派工規則。`adapters/<platform>/` 底下的平台指示 Markdown 不複製進各平台共用的 runtime 目錄，各自只存在自己的平台根目錄（Claude 的派工規則在 Claude 根目錄，Codex 的 coordinator 與 agent 指示在 Codex 根目錄）；`tests-node/platform-isolation.test.mjs` 檢查這點。
+- Claude 專屬內容不放進 `AGENTS.md`、`.agents/` 或 `.agents/rules/`：前兩者會安裝到所有平台，後者是 Antigravity 的 workspace 規則目錄。`tests-node/claude-delegation.test.mjs` 檢查其他平台的安裝內容不含派工規則。`adapters/<platform>/` 底下的平台指示 Markdown 不複製進各平台共用的 runtime 目錄，各自只存在自己的平台根目錄（Claude 的派工規則在 Claude 根目錄，Codex 的 coordinator 與 agent 指示在 Codex 根目錄）；`tests-node/platform-isolation.test.mjs` 檢查這點。Codex adapter 的所有檔案（含設定與 hook template）亦不複製至 shared runtime；hooks 仍從安裝來源產生於 Codex 根目錄。
 - 每個入口檔在 managed 區塊以外保有自己的內容，Install 與 Repair 只替換區塊本身。內容不會在入口檔之間複製，也不會寫進 `~/.agents/AGENTS.md`，所以寫在某個平台入口檔的專屬規則只留在該平台。`~/.agents/AGENTS.md` 區塊以外的內容只會經由引入到達 Claude。之後才安裝的平台，入口檔一開始只有 managed 區塊。`delegation.md` 每次安裝都以來源覆寫，直接修改已安裝的檔案不會保留。`tests-node/entrypoint-content.test.mjs` 檢查這些行為。
 - Codex 入口的 Uninstall 僅移除與紀錄雜湊一致的受管區塊，保留使用者文字與入口檔；被使用者修改的區塊整段保留。其他平台入口沿用既有生命週期。
 - 變更 Codex target 時，Repair 只移除舊入口中雜湊未變的受管區塊；區塊外文字保留，被修改的舊區塊保留為使用者內容並解除納管。移除失敗時安裝失敗，不更新 target 與 managed state，供下次 Repair 重試。
@@ -79,5 +79,7 @@ managed-runtime.json 的 selected_skills 記錄 repo 選取結果，不代表每
 ## Unverified
 
 隔離安裝測試只檢查 `CLAUDE.md` 的引入行與檔案位置，不證明 Claude Code 實際載入了被引入的檔案；需在實機開新 session 確認。派工時對內建 agent 指定的 `model` 與 `effort` 是否生效，以及 subagent 讀到派工規則後是否照規則不再轉派，同樣只能在實機觀察。原生平台是否在目前 session 重新載入技能，需由該平台確認；本機連結與 runtime 檢查不證明原生平台已載入。plugin cache 的版本與生命週期維持由原生平台管理。
+
+這是來源位置與一般安裝／載入範圍的隔離，不是作業系統讀取權限；其他 agent 若明確讀取 repo，仍可讀到 `adapters/codex/`。
 
 隔離安裝測試與 Verify 只能證明產物、來源與受管紀錄一致。角色自動發現、實際 spawn 接受選出的模型／effort、委派及獨立審查行為，需在目標 Codex consumer 另行驗證。

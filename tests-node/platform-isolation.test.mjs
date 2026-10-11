@@ -81,12 +81,13 @@ test("Codex-only instructions reach the Codex root alone", () => {
   for (const line of lines.coordinator) assert.ok(entry.includes(line), `Codex AGENTS.md lacks: ${line}`);
 });
 
-test("the shared runtime carries no instruction Markdown but keeps manifests and hook templates", () => {
+test("the shared runtime keeps common manifests without private Codex adapter files", () => {
   const target = installed("runtime");
   assert.ok(existsSync(target.runtimeAdapters), "the shared runtime holds adapters");
   assert.deepEqual(files(target.runtimeAdapters).filter((file) => /\.md$/i.test(file)), []);
   assert.ok(existsSync(join(target.runtimeAdapters, "managed-manifest.json")));
-  assert.ok(existsSync(join(target.runtimeAdapters, "codex", "hooks.json")));
+  assert.equal(existsSync(join(target.runtimeAdapters, "codex")), false);
+  assert.ok(existsSync(join(target.codex, "hooks.json")));
 });
 
 test("a Claude-only install leaves no Codex-only line anywhere", () => {

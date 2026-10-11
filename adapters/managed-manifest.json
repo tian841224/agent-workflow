@@ -4,11 +4,9 @@
   "canonical": ["templates/"],
   "unmanaged_skills": [],
   "retired_skills": ["adhd-comms", "humanizer", "doc-coauthoring"],
-  "codex": {"coordinator_source": "adapters/codex/coordinator.md"},
   "agents": {
-    "worker": {"claude": {"model": "sonnet", "effort": "high"}, "codex": {"sandbox_mode": "workspace-write", "orchestration_writable": true, "model_reasoning_effort": "max", "instructions_source": "adapters/codex/agents/subagent.md"}},
-    "reader": {"claude": {"tools": "Read, Glob, Grep", "model": "haiku"}, "codex": {"sandbox_mode": "read-only", "model_reasoning_effort": "medium", "instructions_source": "adapters/codex/agents/subagent.md"}},
-    "planner": {"platforms": ["Codex"], "source": "adapters/codex/agents/planner.md", "codex": {"sandbox_mode": "read-only", "model_reasoning_effort": "high", "instructions_source": "adapters/codex/agents/subagent.md"}}
+    "worker": {"claude": {"model": "sonnet", "effort": "high"}},
+    "reader": {"claude": {"tools": "Read, Glob, Grep", "model": "haiku"}}
   },
   "skills": {
     "workflow": {"required": true, "description": "workflow policy、task gate 與執行規則"},

@@ -1,0 +1,22 @@
+{
+  "coordinator_source": "adapters/codex/coordinator.md",
+  "agents": {
+    "worker": {
+      "sandbox_mode": "workspace-write",
+      "orchestration_writable": true,
+      "model_reasoning_effort": "max",
+      "instructions_source": "adapters/codex/agents/subagent.md"
+    },
+    "reader": {
+      "sandbox_mode": "read-only",
+      "model_reasoning_effort": "medium",
+      "instructions_source": "adapters/codex/agents/subagent.md"
+    },
+    "planner": {
+      "source": "adapters/codex/agents/planner.md",
+      "sandbox_mode": "read-only",
+      "model_reasoning_effort": "high",
+      "instructions_source": "adapters/codex/agents/subagent.md"
+    }
+  }
+}

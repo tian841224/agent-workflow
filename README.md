@@ -171,7 +171,7 @@ Claude Code 的派工規則只安裝在 Claude 目錄：主對話負責派工與
 
 技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
 
-Codex 入口另外安裝[專用 coordinator 指示](adapters/codex/coordinator.md)，實際工作預設委派，依獨立性決定是否平行；Reader／Worker／Planner 從當次原生工具公開的清單選擇各系列最新可用模型。角色省略固定 model，只有 reasoning effort 固定；能力不足時明確回報。共用及其他平台入口維持共用規則，原生 consumer 的載入與實際分派需另行驗證。
+Codex 的角色設定與委派程序由 [Codex adapter](adapters/codex/managed-config.json) 及其[coordinator 指示](adapters/codex/coordinator.md) 擁有，只安裝至 Codex 目錄。共用 runtime 排除 Codex adapter；原生 consumer 的載入與實際分派需另行驗證。
 
 重跑 `npm run setup` 即可更新，`agent-workflow verify` 檢查安裝是否完整。升級前，先把進行中的 managed task 結案或 supersede：plan 的計算方式改變時，進行中 task 的驗證紀錄會失效。
 

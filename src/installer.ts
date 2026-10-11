@@ -207,23 +207,32 @@ function managedSourceFile(source: string, value: Json | undefined, label: strin
   if (isAbsolute(delta) || delta === ".." || delta.startsWith(`..${sep}`)) throw new Error(`invalid ${label}: path leaves the source repository`);
   return path;
 }
-function nativeAgentDefinitions(source: string, manifest: JsonObject, selected: Platform[]): Record<Platform, NativeAgentDefinition[]> {
-  const agents = manifest.agents ?? {};
-  if (!agents || typeof agents !== "object" || Array.isArray(agents)) throw new Error("invalid agents: expected an object");
+function codexSourceFile(source: string, value: Json | undefined, label: string): string {
+  const path = managedSourceFile(source, value, label);
+  const delta = relative(realpathSync(join(source, "adapters", "codex")), realpathSync(path));
+  if (isAbsolute(delta) || delta === ".." || delta.startsWith(`..${sep}`)) throw new Error(`invalid ${label}: path leaves the Codex adapter`);
+  return path;
+}
+function nativeAgentDefinitions(source: string, manifest: JsonObject, selected: Platform[], codex?: JsonObject): Record<Platform, NativeAgentDefinition[]> {
   const definitions: Record<Platform, NativeAgentDefinition[]> = { Claude: [], Codex: [], Antigravity: [] };
-  for (const [name, settings] of Object.entries(agents)) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error(`invalid agent definition: ${name}`);
-    const allowed = settings.platforms;
-    if (allowed !== undefined && (!Array.isArray(allowed) || !allowed.length || allowed.some((value) => value !== "Claude" && value !== "Codex"))) throw new Error(`invalid platforms for agent ${name}: expected a non-empty list of Claude or Codex`);
-    for (const platform of selected.filter((value) => value !== "Antigravity" && (!Array.isArray(allowed) || allowed.includes(value)))) {
-      const value = settings[platform.toLowerCase()] ?? {};
+  for (const platform of selected.filter((value) => value !== "Antigravity")) {
+    const agents = (platform === "Codex" ? codex : manifest)?.agents ?? {};
+    if (!agents || typeof agents !== "object" || Array.isArray(agents)) throw new Error(`invalid ${platform} agents: expected an object`);
+    for (const [name, settings] of Object.entries(agents)) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error(`invalid agent definition: ${name}`);
+      const allowed = settings.platforms;
+      if (allowed !== undefined && (!Array.isArray(allowed) || !allowed.length || allowed.some((value) => value !== "Claude" && value !== "Codex"))) throw new Error(`invalid platforms for agent ${name}: expected a non-empty list of Claude or Codex`);
+      if (platform === "Codex" && Array.isArray(allowed) && allowed.some((value) => value !== "Codex")) throw new Error(`invalid platforms for agent ${name}: the Codex adapter only supports Codex`);
+      if (Array.isArray(allowed) && !allowed.includes(platform)) continue;
+      const value = platform === "Codex" ? settings : settings[platform.toLowerCase()] ?? {};
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`invalid ${platform} settings for agent ${name}`);
       const config = value as AgentPlatformConfig;
       if (config.model_reasoning_effort !== undefined && !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(config.model_reasoning_effort)) throw new Error(`invalid reasoning effort for agent ${name} (${platform})`);
-      const sourcePath = managedSourceFile(source, settings.source === undefined ? `.agents/agents/${name}.md` : settings.source, `agent source for ${name}`);
+      const sourceFile = platform === "Codex" ? codexSourceFile : managedSourceFile;
+      const sourcePath = settings.source === undefined ? managedSourceFile(source, `.agents/agents/${name}.md`, `agent source for ${name}`) : sourceFile(source, settings.source, `agent source for ${name}`);
       const raw = readFileSync(sourcePath, "utf8");
       let body = frontmatterBody(raw).trim();
-      if (config.instructions_source !== undefined) body += `\n\n${readFileSync(managedSourceFile(source, config.instructions_source, `agent instructions source for ${name} (${platform})`), "utf8").trim()}`;
+      if (config.instructions_source !== undefined) body += `\n\n${readFileSync(sourceFile(source, config.instructions_source, `agent instructions source for ${name} (${platform})`), "utf8").trim()}`;
       if (!body.trim()) throw new Error(`agent source for ${name} has no instructions`);
       if (platform === "Codex" && body.includes("'''")) throw new Error(`${sourcePath} contains ''' and cannot be embedded in a TOML literal string`);
       definitions[platform].push({ id: `agent-workflow-${name}`, description: String(parseFrontmatter(raw).description || name), body, config });
@@ -693,14 +702,12 @@ export async function install(options: InstallOptions): Promise<number> {
   const retiredSkills = manifest.retired_skills || [];
   if (!Array.isArray(retiredSkills) || retiredSkills.some((name) => typeof name !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || skillCatalog[name])) throw new Error("invalid retired_skills: expected non-catalog skill names");
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(skillCatalog, options, previous); const records: FileRecord[] = [];
-  const agents = nativeAgentDefinitions(source, manifest, selected);
+  const codex = selected.includes("Codex") ? readJson(codexSourceFile(source, "adapters/codex/managed-config.json", "Codex configuration source")) : undefined;
+  const agents = nativeAgentDefinitions(source, manifest, selected, codex);
   let codexInstructions: string | undefined;
-  if (selected.includes("Codex") && manifest.codex !== undefined) {
-    if (!manifest.codex || typeof manifest.codex !== "object" || Array.isArray(manifest.codex)) throw new Error("invalid Codex configuration in managed manifest");
-    if (manifest.codex.coordinator_source !== undefined) {
-      codexInstructions = readFileSync(managedSourceFile(source, manifest.codex.coordinator_source, "Codex coordinator source"), "utf8").trim();
-      if (!codexInstructions) throw new Error("Codex coordinator source has no instructions");
-    }
+  if (codex) {
+    codexInstructions = readFileSync(codexSourceFile(source, codex.coordinator_source, "Codex coordinator source"), "utf8").trim();
+    if (!codexInstructions) throw new Error("Codex coordinator source has no instructions");
   }
   const canonical = join(home(), ".agents"); const sharedSkills = join(canonical, "skills"); const targetRoots = roots(options);
   const skillBackup = join(state, "migrations", `skills-${now().replace(/[:.]/g, "-")}-${process.pid}`);
@@ -770,12 +777,12 @@ export async function install(options: InstallOptions): Promise<number> {
   if (!options.dryRun) for (const retire of retirementActions) retire();
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
-  // Instruction Markdown under adapters/<platform>/ is installed only into that platform's root, so the
-  // runtime every platform shares carries no copy of it; manifests, hook templates and rules are still copied.
+  // Platform instruction Markdown and the Codex adapter stay out of the shared runtime.
   const delegationSource = join(source, "adapters", "claude", "delegation.md");
   for (const folder of ["adapters", "schemas"]) {
     for (const file of existsSync(join(source, folder)) ? filesAt(join(source, folder)) : []) {
       const inside = relative(join(source, folder), file);
+      if (folder === "adapters" && inside.split(/[\\/]/)[0] === "codex") continue;
       if (folder === "adapters" && /\.md$/i.test(inside) && /[\\/]/.test(inside)) continue;
       copyFile(file, join(runtime, folder, inside), records, "runtime", options.dryRun);
     }
