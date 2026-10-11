@@ -11,7 +11,7 @@ import { compile } from "./policy-compiler.mjs";
 const fixtureDir = join(process.cwd(), "tests-node", "fixtures", "policy-scenarios");
 
 const fixtures = readdirSync(fixtureDir).filter((name) => name.endsWith(".json")).sort();
-assert.equal(fixtures.length, 12, `expected 12 policy scenarios, found ${fixtures.length}`);
+assert.equal(fixtures.length, 13, `expected 13 policy scenarios, found ${fixtures.length}`);
 
 for (const file of fixtures) {
   const fixture = JSON.parse(readFileSync(join(fixtureDir, file), "utf8"));
@@ -41,6 +41,24 @@ test("a confident, local, risk-free code change requires only the Reviewer", () 
     assert.equal(fixture.task.managed_change, true);
     assert.deepEqual(fixture.expected.required, ["reviewer"], name);
     assert.deepEqual(fixture.expected.required_evidence, ["role.reviewer"], name);
+  }
+});
+
+// A code task's minimal runtime proof is its acceptance cases, which the gate checks outside the
+// plan, so BV2 would only repeat their Verify command. A managed task without code has no acceptance
+// cases, which leaves BV2 as the one run the gate can demand of it.
+test("baseline validation gates BV2 for a non-code managed task and leaves a code task to its acceptance cases", () => {
+  const selecting = { workflow_request: [], task_type: "config", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", managed_change: true, risk_flags: [] };
+  const code = compile({ ...selecting, code_change: true });
+  const nonCode = compile({ ...selecting, code_change: false });
+  for (const plan of [code, nonCode]) assert.ok(plan.required.includes("baseline_validation"), JSON.stringify(plan.required));
+  assert.deepEqual(code.required_evidence, ["role.reviewer"]);
+  assert.deepEqual(nonCode.required_evidence, ["baseline_validation.BV2"]);
+  // The other runtime proofs do not depend on code_change.
+  const risky = { ...selecting, impact_confidence: "high", risk_flags: ["financial", "operational"] };
+  for (const code_change of [true, false]) {
+    const evidence = compile({ ...risky, code_change }).required_evidence;
+    for (const id of ["regression_validation.RV3", "mutation_validation.MV4", "operational_verification.OV2"]) assert.ok(evidence.includes(id), `${id} missing when code_change is ${code_change}: ${evidence.join(",")}`);
   }
 });
 

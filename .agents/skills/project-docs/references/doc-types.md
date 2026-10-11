@@ -114,19 +114,19 @@ agent-workflow project-doc --action Check --doc docs/structure.md     # frontmat
 
 ## Glossary
 
-第一次出現「同一概念在程式與對話裡用了不同詞」或「同一個詞指涉兩件事」時建立 `docs/glossary.md`，一次記一則，不批次補齊。只有一個 `## Terms` 區塊，逐則列出術語與定義。Review 的 `Mysterious Name` 判斷以它為基準。
+第一次出現「同一概念在程式與對話裡用了不同詞」或「同一個詞指涉兩件事」時建立 `docs/glossary.md`，一次記一則，不批次補齊。只有一個 `## Terms` 區塊，逐則列出術語與定義。Review 判斷命名是否一致時以它為基準。
 
 ## 從 workflow task 收割內容
 
-寫文件時從 task 既有欄位搬，不是新探索：
+寫文件時從 task 已有的分析搬，不是新探索。來源是 [evidence map](../../workflow/evidence.md#shared-analysis)、task.md 與 Reviewer 回報：
 
-| task 既有欄位 | → 區塊 | 轉換 |
+| 來源 | → 區塊 | 轉換 |
 |---|---|---|
-| `Impact surface` 觸發入口 | `## Entrypoints`／`## Trigger`／`## Endpoint` | 原樣搬 |
-| `Impact surface` 共用狀態 | `## Shared state` | 原樣搬 |
-| `Impact surface` 未確認節點 | `## Unverified` | 原樣搬 |
-| `Execution path and regression evidence` | `## Flow`／`## Steps` | 刪掉行號與驗證證據，只留符號骨架 |
-| `Contract and data impact` | `## Request`／`## Response`／`## Errors` | 原樣搬 |
-| `Decision and tradeoffs` | decision 文件的 `## Decision`／`## Alternatives`／`## Consequences` | 原樣搬 |
+| evidence map 的 entrypoints | `## Entrypoints`／`## Trigger`／`## Endpoint` | 原樣搬 |
+| evidence map 的 shared state | `## Shared state` | 原樣搬 |
+| evidence map 的 known gaps | `## Unverified` | 原樣搬 |
+| evidence map 的執行路徑與 error／retry／concurrency 分支 | `## Flow`／`## Steps` | 刪掉行號與驗證證據，只留符號骨架 |
+| evidence map 的 external contracts | `## Request`／`## Response`／`## Errors` | 原樣搬 |
+| task.md 的 `### Non-goals and compatibility` 與規格中的取捨 | decision 文件的 `## Decision`／`## Alternatives`／`## Consequences` | 原樣搬 |
 | Review 回報的路徑差異 | `## Entrypoints`／`## Flow`／`## Steps` | 補進去 |
 | 本次踩到的假設／限制 | `## Invariants and gotchas`／`## Failure modes` | 一句話 |

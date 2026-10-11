@@ -17,14 +17,14 @@ covers:
 
 ## Entrypoints
 
-`install` 與 `repair` 共用 `src/installer.ts` 的安裝流程。`required: true` 的技能自動加入選取清單，不受 `--skills` 省略影響。
+`install` 與 `repair` 共用 `src/installer.ts` 的安裝流程。入口檔由 repo 的 `AGENTS.md` 產生：帶 `<!-- repo-only -->` 的行與指向未安裝 skill 的 `<!-- skill:<name> -->` 行不寫入，`.agents/` 連結改寫成 `~/.agents/`，在任何專案都解析得到。`required: true` 的技能自動加入選取清單，不受 `--skills` 省略影響。
 
 ## Flow
 
 - `skills.<name>.platforms` 是可選的非空平台清單，值為 `Claude`、`Codex`、`Antigravity`；省略時適用所有平台。無效清單使安裝失敗，避免錯誤設定被當成全平台安裝。
 - 選取的技能保存於 canonical `~/.agents/skills`；建立平台連結時套用清單，不連結整個 skills 根目錄。
 - implementation-spec 必裝且未設定 `platforms`，因此適用 Claude Code、Codex 與 Antigravity 全平台。
-- `retired_skills` 列出的技能不進入 catalog 或既有技能匯入流程；目前退役 `adhd-comms` 與 `humanizer`，明確指定其名稱時依未知技能處理。
+- `retired_skills` 列出的技能不進入 catalog 或既有技能匯入流程；目前退役 `adhd-comms`、`humanizer` 與 `doc-coauthoring`，明確指定其名稱時依未知技能處理。
 - Repair／Install 只處理選取平台：舊連結須符合前次納管路徑、目標及雜湊，且 canonical 完整內容未改動才移除；舊普通副本須所有檔案與目錄皆符合紀錄，才搬到 migrations 備份。canonical 實體保留供回復。使用者修改、額外內容、錯誤目標或未知來源保留，不重新匯入，輸出的 `retired_skills` 以 `preserved` 回報；dry-run 只回報 `planned`，未選取平台維持原狀。
 - 寫入前檢查所有選取平台：技能根目錄與共用技能必須是普通目錄；拒絕指向其他目標的既有連結、巢狀連結與不同內容的非 catalog 技能。
 - 選取平台內既有的有效技能（根目錄有 `SKILL.md` 且名稱合法）也轉為共用實體連結。已安裝的 catalog 技能以 repo 更新 canonical；這不會額外將未選取的 optional 技能加入其他平台。非 catalog 技能合併缺少的檔案，不覆寫既有檔案；同一路徑內容不同時失敗並保留原狀。`.system` 與 plugin cache 不在這個流程內。

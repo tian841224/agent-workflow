@@ -1,5 +1,6 @@
-// Hook-only entrypoint. The guards run on every tool call, and bundling them with the rest of the
-// CLI made each run pay for loading installer, lifecycle, knowledge and policy code it never calls.
+// Hook-only entrypoint. locale-context runs with every submitted prompt, and bundling it with the
+// rest of the CLI made each run pay for loading installer, lifecycle, knowledge and policy code it
+// never calls. git-guard is reachable here for manual use; no platform template registers it.
 import { option, parseArgs, stateRoot, stdinJson } from "./core.js";
 import { runGuard } from "./hooks.js";
 import { runLocaleContext } from "./locale-hooks.js";

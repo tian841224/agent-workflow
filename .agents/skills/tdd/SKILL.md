@@ -5,57 +5,24 @@ description: "compiled workflow plan 選用 tdd 時使用；以紅燈、綠燈�
 
 # Test-Driven Development
 
-TDD is a development method that drives behavior changes through red → green → refactor. This skill defines the behavior tests should guard, test boundaries, and iteration rules; workflow is only responsible for deciding whether TDD is needed, choosing verification depth, and recording results.
-
-## When to use
-
-Load this skill only when the compiled workflow plan selects `tdd`.
-
-The coordinator may select `tdd` for:
-
-- Adding or fixing testable source-code behavior.
-- A bug fix or behavior change where test-first provides useful evidence.
-- An explicit user request for red -> green -> refactor.
-- A feature whose observable behavior should first be guarded from a public seam.
-
-Whether a change enters the managed workflow is decided by the [workflow skill](../workflow/SKILL.md): normal test-only additions, assertion strengthening, and safe test refactors may bypass it, while deleting tests, skipping tests, weakening assertions, or mass-changing snapshots/fixtures is handled by the `test_integrity` capability, and config, script, deployment and schema changes are classified there by their actual impact.
-
-Follow the project's existing domain vocabulary, public interfaces, and test conventions.
+Load this skill only when the compiled workflow plan selects `tdd`. Whether a change enters the managed workflow, and how weakened or deleted tests are handled, is decided by the [workflow skill](../workflow/SKILL.md). Follow the project's existing domain vocabulary, public interfaces, and test conventions.
 
 ## Test boundary (Seam)
 
-A seam is the public boundary where a test observes behavior — e.g. an HTTP endpoint, CLI command, public service method, or event entrypoint. Tests should prefer verifying outcomes through a seam that represents caller/user-facing behavior, rather than depending directly on private methods or internal collaborators. When which seam to guard is itself in question, read [codebase-design](../codebase-design/SKILL.md) for the full glossary and seam criteria.
+A seam is the public boundary where a test observes behavior — an HTTP endpoint, CLI command, public service method, or event entrypoint. Guard primary behavior through a seam that represents caller-facing behavior. A unit test may cover a purely deterministic calculation, but it does not replace an integration test that has to run from a real entrypoint. When which seam to guard is itself in question, read [codebase-design](../codebase-design/SKILL.md); ask the user only when the primary interface or acceptance responsibility is still unclear.
 
-If the primary public interface, key execution path, or acceptance responsibility is not yet clear, confirm with the user which seam to guard; if the interface and completion criteria are already clear, there's no need to ask for every single test.
+## Iteration
 
-Choose the test level by behavior: primary behavior should be guarded by a public seam; purely deterministic calculations can be covered by a unit test, but a unit test must not replace an integration test that needs to be verified from a real entrypoint.
+Work in vertical slices: one seam, one behavior, a test that fails before the change, the minimal implementation that passes it, then refactor without changing verified behavior. Writing a full batch of tests before any implementation locks them onto an internal shape that is not yet understood.
 
-## Good tests
+## Test rules
 
-- Describe behavior visible to the caller/user, not implementation steps (e.g. verify "a valid cart produces a confirmed order," not "checkout internally calls a particular payment method").
-- Verify outcomes through a public interface or real entrypoint.
-- Expected values come from the spec, a worked example, or an independent known-good literal — never recomputed from the production algorithm.
-- Focus on one behavior at a time; the test name states "what it does" and "what result it gets," not how it's implemented.
-- A test should keep passing after internal refactors or collaborator swaps, as long as external behavior hasn't changed.
-
-## Red → Green → Refactor
-
-1. **Red**: First write a test that genuinely fails before the change and captures the target behavior.
-2. **Green**: Implement only the minimal change needed to make the current test pass, without adding unverified functionality ahead of time.
-3. **Refactor**: Clean up design and implementation only after the test is green; refactoring must not change already-verified behavior.
-
-Iterate in vertical slices: pick one seam at a time, add one behavior, make the minimal implementation, then move to the next round based on the result. Don't write a full batch of tests up front and then implement the imagined complete behavior in bulk afterward.
-
-## Common anti-patterns
-
-- **Implementation-coupled**: Testing private methods, internal collaborators, call counts, or call order.
-- **Tautological**: The expected value is recomputed using the same algorithm as the production code, so the test is guaranteed to pass.
-- **Side-channel verification**: Proving behavior by directly querying internal tables or reading internal state instead of going through the public interface.
-- **Horizontal slicing**: Writing a large batch of tests up front before any implementation, locking tests onto an internal shape that isn't yet understood.
-- **Speculative coverage**: Writing tests for future functionality not yet supported by requirements or current behavior.
+- Expected values come from the spec, a worked example, or an independent known-good literal. A value recomputed with the production algorithm makes the test pass by construction.
+- Assert the outcome a caller sees through the public interface. Private methods, call counts, call order and direct reads of internal tables or state couple the test to the implementation, so it breaks on a refactor that changes no behavior.
+- Cover behavior that current requirements support; leave future functionality untested until it exists.
 
 ## Mocks and external boundaries
 
-Use mocks or fakes only at external system boundaries — e.g. third-party APIs, email, time, randomness, the filesystem, or a database that can't be safely operated on in tests. Prefer real implementations for your own classes, modules, and internal collaborators, so tests don't end up just verifying mock setup.
+Use mocks or fakes only at external system boundaries — third-party APIs, email, time, randomness, the filesystem, or a database that can't be safely operated on in tests. Use real implementations for your own modules, so tests don't end up verifying mock setup.
 
-When a mock is needed, use a clear, specific interface for each external operation instead of one generic mock with many conditional branches — a mock should return a single, concrete data shape. Prefer isolated real resources when available, using only one-off, cleanly disposable Docker/SQL resources — never mount or mutate existing containers, databases, or volumes.
+Give each external operation its own specific mock interface returning a single concrete data shape, instead of one generic mock with conditional branches. Prefer isolated real resources when available, using only one-off, cleanly disposable Docker/SQL resources — never mount or mutate existing containers, databases, or volumes.

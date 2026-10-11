@@ -56,7 +56,7 @@ Style prohibitions without a stated reason ("don't be verbose", banned-phrase li
 
 ## Write the current rule
 
-Write as if the current rules are the only ones that ever existed. Change history ("now", "no longer", "changed to", incident IDs, PR numbers, date conditionals, pinned model names) goes in commit messages, PRs, or `docs/history/`.
+Write as if the current rules are the only ones that ever existed. Change history ("now", "no longer", "changed to", incident IDs, PR numbers, date conditionals, pinned model names) goes in commit messages and PRs; the version table in `README.md` is the only document that records it.
 
 Before encoding a single session's stumble as a rule, check that it would have helped most recent sessions. When narrow conditionals pile up, generalize the principle.
 

@@ -11,7 +11,7 @@ Use this list when the straightforward repro path can't produce a signal that tu
 7. **Property/fuzz loop**: when the bug is "output is sometimes wrong," run thousands of random inputs to find the failure pattern.
 8. **Bisection harness**: when the bug appears between two known states (commits, datasets, versions), automate "boot at state X, check, repeat" so `git bisect run` can drive it directly.
 9. **Differential loop**: run the same input against the old version vs. the new version (or two configurations) and diff the output.
-10. **HITL bash script**: last resort. When a human genuinely has to click something, drive them with a script like `hitl-loop.template.sh` so the loop stays structured and the captured output still feeds back to you.
+10. **HITL bash script**: last resort. When a human genuinely has to click something, drive them with a script like [scripts/hitl-loop.template.sh](scripts/hitl-loop.template.sh) so the loop stays structured and the captured output still feeds back to you.
 
 ## Tightening the Loop
 

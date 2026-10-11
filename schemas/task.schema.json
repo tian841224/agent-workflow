@@ -51,7 +51,7 @@
     "delivery_status": { "enum": ["pending", "applied", "merged", "rejected", "skipped"] },
     "integration_status": { "enum": ["pending", "conflicted", "applied", "abandoned"] },
     "intent_approval": {
-      "description": "Written only by `agent-workflow approve-intent`; intent_hash covers only task.md's Goal/Scope/Completion criteria sections, not the whole file, so unrelated edits (typos, evidence prose) do not invalidate it.",
+      "description": "Written by `agent-workflow approve-intent`, and by `task-init` when it records `--confirmed-by` or attests a freeze-required intent; intent_hash covers only task.md's Goal/Scope/Completion criteria sections, not the whole file, so unrelated edits (typos, evidence prose) do not invalidate it.",
       "type": ["object", "null"],
       "required": ["intent_hash", "confirmed_at", "confirmed_by", "source"],
       "properties": {

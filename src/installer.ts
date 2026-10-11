@@ -399,15 +399,21 @@ function mergeHook(fragment: JsonObject, destination: string, runtime: string, s
   const merged = topLevel ? { ...current, ...replaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (replaced.hooks || {}) as JsonObject) };
   if (!dryRun) writeJson(destination, merged);
 }
-function filterUnselectedSkillLines(body: string, presentSkills: string[]): string {
-  return body.split(/\r?\n/).filter((line) => { const marker = line.match(/<!--\s*skill:([a-z0-9-]+)\s*-->/i); return !marker || presentSkills.includes(marker[1]); }).join("\n");
+// Turns the repository's AGENTS.md into the entrypoint installed for every project: lines that only
+// apply inside this repository or name a skill that is not installed are dropped, and links into
+// .agents/ point at the canonical home copy, the one place they resolve from another project.
+function installedEntryBody(body: string, presentSkills: string[]): string {
+  return body.split(/\r?\n/).filter((line) => {
+    if (/<!--\s*repo-only\s*-->/i.test(line)) return false;
+    const marker = line.match(/<!--\s*skill:([a-z0-9-]+)\s*-->/i); return !marker || presentSkills.includes(marker[1]);
+  }).join("\n").replaceAll("](.agents/", "](~/.agents/");
 }
 function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean, presentSkills: string[]): void {
   const begin = "<!-- agent-workflow v7 managed:start -->", end = "<!-- agent-workflow v7 managed:end -->";
   const strip = (value: string) => value.replace(/\r?\n?<!-- agent-workflow v[4567] managed:start -->[\s\S]*?<!-- agent-workflow v[4567] managed:end -->\r?\n?/g, "").trim();
   const candidates = [canonical, ...destinations].filter(existsSync).map((path) => strip(readFileSync(path, "utf8"))).filter(Boolean);
   if (new Set(candidates).size > 1) throw new Error("conflicting unmanaged entrypoint content found; refusing to overwrite it");
-  const content = `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${filterUnselectedSkillLines(readFileSync(source, "utf8").trim(), presentSkills)}\n${end}\n`;
+  const content = `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${installedEntryBody(readFileSync(source, "utf8").trim(), presentSkills)}\n${end}\n`;
   if (!dryRun) for (const path of [canonical, ...destinations]) writeAtomic(path, content);
 }
 const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "independence"];

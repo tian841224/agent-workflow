@@ -16,16 +16,12 @@ Translate for meaning rather than word order. Keep terminology consistent within
 
 When the source is ambiguous and the ambiguity materially changes meaning, use surrounding context or authoritative domain usage first. Ask the user only when the ambiguity cannot be resolved safely and would change the deliverable.
 
-Before delivery, check the parts that can realistically fail: omitted meaning, invented facts, mistranslated domain terms, broken placeholders, inconsistent terminology, unnatural Taiwan wording, or punctuation/format drift. Do not run a fixed multi-pass ritual when a short translation can be verified in one pass.
+Before delivery, check the parts that can realistically fail: omitted meaning, invented facts, mistranslated domain terms, broken placeholders, inconsistent terminology, unnatural Taiwan wording, or punctuation/format drift. A short translation is verified in one pass.
 
 ## References — load on demand
 
 - `references/vocabulary.md` — broader Taiwan terminology and wording examples.
-- `references/linguipedia-cross-strait.md` — large cross-strait vocabulary table; search only the uncertain term or domain section.
+- `references/linguipedia-cross-strait.md` — cross-strait vocabulary table from 中華語文知識庫.
 - `references/chinese-traditional.md` — Traditional Chinese language characteristics and regional distinctions.
-- `references/english.md` — English source-language details when they affect interpretation.
-- `references/japanese.md` — Japanese politeness, particles, and source-language details when they affect interpretation.
-- `translation-challenges.md` — idioms, cultural references, wordplay, ambiguity, and other non-literal translation problems.
-- `tools-resources.md` — external dictionaries and verification resources.
 
 Do not load every reference by default. Start with the source text and `locale.md`, then retrieve only the reference needed to resolve an actual uncertainty.

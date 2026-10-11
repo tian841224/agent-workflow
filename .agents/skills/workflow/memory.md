@@ -17,4 +17,4 @@
 
 ## Retrospective
 
-Review 打回的逐輪歸因見 [review.md](review.md)。只有疑似 regression、同一問題反覆修正或使用者要求時，另由主對話做回歸歸因，結果寫入 `## Retrospective result`：查不到引入點就寫 `unknown` 並列出跑過的搜尋，framework change 需指名哪個檔案的哪一條規則要改成什麼。確認 regression 才執行 `agent-workflow review-cause --action Record --cause regression --round <n> --evidence <缺了什麼> --miss-category <impact_surface|execution_path|reviewer_dimension|risk_flag|completion_criteria|test_gap|pre_review_gap|outside_framework|other> --proposed-change <framework 要怎麼改>`；regression 不受 review 輪次限制，`--round` 可以是 1。這是 review-cause 唯一的 structured escalation store，不再另外維護第二份 retro index。
+Review 打回的逐輪歸因見 [review.md](review.md)。只有疑似 regression、同一問題反覆修正或使用者要求時，另由主對話做回歸歸因，結果寫入 `## Retrospective result`：查不到引入點就寫 `unknown` 並列出跑過的搜尋，framework change 需指名哪個檔案的哪一條規則要改成什麼。確認 regression 才執行 `agent-workflow review-cause --action Record --cause regression --round <n> --evidence <缺了什麼> --miss-category <impact_surface|execution_path|reviewer_dimension|risk_flag|completion_criteria|test_gap|pre_review_gap|outside_framework|other> --proposed-change <framework 要怎麼改>`；regression 不受 review 輪次限制，`--round` 可以是 1。review-cause 是唯一的 structured escalation store。

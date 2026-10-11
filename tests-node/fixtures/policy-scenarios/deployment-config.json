@@ -12,7 +12,7 @@
   },
   "expected": {
     "required": ["reviewer", "baseline_validation", "operational_verification"],
-    "required_evidence": ["baseline_validation.BV2", "operational_verification.OV2", "role.reviewer"],
+    "required_evidence": ["operational_verification.OV2", "role.reviewer"],
     "classification_incomplete": []
   }
 }

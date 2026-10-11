@@ -1,0 +1,18 @@
+{
+  "scenario": "non-code-config-change",
+  "task": {
+    "workflow_request": [],
+    "task_type": "config",
+    "impact_scope": "file",
+    "impact_effect": "local_behavior",
+    "impact_confidence": "medium",
+    "managed_change": true,
+    "code_change": false,
+    "risk_flags": []
+  },
+  "expected": {
+    "required": ["impact_discovery", "baseline_validation"],
+    "required_evidence": ["baseline_validation.BV2"],
+    "classification_incomplete": []
+  }
+}

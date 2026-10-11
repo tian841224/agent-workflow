@@ -30,7 +30,8 @@ Claude／Codex 的 `UserPromptSubmit` 執行 `locale-context` 與 `memory-contex
 ## Invariants and gotchas
 
 - 自動 hooks 只注入 context，不承擔 task 結案判定。
-- 手動 `git-guard` CLI 保留既有拒絕語意，以維持相容性；它不是必裝的自動執行步驟。
+- `locale-context` 每次提交訊息都注入用詞清單；核心規則同一個 session 只在第一次注入，判斷依據是 `os.tmpdir()` 的 session 標記，payload 沒有 session id 或標記寫入失敗時照常注入。
+- 手動 `git-guard` CLI 拒絕破壞性與隱藏執行 pattern；它不是必裝的自動執行步驟。
 - 平台放行或 agent intent attestation 不構成使用者 Git 授權；具體要求依 AGENTS.md。
 - `tests-node/adapters/parity.test.mjs` 檢查 templates 與手動 CLI 的跨平台契約；installer tests 檢查舊 guard 清除及使用者 hooks 保留。
 

@@ -12,7 +12,7 @@
   },
   "expected": {
     "required": ["execution_path_review", "regression_validation", "reviewer", "baseline_validation"],
-    "required_evidence": ["baseline_validation.BV2", "regression_validation.RV3", "role.reviewer"],
+    "required_evidence": ["regression_validation.RV3", "role.reviewer"],
     "classification_incomplete": []
   }
 }

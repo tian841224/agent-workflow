@@ -32,6 +32,21 @@ test("locale-context injects the vocabulary with each submitted prompt, includin
   assert.equal(JSON.parse(hookContext(installedRoot, "Codex", {}).stdout).hookSpecificOutput.hookEventName, "UserPromptSubmit");
 });
 
+test("locale-context injects the core rules once per session and the vocabulary every time", () => {
+  const session = `locale-once-${process.pid}-${Date.now()}`;
+  const context = (payload) => JSON.parse(hookContext(installedRoot, "Claude", { hook_event_name: "UserPromptSubmit", ...payload }).stdout).hookSpecificOutput.additionalContext;
+  const first = context({ session_id: session });
+  assert.match(first, /- 使用臺灣慣用繁體中文/);
+  assert.match(first, /落地→實作／上線／導入/);
+  const second = context({ session_id: session });
+  assert.doesNotMatch(second, /- 使用臺灣慣用繁體中文/, "a session that already received the rules gets only the vocabulary");
+  assert.match(second, /localization-tw skill（輸出任何中文前先讀完/);
+  assert.match(second, /落地→實作／上線／導入/);
+  assert.match(context({ session_id: `${session}-other` }), /- 使用臺灣慣用繁體中文/, "a new session receives the rules again");
+  // Without a session id there is nothing to remember against, so every call carries the rules.
+  for (let call = 0; call < 2; call++) assert.match(context({}), /- 使用臺灣慣用繁體中文/);
+});
+
 test("locale-context on Antigravity injects only on the first invocation", () => {
   const first = JSON.parse(hookContext(installedRoot, "Antigravity", { invocationNum: 0 }).stdout);
   assert.match(first.injectSteps[0].ephemeralMessage, /落地→/);

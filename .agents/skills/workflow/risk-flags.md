@@ -40,9 +40,9 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 ### 意圖確認
 
 - 先寫好 task.md 再 `task-init`。task 建立時（或之後的 `task-write` 首次加上 freeze-required flag 時）若 task.md intent 有效，runtime 直接寫入 agent attestation（`source: cli-attestation`、`confirmed_by: agent`）。這是 runtime 的預設行為，不代表使用者已核准規格；managed 開發任務的 Plan mode 與使用者確認依 [workflow](SKILL.md) 第 2–4 步。intent 無效時 `readiness` 會列出 blocker；修正後依實際確認來源執行 `approve-intent`，agent 自行確認不能取代開發前的使用者核准。
-- 已存在的 attestation 不會自動更新；intent 變動後的重新確認一律明確執行 `approve-intent`。只有使用者在訊息中實際確認過這份 intent 時才用 `approve-intent --as-user` 升級為使用者確認，`--confirmed-by` 註明來源（例如 `user message`、`plan approval`）。
+- 使用者在 task-init 前已確認規格時，task-init 帶 `--confirmed-by <來源> --as-user` 直接記錄為使用者確認。已存在的 attestation 不會自動更新；intent 變動後的重新確認一律明確執行 `approve-intent`。只有使用者在訊息中實際確認過這份 intent 時才用 `--as-user`，`--confirmed-by` 註明來源（例如 `user message`、`plan approval`）。
 - agent 提出的非目標、刻意接受的風險取捨（例如不回滾、不冪等）或範圍調整，寫進待確認規格；managed 開發任務中影響已核准規格的實質變更，依 workflow 重新取得確認後再實作。
 
 ## unclear_requirements
 
-釐清與規格確認流程見 workflow skill 的第 2–4 步。使用者確認完整規格後，先保存 task.md 再執行 `task-init`；接著執行 `approve-intent --as-user --confirmed-by "user message"`，把 attestation 升級為使用者確認。
+釐清與規格確認流程見 workflow skill 的第 2–4 步。使用者確認完整規格後，先保存 task.md，再執行帶 `--confirmed-by "user message" --as-user` 的 `task-init`，記錄為使用者確認。

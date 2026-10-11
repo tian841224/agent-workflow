@@ -5,14 +5,14 @@ description: "遇到原因尚未確定、難以重現、間歇性或效能異常
 
 # Debugging Discipline
 
-Choose the shortest diagnostic path that can establish the cause with evidence. The goal is not to complete a fixed sequence of phases; it is to turn an uncertain failure into a reproducible signal, isolate the cause, fix it, and prove the original symptom is gone.
+Choose the shortest diagnostic path that can establish the cause with evidence. The goal is to turn an uncertain failure into a reproducible signal, isolate the cause, fix it, and prove the original symptom is gone.
 
 ## Required outcomes
 
 Before claiming a root cause or fix, establish enough of the following outcomes for the actual uncertainty in the task:
 
 - **Reliable signal** — reproduce the reported symptom with the closest practical command, test, request, trace, profiler, or small harness. For intermittent failures, measure a meaningful reproduction rate instead of pretending the signal is deterministic.
-- **Narrowed cause** — reduce the search space using falsifiable hypotheses, bisection, boundary inspection, instrumentation, or controlled comparison. Generate multiple hypotheses only when the cause is genuinely ambiguous; do not manufacture a fixed count.
+- **Narrowed cause** — reduce the search space using falsifiable hypotheses, bisection, boundary inspection, instrumentation, or controlled comparison. Generate multiple hypotheses only when the cause is genuinely ambiguous.
 - **Independent evidence** — use a probe that can distinguish the leading explanations. For performance work, establish a baseline before optimizing.
 - **Confirmed fix** — rerun the original signal after the change. Add or strengthen a regression test when a useful seam exists; when no trustworthy seam exists, report that testability gap instead of adding a misleading test.
 - **Cleanup** — remove temporary instrumentation and throwaway debugging artifacts that are not part of the intended solution.

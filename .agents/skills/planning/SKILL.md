@@ -5,7 +5,7 @@ description: "需要選擇架構方向、功能方案、重構策略或技術取
 
 # Simple Planning Skill
 
-Use planning to reach a defensible direction with the least discussion needed for the decision. Do not turn planning into a mandatory ceremony for work whose goal, constraints, and completion criteria are already clear.
+Use planning to reach a defensible direction with the least discussion needed for the decision. Work whose goal, constraints, and completion criteria are already clear proceeds without a planning pass.
 
 ## Required outcomes
 
@@ -22,11 +22,11 @@ Depth is proportional to consequence. A local reversible change may need only a 
 
 Prefer repository evidence and existing conventions over questions whose answer can be derived safely. When context is sufficient, make a reasonable low-risk assumption and continue. Ask the user only when an unresolved choice materially changes product intent, architecture, ownership, destructive behavior, irreversibility, external commitments, or another high-impact outcome.
 
-When clarification is necessary, ask the smallest set of questions that unlocks the decision. There is no required question count or interview sequence.
+When clarification is necessary, ask the smallest set of questions that unlocks the decision.
 
 Compare alternatives only when there is a real trade-off. If one approach is clearly simpler and satisfies the known constraints, recommend it rather than manufacturing options. Apply YAGNI: do not add abstractions, extension points, or flexibility for requirements that do not exist.
 
-If a settled direction still contains a high-risk unresolved assumption or irreversible branch, use `grill-me` to pressure-test that specific uncertainty. Do not run `planning` and `grill-me` as overlapping rituals.
+If a settled direction still contains a high-risk unresolved assumption or irreversible branch, use `grill-me` to pressure-test that specific uncertainty.
 
 ## Planning artifacts
 

@@ -87,11 +87,24 @@ function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
   const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated");
   if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated`);
 }
-export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, emitOutput = true, runtimeSeed: JsonObject = {}, contextPaths: string[] = []): number {
+// Records who confirmed the task.md the task is created from, so a specification the user approved
+// before task-init needs no separate approve-intent call. An invalid intent is left for readiness to
+// report: there is nothing valid to hash yet.
+export type IntentConfirmation = { confirmedBy: string; asUser: boolean };
+function recordIntentConfirmation(state: JsonObject, path: string, confirmation?: IntentConfirmation): void {
+  if (!confirmation?.confirmedBy) return;
+  const taskMd = join(dirname(path), "task.md");
+  if (!existsSync(taskMd)) return;
+  const markdown = readFileSync(taskMd, "utf8");
+  if (intentValidationErrors(markdown).length) return;
+  state.intent_approval = { intent_hash: intentHash(markdown), confirmed_at: now(), confirmed_by: confirmation.confirmedBy, source: confirmation.asUser ? "user" : "cli-attestation" };
+}
+export function taskInit(value: string, patch: JsonObject, actor = "cli", stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, emitOutput = true, runtimeSeed: JsonObject = {}, contextPaths: string[] = [], confirmation?: IntentConfirmation): number {
   const path = taskPath(value);
   return withFileLock(`${path}.lock`, () => {
     if (existsSync(path)) { if (emitOutput) output({ valid: false, errors: [`task state already exists: ${path}`] }); return 1; }
     try {
+      if (confirmation?.asUser && !confirmation.confirmedBy) throw new Error("task-init: --as-user requires --confirmed-by naming where the user confirmed the specification");
       const disallowed = Object.keys(patch).filter((key) => !TASK_INIT_WRITABLE_FIELDS.has(key));
       if (disallowed.length) throw new Error(`task-init: field(s) are not writable via task-init: ${disallowed.join(", ")} (identity/evidence/intent_approval/lifecycle are runtime-managed)`);
       assertProjectDocsUpdateOnly(patch, "task-init");
@@ -119,6 +132,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
           ...patch,
           ...runtimeSeed
         };
+        recordIntentConfirmation(state, path, confirmation);
         attestIntentIfFrozen(state, path);
         const errors = schemaErrors(state);
         if (errors.length) throw new Error(`task-init: task.json fails schema: ${errors.join("; ")}`);
@@ -135,6 +149,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
           valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created, Boolean(context?.doc_gap)),
           readiness: readinessSummary(readinessChecks(path, repoRootValue, stateRootValue, created)),
           ...(context ? { context } : {}),
+          ...(confirmation?.confirmedBy ? { intent_approval: created.intent_approval ?? null } : {}),
           next: nextForState(created, path, repoRoot)
         });
       }

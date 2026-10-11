@@ -347,9 +347,10 @@ test("evidence-run names the delivered paths its own command added or modified",
   mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Delivery\n\n## Goal\n\nVerify the delivery change message.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
-  writeFileSync(path, JSON.stringify(validTask({ workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", base_commit: head })));
+  // behavior_change selects RV3, a runtime proof that applies to a code task.
+  writeFileSync(path, JSON.stringify(validTask({ workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: ["behavior_change"], base_commit: head })));
   writeFileSync(join(repo, "a.txt"), "two");
-  const evidenceRun = (script) => JSON.parse(run(["evidence-run", "--task-path", join(task, "task.md"), "--requirement-id", "baseline_validation.BV2", "--summary", "s", "--cwd", repo, "--", process.execPath, "-e", script]).stdout);
+  const evidenceRun = (script) => JSON.parse(run(["evidence-run", "--task-path", join(task, "task.md"), "--requirement-id", "regression_validation.RV3", "--summary", "s", "--cwd", repo, "--", process.execPath, "-e", script]).stdout);
   const added = evidenceRun("require('fs').writeFileSync('out.txt', 'x')");
   assert.equal(added.valid, false);
   assert.match(added.errors[0], /paths added: out\.txt; removed: \(none\)/);

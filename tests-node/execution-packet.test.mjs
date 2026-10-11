@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -213,4 +213,33 @@ test("a freeze-required flag added later by task-write is attested immediately t
   assert.equal(after.intent_approval.source, "cli-attestation");
   const packet = run(["execution-packet", "--task-path", task, "--repo-root", repo]);
   assert.equal(packet.status, 0, packet.stdout);
+});
+
+test("an installed runtime names procedures by their canonical home path, a checkout by repo-relative path", () => {
+  const root = join(tmpdir(), `agent-workflow-installed-procedures-${process.pid}-${Date.now()}`);
+  const home = join(root, "home");
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const state = join(root, "state");
+  // Every skill, because a procedure can name an optional one and the path only exists once it is installed.
+  const install = run(["install", "--non-interactive", "--skills", "all", "--state-root", state, "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { env });
+  assert.equal(install.status, 0, install.stderr);
+  const classification = JSON.stringify({ code_change: false, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: ["reviewer", "tdd", "bug_diagnosis", "codebase_design", "operational_verification"] });
+  const init = (bundle, name) => {
+    const task = join(root, name);
+    mkdirSync(task, { recursive: true });
+    writeFileSync(join(task, "task.md"), "# Procedures\n\n## Goal\n\nResolve procedure paths.\n\n## Scope\n\nNo source change.\n\n## Completion criteria\n\n- [ ] procedures resolve\n");
+    const result = spawnSync(process.execPath, [bundle, "task-init", "--task-path", task, "--state-root", state], { cwd: process.cwd(), encoding: "utf8", env, input: classification });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return JSON.parse(result.stdout).procedures;
+  };
+  const installed = init(join(state, "runtime", "agent-workflow.mjs"), "20260101-000000-installed-procedures");
+  assert.ok(installed.length >= 2, JSON.stringify(installed));
+  for (const path of installed) {
+    assert.ok(path.startsWith(join(home, ".agents", "skills")), `${path} is not under the canonical skills directory`);
+    assert.ok(existsSync(path), `${path} does not exist`);
+  }
+  const checkout = init(cli, "20260101-000001-checkout-procedures");
+  assert.ok(checkout.includes(".agents/skills/workflow/review.md"), JSON.stringify(checkout));
+  // A capability whose steps live in its skill still brings that skill in as a procedure.
+  for (const skill of ["tdd", "diagnosing-bugs", "codebase-design", "operational-verification"]) assert.ok(checkout.includes(`.agents/skills/${skill}/SKILL.md`), `${skill}: ${JSON.stringify(checkout)}`);
 });

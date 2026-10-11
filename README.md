@@ -40,7 +40,7 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
 | 功能 | 實際用途 |
 | --- | --- |
 | 任務分流 | 會改變程式行為的修改走 managed workflow；純文件、問答與唯讀分析直接處理 |
-| 開發前的規格與驗收 | Managed 開發任務先進入 Plan mode，依 implementation-spec 產出 task.md 規格，使用者確認後才開發；規格深度隨影響調整 |
+| 開發前的規格與驗收 | Managed 開發任務先進入 Plan mode，依 implementation-spec 產出 task.md 規格，使用者確認後才開發；規格深度隨影響調整，單一檔案且沒有風險 flag 的修改可直接在對話確認 |
 | 開發前的脈絡 | `task-init --paths` 一次回傳相關的專案文件、記憶，以及改過同一批路徑的已結案 task；缺文件時，只補這次碰到的模組 |
 | 計畫編譯 | 依影響範圍、風險與信心選取能力；必須實際執行的步驟列為 `proofs` 進入 gate，其餘分析步驟成為 `checklist` |
 | 驗收與 freshness | runtime 實際執行每條驗收案例的指令，記錄 exit code、輸出摘要與交付指紋；交付一改變，舊紀錄就失效 |
@@ -108,7 +108,7 @@ task.md 的驗收案例寫法：
 
 Worker 只修改指派範圍，保留其他人的修改，回報實際驗證結果與 blocker。主 agent 整合後執行 task 的全部驗收案例與 proofs，再依 plan 完成 Reviewer 與結案；worker 的局部驗證不能取代整體證據。沒有可用原生 subagent 的平台採循序執行。
 
-既有 Protocol 3 runtime CLI 與 state 保留相容性；原生平行開發不以它們為前置條件。
+Protocol 3 runtime CLI 與 state 是選用介面；原生平行開發不以它們為前置條件。
 
 ### 記憶如何累積
 
@@ -161,7 +161,7 @@ Worker 只修改指派範圍，保留其他人的修改，回報實際驗證結�
 
 | 平台 | 入口規則 | skills | hooks | 原生 agent |
 | --- | --- | --- | --- | --- |
-| Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills` | `settings.json`（保留舊 orchestration CLI 的 `additionalDirectories` 相容設定） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
+| Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills` | `settings.json`（含 orchestration CLI 使用的 `additionalDirectories`） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
 | Codex | `~/.codex/AGENTS.md` | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader}.toml` |
 | Antigravity | `~/.gemini/GEMINI.md` | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
@@ -206,7 +206,6 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、部署、migration 與外部整合的實際環境驗證 |
 | [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的結論或 review 原因提煉改善；草稿核准後才生效 |
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
-| [doc-coauthoring](.agents/skills/doc-coauthoring/SKILL.md) | 撰寫規格、提案、RFC 與較大型技術文件 |
 
 ### 原生 agent
 
@@ -257,7 +256,7 @@ Claude Code             Codex              Antigravity
     |   `-- tasks/<task-id>/
     |       |-- task.md      人可讀的目標、範圍與驗收案例
     |       `-- task.json    runtime 管理的任務狀態與驗證紀錄
-    |-- orchestration/v3/    舊 CLI 相容資料：snapshot、worker worktrees、artifacts
+    |-- orchestration/v3/    orchestration CLI 資料：snapshot、worker worktrees、artifacts
     |-- worktree-leases/     每個 worktree 同時只能有一個 code task
     |-- skill-drafts/        待核准的 skill 草稿
     |-- skills/              已核准的 skills
@@ -279,4 +278,4 @@ Claude Code             Codex              Antigravity
 | v6 | 累積跨平台記憶 | 加入共用記憶與提煉機制，將可重用結論整理為待審 skill 草稿。 | 從每次任務重新摸索，改為可查詢且有範圍的 knowledge；草稿須經使用者核准才會生效，避免未驗證經驗污染流程。 |
 | v7 | 統一驗證並降低重複成本 | 整合 hooks、前置檢查、最終驗證與結案路徑，保留切片局部回饋，減少重複確認與不必要的文件載入。 | 從多個角色各自重跑檢查，改為共用 impact map、delivery fingerprint 與單一結案 gate；在維持 verification integrity 的前提下縮短往返。 |
 | v7.1 | 以驗收案例為完成依據 | 開發前寫 Given／When／Then 驗收案例，由 runtime 逐條執行；分析步驟改為 checklist；指令輸出附 `next`；程式修改一律獨立 Review，第二輪起只審變動範圍；`task-init --paths` 帶出相關文件、記憶與歷程；記憶加上 tags 與 paths。 | 從 agent 逐條自述的 evidence 改為可執行的驗收；policy 修改不再讓進行中 task 的驗證失效；移除任務狀態檔的 guard 與三個重複的記錄／診斷指令，減少往返與誤擋。 |
-| v7.2 | 平行工作包管理 | 原生 agent 自行決定是否使用 sub-agent；Protocol 3 管理隔離 worktree、packet、驗收 receipt 與 Retry。 | Framework 負責實作工作的隔離、收件與整合驗收。 |
+| v7.2 | 平行開發交給平台原生 subagent | 實作前由 agent 判斷工作能否獨立完成，適合時直接指派目標、責任範圍與驗收條件，主 agent 整合後執行全部驗收；Git 操作改由入口規則要求使用者授權，不再安裝 Git guard hook。 | 平行開發不再需要固定的 orchestration 流程、packet 或獨立 worktree；Protocol 3 CLI 只保留相容性。 |

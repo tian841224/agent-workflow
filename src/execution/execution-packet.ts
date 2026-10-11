@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Json, JsonObject, output, readJson } from "../core.js";
 import { intentHash, sections } from "../intent.js";
 import { freezeRequired, schemaErrors } from "../lifecycle/task-schema.js";
@@ -23,6 +25,14 @@ export const PROFILE_PROCEDURES = {
   projectDocs: ".agents/skills/project-docs/SKILL.md"
 } as const;
 
+// The pointers above are repo-relative, which resolves only inside this package's checkout. An
+// installed bundle runs from any project, so there they name the canonical copy under the home directory.
+let packageCheckout: boolean | undefined;
+function procedureLocation(pointer: string): string {
+  packageCheckout ??= existsSync(join(dirname(fileURLToPath(import.meta.url)), "..", ".agents", "skills"));
+  return packageCheckout ? pointer : join(homedir(), pointer);
+}
+
 type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };
 
 // Resolve every agent-facing procedure from the same compiled plan. Profile and role documents
@@ -40,7 +50,7 @@ export function resolveProcedures(plan: Pick<import("../workflow-policy.js").Com
   // task-init's context already lists the docs covering the touched paths; the project-docs procedure
   // is only needed when that lookup found an area no doc covers yet.
   if (docGap) procedures.push(PROFILE_PROCEDURES.projectDocs);
-  return [...new Set(procedures)].sort();
+  return [...new Set(procedures)].sort().map(procedureLocation);
 }
 
 export type ExecutionPacket = {

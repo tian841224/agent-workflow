@@ -180,7 +180,7 @@ test("concurrent task-write processes each land exactly one revision through the
   assert.match(String(state.workflow_decision), /^decision-[abcd]$/);
 });
 
-test("a schema task keeps the error-path and design steps the old change_kind collapse would have dropped", () => {
+test("a schema task keeps the error-path step the old change_kind collapse would have dropped", () => {
   const plan = compile({
     workflow_request: ["execution_path_review", "codebase_design"],
     risk_flags: [], task_type: "schema", impact_scope: "module", impact_effect: "schema", impact_confidence: "high",
@@ -188,8 +188,22 @@ test("a schema task keeps the error-path and design steps the old change_kind co
   });
   const idsFor = (name) => stepIds(plan, name);
   assert.ok(idsFor("execution_path_review").includes("EP4"), idsFor("execution_path_review").join(","));
-  assert.ok(idsFor("codebase_design").includes("CD2"), idsFor("codebase_design").join(","));
-  assert.ok(idsFor("codebase_design").includes("CD4"), idsFor("codebase_design").join(","));
+});
+
+// These capabilities are selected for the skill their procedure pointer names; the skill owns the
+// steps, so the policy lists none of its own and nothing of theirs reaches the checklist.
+test("skill-backed capabilities carry no checklist steps of their own and stay selectable", () => {
+  const plan = compile({
+    workflow_request: ["codebase_design", "bug_diagnosis", "tdd", "operational_verification"],
+    code_change: true, managed_change: true, risk_flags: [], task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high"
+  });
+  for (const name of ["codebase_design", "bug_diagnosis", "tdd"]) {
+    assert.ok(plan.selected.some((capability) => capability.name === name), `${name} is no longer selectable`);
+    assert.deepEqual(stepIds(plan, name), [], name);
+  }
+  assert.deepEqual(stepIds(plan, "operational_verification"), ["OV2"]);
+  assert.deepEqual(plan.checklist.filter((step) => /^(codebase_design|bug_diagnosis|tdd|operational_verification)\./.test(step.id)), []);
+  assert.ok(plan.proofs.some((step) => step.id === "operational_verification.OV2"), JSON.stringify(plan.proofs));
 });
 
 // risk-flags.md used to tell agents to remove a mis-set flag by editing task.json directly, which

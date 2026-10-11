@@ -135,7 +135,7 @@ test("native parallel decisions use direct assignments without a required orches
   assert.match(worker, /directly in the coordinator's message/);
   assert.match(worker, /Do not revert other contributors' changes/);
   assert.match(worker, /coordinator selects the workspace and isolation/);
-  assert.match(worker, /Legacy packet assignments/);
+  assert.match(worker, /Packet assignments/);
   for (const file of ["README.md", "docs/architecture.md"]) {
     assert.match(read(file), /平台原生 subagent/);
     assert.doesNotMatch(read(file), /parallel_hint|主動評估實際工作邊界/);

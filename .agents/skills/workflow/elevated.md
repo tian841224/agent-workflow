@@ -1,10 +1,9 @@
-# Expanded exploration rules
+# Expanded work
 
-Read this when the compiled plan reports `exploration_profile: expanded`. It owns exploration depth only; reviewer scope lives in [review.md](review.md) and role boundaries in each role document.
-
-- Extend the task's [shared evidence map](evidence.md#shared-analysis) with the findings below; implementation and review reuse that map.
-- Reverse-search changed public symbols, shared state, and every unresolved node; keep the hits that change a decision.
-- Trace the execution path from the real entrypoints through the boundaries selected by the compiled plan. Expand into retry, concurrency, or async branches when the change reaches those branches or leaves an unknown; a focused task keeps the direct path only.
+Read this when the compiled plan reports `exploration_profile: expanded`. Exploration then covers the
+callers, shared state and boundaries the compiled plan selected, beyond the direct path a focused task
+keeps to; record what it finds in the task's [shared evidence map](evidence.md#shared-analysis).
+Reviewer scope lives in [review.md](review.md) and role boundaries in each role document.
 
 ## Ordered implementation slices
 

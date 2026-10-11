@@ -5,7 +5,7 @@ description: "進行翻譯、長篇在地化或臺灣用語有疑義時使用；
 
 # 正體中文（臺灣）在地化
 
-一般中文回覆的常駐規則在 `AGENTS.md`。hook 在每次提交訊息時注入 [locale.md](locale.md) 的 Core rules 與 [references/vocabulary.md](references/vocabulary.md) 的用詞清單，這就是本 skill 對一般中文回覆的全部要求；輸出中文前先讀完注入的內容再寫。用詞、語氣或標點有疑義時讀 [locale.md](locale.md)；翻譯與長篇在地化再依下方 pointer 載入 references。
+一般中文回覆的常駐規則在 `AGENTS.md`。hook 在每次提交訊息時注入 [references/vocabulary.md](references/vocabulary.md) 的用詞清單，[locale.md](locale.md) 的 Core rules 同一個 session 只注入一次，這就是本 skill 對一般中文回覆的全部要求；輸出中文前先讀完注入的內容再寫。用詞、語氣或標點有疑義時讀 [locale.md](locale.md)；翻譯與長篇在地化再依下方 pointer 載入 references。
 
 <!-- enforcement:start -->
 輸出規則：所有中文回覆依 localization-tw 檢查整份輸出，使用臺灣慣用繁體中文、自然直接的語氣與中文標點；不使用簡體字或中國特有用語。技術詞彙沒有自然臺灣譯名時保留英文；程式碼、指令、路徑與專有名詞保留原格式。同一對話重用已讀規則，術語不確定時才查 references。

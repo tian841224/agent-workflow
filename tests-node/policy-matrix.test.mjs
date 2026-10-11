@@ -25,7 +25,7 @@ test("the compiled workflow policy still selects what the recorded matrix says i
 // equivalences that collapse has to preserve, recorded explicitly rather than rediscovered one
 // broken step at a time.
 const FEATURE_LIKE = ["feature", "refactor", "schema", "migration"];
-const STEPS_REQUIRING_FEATURE_LIKE = [["execution_path_review", "EP4"], ["codebase_design", "CD2"], ["codebase_design", "CD4"]];
+const STEPS_REQUIRING_FEATURE_LIKE = [["execution_path_review", "EP4"]];
 test("every feature-like task_type keeps the steps the old change_kind: feature would have selected", () => {
   const rows = FEATURE_LIKE.concat("chore").flatMap((taskType) => JSON.parse(run(["policy-matrix", "--mode", "rows", "--task-type", taskType]).stdout));
   for (const taskType of FEATURE_LIKE) {

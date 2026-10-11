@@ -15,7 +15,7 @@
   },
   "expected": {
     "required": ["reviewer", "test_integrity", "baseline_validation"],
-    "required_evidence": ["baseline_validation.BV2", "role.reviewer"],
+    "required_evidence": ["role.reviewer"],
     "classification_incomplete": []
   }
 }

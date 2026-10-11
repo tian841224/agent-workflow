@@ -17,7 +17,7 @@ export const commandOptions: Record<string, string[]> = {
   "memory-context": ["platform", "state-root", "query", "cwd", "auto", "event"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
   skill: ["action", "name", "from", "source", "source-type", "skill-path", "root"],
-  "task-init": [...TASK_TARGET_OPTIONS, "actor", "state-root", "repo-root", "adopt-current-diff", "paths"],
+  "task-init": [...TASK_TARGET_OPTIONS, "actor", "state-root", "repo-root", "adopt-current-diff", "paths", "confirmed-by", "as-user"],
   "task-write": [...TASK_TARGET_OPTIONS, "state-root", "repo-root", "adopt-current-diff"],
   reclassify: [...TASK_TARGET_OPTIONS, "confirmed-by-user", "reason", "actor", "state-root", "repo-root"],
   "task-gate": [...TASK_TARGET_OPTIONS, "repo-root"],
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   else if (command === "learn") process.exitCode = (await import("./learning.js")).learn(parsed.values);
   else if (command === "skill-draft") process.exitCode = (await import("./learning.js")).skillDraft(parsed.values);
   else if (command === "project-doc") process.exitCode = (await import("./project-doc.js")).projectDoc(parsed.values);
-  else if (command === "task-init") process.exitCode = (await import("./lifecycle/index.js")).taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"), true, {}, optionList(parsed.values, "paths"));
+  else if (command === "task-init") process.exitCode = (await import("./lifecycle/index.js")).taskInit(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "actor", "cli"), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"), true, {}, optionList(parsed.values, "paths"), { confirmedBy: option(parsed.values, "confirmed-by"), asUser: flag(parsed.values, "as-user") });
   else if (command === "task-write") process.exitCode = (await import("./lifecycle/index.js")).taskWrite(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), stdinJson(), option(parsed.values, "state-root") || undefined, option(parsed.values, "repo-root", process.cwd()), flag(parsed.values, "adopt-current-diff"));
   else if (command === "task-gate") process.exitCode = (await import("./lifecycle/index.js")).taskGate(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));
   else if (command === "task-report") process.exitCode = (await import("./task-report.js")).taskReport(option(parsed.values, "task-path", option(parsed.values, "task", parsed.positionals[0] || ".")), option(parsed.values, "repo-root", process.cwd()));

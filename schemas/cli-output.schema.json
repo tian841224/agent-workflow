@@ -415,6 +415,7 @@
         "procedures": { "type": "array", "items": { "type": "string" } },
         "readiness": { "type": "object" },
         "context": { "$ref": "#/$defs/taskContext" },
+        "intent_approval": { "description": "Present when --confirmed-by was given: the approval recorded with the task, or null when task.md has no valid intent to approve yet.", "type": ["object", "null"] },
         "next": { "$ref": "#/$defs/nextActions" },
         "errors": { "type": "array", "items": { "type": "string" } }
       },

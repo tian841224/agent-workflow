@@ -29,10 +29,6 @@ Report modified paths, verification commands and results, remaining gaps and blo
 platform's native response. Use a result file or particular format only when the coordinator asks.
 If the assignment cannot be completed within ownership, report the path, reason and affected acceptance.
 
-## Legacy packet assignments
-
-If the coordinator explicitly assigns an existing packet path, read its `assignment` and use its
-workspace, ownership, acceptance, attempt and result path. This opts into that legacy contract:
-run `agent-workflow worker-exec --assignment-path <packet> --cwd <worktree> --acceptance <id> -- <command>`
-for its acceptance receipts and write the requested JSON result at `assignment.result_path`.
 Direct native assignments do not require a packet, a separate worktree, worker-exec or a JSON result.
+Packet assignments: when the coordinator explicitly assigns a packet path, read
+[orchestration.md](../skills/workflow/orchestration.md#packet-assignments) before starting.

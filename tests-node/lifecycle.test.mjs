@@ -539,8 +539,9 @@ test("evidence-run records runtime-trusted execution evidence, and a failing com
   writeFileSync(join(task, "task.md"), "# Run\n\n## Goal\n\nVerify evidence-run.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   // medium confidence is what draws baseline_validation here: a confident local change requires no
-  // capability at all, so BV2 would not be a selected step to record against.
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
+  // capability at all. code_change: false keeps BV2 a gate proof; a code task leaves that run to its
+  // acceptance cases.
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
   const record = (...trailing) => run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "ran the check", "--", ...trailing]);
   assert.equal(record(process.execPath, "-e", "console.log('ok')").status, 0);
@@ -570,7 +571,7 @@ test("one evidence-run can satisfy a runtime proof and an acceptance case in one
   const task = join(root, "task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Batch\n\n## Goal\n\nVerify batched evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] one command records two gate items\n\n### Acceptance cases\n\n- **AC1** batch run\n  - Given a task with a proof and a case\n  - When one command proves both\n  - Then both are recorded\n  - Verify: `node -e 0`\n");
   const path = join(task, "task.json");
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
   const result = run(["evidence-run", "--task-path", path, "--requirement-id", "acceptance.AC1", "--requirement-id", "baseline_validation.BV2", "--summary", "one command covers both gate items", "--", process.execPath, "-e", "console.log('batch')"]);
   assert.equal(result.status, 0, result.stdout || result.stderr);
@@ -589,7 +590,7 @@ test("ticking a Completion criteria checkbox keeps recorded evidence fresh, but 
   const taskMd = (box, criterion) => `# Tick\n\n## Goal\n\nVerify checkbox handling.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [${box}] ${criterion}\n`;
   writeFileSync(join(task, "task.md"), taskMd(" ", "the check passes"));
   const path = join(task, "task.json");
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix" })));
   const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "ran", "--", process.execPath, "-e", "0"]).status, 0);
   const gateErrors = () => JSON.parse(run(["task-gate", "--task-path", path]).stdout).errors.join("\n");
@@ -611,7 +612,7 @@ test("evidence-run rejects its own write when the task was reclassified while it
   const path = join(task, "task.json");
   // Keep baseline_validation selected before the command starts; the concurrent risk update then
   // changes the plan while the process is running, which is the freshness race under test.
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
   const { spawn } = await import("node:child_process");
   const evidenceRunAsync = () => new Promise((resolvePromise) => {
@@ -749,7 +750,7 @@ test("step evidence recorded before a classification round-trip does not satisfy
   writeFileSync(join(task, "task.md"), "# Replay\n\n## Goal\n\nVerify plan_revision closes the plan_hash replay gap.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "cross_project", impact_effect: "destructive", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: [], impact_scope: "cross_project", impact_effect: "destructive", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
   const record = run(["evidence-run", "--task-path", path, "--requirement-id", "baseline_validation.BV2", "--summary", "recorded before the round-trip", "--", process.execPath, "-e", "0"]);
   assert.equal(record.status, 0, record.stdout);
   const planHashBefore = JSON.parse(readFileSync(path, "utf8")).evidence.at(-1).plan_hash;
@@ -805,7 +806,7 @@ test("a paused or blocked task accepts classification writes but no validation e
   writeFileSync(join(task, "task.md"), "# Paused\n\n## Goal\n\nVerify paused tasks cannot accumulate evidence.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
   const path = join(task, "task.json");
   const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
-  writeFileSync(path, JSON.stringify(validTask({ managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
+  writeFileSync(path, JSON.stringify(validTask({ code_change: false, managed_change: true, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "medium", task_type: "fix", risk_flags: [] })));
   for (const status of ["pause", "block"]) {
     const moved = run([status, "--task", path]);
     assert.equal(moved.status, 0, moved.stdout);
@@ -861,4 +862,49 @@ test("a waiver recorded without plan_revision no longer satisfies the gate", () 
   writeFileSync(path, JSON.stringify(state));
   const regated = JSON.parse(run(["task-gate", "--task-path", path]).stdout);
   assert.ok(regated.errors.some((error) => error.includes("role.reviewer")), regated.errors.join("; "));
+});
+
+
+test("task-init records who confirmed the specification in the same call", () => {
+  const root = join(tmpdir(), `agent-workflow-init-confirmation-${process.pid}-${Date.now()}`);
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const classification = JSON.stringify({ code_change: false, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high" });
+  const taskDir = (name, markdown = "# Confirmation\n\n## Goal\n\nRecord the confirmation with the task.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n") => {
+    const task = join(root, name); mkdirSync(task, { recursive: true });
+    writeFileSync(join(task, "task.md"), markdown);
+    return task;
+  };
+  const confirmed = taskDir("20260101-000000-user-confirmed");
+  const init = run(["task-init", "--task-path", confirmed, "--confirmed-by", "user message", "--as-user"], classification);
+  assert.equal(init.status, 0, init.stdout + init.stderr);
+  const body = JSON.parse(init.stdout);
+  assert.equal(body.intent_approval.source, "user");
+  assert.equal(body.intent_approval.confirmed_by, "user message");
+  assert.deepEqual(JSON.parse(readFileSync(join(confirmed, "task.json"), "utf8")).intent_approval, body.intent_approval);
+  // The hash is the one approve-intent computes from the same task.md, so later edits are caught the same way.
+  assert.equal(JSON.parse(run(["approve-intent", "--task-path", confirmed, "--confirmed-by", "test"]).stdout).intent_hash, body.intent_approval.intent_hash);
+
+  const attested = taskDir("20260101-000001-agent-attested");
+  assert.equal(JSON.parse(run(["task-init", "--task-path", attested, "--confirmed-by", "agent"], classification).stdout).intent_approval.source, "cli-attestation");
+
+  const plain = taskDir("20260101-000002-no-confirmation");
+  const plainBody = JSON.parse(run(["task-init", "--task-path", plain], classification).stdout);
+  assert.equal(Object.hasOwn(plainBody, "intent_approval"), false, "task-init without the option reports nothing new");
+  assert.equal(JSON.parse(readFileSync(join(plain, "task.json"), "utf8")).intent_approval, undefined);
+
+  // An intent that does not validate has nothing to approve: the task is still created and readiness names the blocker.
+  const invalid = taskDir("20260101-000003-invalid-intent", "# Confirmation\n\n## Scope\n\nNo goal section.\n");
+  const invalidBody = JSON.parse(run(["task-init", "--task-path", invalid, "--confirmed-by", "user message", "--as-user"], classification).stdout);
+  assert.equal(invalidBody.intent_approval, null);
+  assert.equal(invalidBody.readiness.ready, false);
+});
+
+test("task-init refuses --as-user without naming where the user confirmed", () => {
+  const task = join(tmpdir(), `agent-workflow-init-as-user-${process.pid}-${Date.now()}`, "20260101-000000-as-user-only");
+  mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# As user\n\n## Goal\n\nReject an unattributed confirmation.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const result = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-init", "--task-path", task, "--as-user"], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ code_change: false, managed_change: true }) });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).errors.join("; "), /--as-user requires --confirmed-by/);
+  assert.equal(existsSync(join(task, "task.json")), false, "a rejected call must not leave task state behind");
 });

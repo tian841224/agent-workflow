@@ -613,3 +613,40 @@ test("a re-install with no --skills keeps the previous selection instead of drop
   assert.equal(again.status, 0, again.stderr);
   assert.deepEqual(JSON.parse(again.stdout).selected_skills, catalog);
 });
+
+test("the installed entrypoint drops repo-only lines and points .agents links at the canonical home copy", () => {
+  const root = join(tmpdir(), `agent-workflow-entrypoint-${process.pid}-${Date.now()}`);
+  const sandbox = join(root, "source");
+  mkdirSync(join(sandbox, "dist"), { recursive: true });
+  for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) copyFileSync(join("dist", bundle), join(sandbox, "dist", bundle));
+  for (const folder of ["adapters", "schemas", ".agents"]) cpSync(folder, join(sandbox, folder), { recursive: true });
+  writeFileSync(join(sandbox, "AGENTS.md"), [
+    "# entry",
+    "- shared rule → [workflow](.agents/skills/workflow/SKILL.md)",
+    "- repository rule → [architecture](docs/architecture.md)<!-- repo-only -->",
+    "- installed skill rule<!-- skill:workflow -->",
+    "- absent skill rule<!-- skill:not-installed -->"
+  ].join("\n"));
+  const installed = spawnSync(process.execPath, [join(sandbox, "dist", "agent-workflow.mjs"), "install", "--non-interactive", "--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: sandbox, encoding: "utf8", env: isolatedHome(root) });
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  for (const entry of [join(root, "home", ".agents", "AGENTS.md"), join(root, "claude", "CLAUDE.md"), join(root, "codex", "AGENTS.md"), join(root, "gemini", "GEMINI.md")]) {
+    const body = readFileSync(entry, "utf8");
+    assert.match(body, /shared rule → \[workflow\]\(~\/\.agents\/skills\/workflow\/SKILL\.md\)/, entry);
+    assert.doesNotMatch(body, /\]\(\.agents\//, `${entry} keeps a link that only resolves inside the repository`);
+    assert.doesNotMatch(body, /repository rule|repo-only|docs\/architecture\.md/, entry);
+    assert.match(body, /installed skill rule/, entry);
+    assert.doesNotMatch(body, /absent skill rule/, entry);
+  }
+  assert.ok(existsSync(join(root, "home", ".agents", "skills", "workflow", "SKILL.md")), "the rewritten link names a file the install laid down");
+});
+
+test("doc-coauthoring is retired from the catalog", () => {
+  const root = join(tmpdir(), `agent-workflow-retired-doc-coauthoring-${process.pid}-${Date.now()}`);
+  const run = (skills) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "install", "--non-interactive", "--skills", skills, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+  assert.match(run("doc-coauthoring").stderr, /unknown skill/);
+  const installed = run("all");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  assert.equal(JSON.parse(installed.stdout).selected_skills.includes("doc-coauthoring"), false);
+  assert.equal(existsSync(join(root, "home", ".agents", "skills", "doc-coauthoring")), false);
+  assert.equal(existsSync(join(process.cwd(), ".agents", "skills", "doc-coauthoring")), false, "a retired skill has no source left in the repository");
+});
