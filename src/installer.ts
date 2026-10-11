@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
@@ -196,36 +196,58 @@ function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): 
   };
   removeEmptyDirectories(runtime);
 }
-const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "platform-skill-link", "canonical-template", "platform-agent", "platform-rule"]);
-type AgentPlatformConfig = { tools?: string; model?: string; effort?: string; sandbox_mode?: string; orchestration_writable?: boolean };
-// Native subagent definitions generated from the canonical `.agents/agents/*.md` bodies. Each platform
-// discovers them from its own directory (Claude `agents/*.md`, Codex `agents/*.toml`); Antigravity has
-// no native subagent to register, so its tasks stay sequential.
-function installAgents(source: string, platform: Platform, platformRoot: string, state: string, records: FileRecord[], dryRun: boolean): void {
+const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "platform-skill-link", "canonical-template", "platform-agent", "platform-rule", "platform-entrypoint"]);
+type AgentPlatformConfig = { tools?: string; model?: string; effort?: string; sandbox_mode?: string; orchestration_writable?: boolean; model_reasoning_effort?: string; instructions_source?: string };
+type NativeAgentDefinition = { id: string; description: string; body: string; config: AgentPlatformConfig };
+function managedSourceFile(source: string, value: Json | undefined, label: string): string {
+  if (typeof value !== "string" || !value.trim() || isAbsolute(value) || /[\\:]/.test(value) || value.split("/").some((part) => part === ".." || !part)) throw new Error(`invalid ${label}: expected a repository-relative file path`);
+  const path = resolve(source, value);
+  if (!existsSync(path) || !lstatSync(path).isFile()) throw new Error(`${label} is missing: ${path}`);
+  const delta = relative(realpathSync(source), realpathSync(path));
+  if (isAbsolute(delta) || delta === ".." || delta.startsWith(`..${sep}`)) throw new Error(`invalid ${label}: path leaves the source repository`);
+  return path;
+}
+function nativeAgentDefinitions(source: string, manifest: JsonObject, selected: Platform[]): Record<Platform, NativeAgentDefinition[]> {
+  const agents = manifest.agents ?? {};
+  if (!agents || typeof agents !== "object" || Array.isArray(agents)) throw new Error("invalid agents: expected an object");
+  const definitions: Record<Platform, NativeAgentDefinition[]> = { Claude: [], Codex: [], Antigravity: [] };
+  for (const [name, settings] of Object.entries(agents)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error(`invalid agent definition: ${name}`);
+    const allowed = settings.platforms;
+    if (allowed !== undefined && (!Array.isArray(allowed) || !allowed.length || allowed.some((value) => value !== "Claude" && value !== "Codex"))) throw new Error(`invalid platforms for agent ${name}: expected a non-empty list of Claude or Codex`);
+    for (const platform of selected.filter((value) => value !== "Antigravity" && (!Array.isArray(allowed) || allowed.includes(value)))) {
+      const value = settings[platform.toLowerCase()] ?? {};
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`invalid ${platform} settings for agent ${name}`);
+      const config = value as AgentPlatformConfig;
+      if (config.model_reasoning_effort !== undefined && !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(config.model_reasoning_effort)) throw new Error(`invalid reasoning effort for agent ${name} (${platform})`);
+      const sourcePath = managedSourceFile(source, settings.source === undefined ? `.agents/agents/${name}.md` : settings.source, `agent source for ${name}`);
+      const raw = readFileSync(sourcePath, "utf8");
+      let body = frontmatterBody(raw).trim();
+      if (config.instructions_source !== undefined) body += `\n\n${readFileSync(managedSourceFile(source, config.instructions_source, `agent instructions source for ${name} (${platform})`), "utf8").trim()}`;
+      if (!body.trim()) throw new Error(`agent source for ${name} has no instructions`);
+      if (platform === "Codex" && body.includes("'''")) throw new Error(`${sourcePath} contains ''' and cannot be embedded in a TOML literal string`);
+      definitions[platform].push({ id: `agent-workflow-${name}`, description: String(parseFrontmatter(raw).description || name), body, config });
+    }
+  }
+  return definitions;
+}
+// Native platforms discover generated role files; canonical bodies may have platform-specific supplements.
+function installAgents(definitions: NativeAgentDefinition[], platform: Platform, platformRoot: string, state: string, records: FileRecord[], dryRun: boolean): void {
   if (platform === "Antigravity") return;
-  const agents = (readJson(join(source, "adapters", "managed-manifest.json")).agents || {}) as Record<string, JsonObject>;
   const directory = join(platformRoot, "agents");
   // Temp files a previous generator left behind would otherwise sit next to the real definitions forever.
   if (!dryRun && existsSync(directory)) for (const name of readdirSync(directory)) if (/^\.agent-workflow-.*\.tmp$/.test(name)) rmSync(join(directory, name), { force: true });
-  for (const [name, settings] of Object.entries(agents)) {
-    const sourcePath = join(source, ".agents", "agents", `${name}.md`);
-    if (!existsSync(sourcePath)) continue;
-    const raw = readFileSync(sourcePath, "utf8");
-    const description = String(parseFrontmatter(raw).description || name);
-    const body = frontmatterBody(raw).trim();
-    const id = `agent-workflow-${name}`;
-    const config = (settings[platform.toLowerCase()] || {}) as AgentPlatformConfig;
+  for (const { id, description, body, config } of definitions) {
     let destination: string; let content: string;
     if (platform === "Claude") {
       destination = join(directory, `${id}.md`);
       content = `---\nname: ${id}\ndescription: ${description}\n${config.tools ? `tools: ${config.tools}\n` : ""}${config.model ? `model: ${config.model}\n` : ""}${config.effort ? `effort: ${config.effort}\n` : ""}---\n\n${body}\n`;
     } else {
-      if (body.includes("'''")) throw new Error(`${sourcePath} contains ''' and cannot be embedded in a TOML literal string`);
       destination = join(directory, `${id}.toml`);
       // Workers write into batch worktrees under the state root, outside the parent's workspace, so
       // that directory has to be an explicit writable root of the sandbox.
       const writable = config.orchestration_writable ? `\n[sandbox_workspace_write]\nwritable_roots = [${JSON.stringify(join(state, "orchestration"))}]\n` : "";
-      content = `# agent-workflow managed agent\nname = ${JSON.stringify(id)}\ndescription = ${JSON.stringify(description)}\n${config.sandbox_mode ? `sandbox_mode = ${JSON.stringify(config.sandbox_mode)}\n` : ""}developer_instructions = '''\n${body}\n'''\n${writable}`;
+      content = `# agent-workflow managed agent\nname = ${JSON.stringify(id)}\ndescription = ${JSON.stringify(description)}\n${config.sandbox_mode ? `sandbox_mode = ${JSON.stringify(config.sandbox_mode)}\n` : ""}${config.model_reasoning_effort ? `model_reasoning_effort = ${JSON.stringify(config.model_reasoning_effort)}\n` : ""}developer_instructions = '''\n${body}\n'''\n${writable}`;
     }
     if (!dryRun) writeAtomic(destination, content);
     records.push({ path: destination, sha256: sha256(content), kind: "platform-agent" });
@@ -270,6 +292,11 @@ function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonic
     if (record.kind === "canonical-skill" && !skillRoot) continue;
     if (record.kind === "platform-skill-link") {
       if (typeof record.target === "string" && safeSkillLink(record, previous) && linkMatches(path, record.target) && !dryRun) unlinkSync(path);
+      continue;
+    }
+    if (record.kind === "platform-entrypoint") {
+      // Let removal failures stop installation before target metadata advances, so Repair can retry.
+      removeManagedEntryBlock(path, record.sha256, dryRun);
       continue;
     }
     if (linkedAncestor(path) || !existsSync(path)) continue;
@@ -466,16 +493,32 @@ function installedEntryBody(body: string, presentSkills: string[]): string {
     const marker = line.match(/<!--\s*skill:([a-z0-9-]+)\s*-->/i); return !marker || presentSkills.includes(marker[1]);
   }).join("\n").replaceAll("](.agents/", "](~/.agents/");
 }
+function managedEntryBlock(value: string): string | undefined {
+  return value.match(/<!-- agent-workflow v[4567] managed:start -->[\s\S]*?<!-- agent-workflow v[4567] managed:end -->/)?.[0];
+}
+function removeManagedEntryBlock(path: string, digest: string, dryRun: boolean): boolean {
+  if (linkedAncestor(path) || !existsSync(path)) return false;
+  const raw = readFileSync(path, "utf8"); const block = managedEntryBlock(raw);
+  if (!block || sha256(block) !== digest) return false;
+  if (!dryRun) writeAtomic(path, raw.replace(block, "").trim());
+  return true;
+}
 // `imports` maps a destination to the import lines that replace the copied body in its managed block,
 // for a platform whose entrypoint can include the canonical file instead of carrying a copy.
-function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean, presentSkills: string[], imports: Map<string, string[]> = new Map()): void {
+function managedEntrypoint(source: string, canonical: string, destinations: { path: string; instructions?: string }[], records: FileRecord[], dryRun: boolean, presentSkills: string[], imports: Map<string, string[]> = new Map()): void {
   const begin = "<!-- agent-workflow v7 managed:start -->", end = "<!-- agent-workflow v7 managed:end -->";
   const strip = (value: string) => value.replace(/\r?\n?<!-- agent-workflow v[4567] managed:start -->[\s\S]*?<!-- agent-workflow v[4567] managed:end -->\r?\n?/g, "").trim();
-  const candidates = [canonical, ...destinations].filter(existsSync).map((path) => strip(readFileSync(path, "utf8"))).filter(Boolean);
-  if (new Set(candidates).size > 1) throw new Error("conflicting unmanaged entrypoint content found; refusing to overwrite it");
   const body = installedEntryBody(readFileSync(source, "utf8").trim(), presentSkills);
-  const content = (managed: string) => `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${managed}\n${end}\n`;
-  if (!dryRun) for (const path of [canonical, ...destinations]) writeAtomic(path, content(imports.get(path)?.join("\n") ?? body));
+  for (const { path, instructions } of [{ path: canonical, instructions: undefined }, ...destinations]) {
+    const managed = imports.get(path)?.join("\n") ?? body;
+    const block = `${begin}\n${managed}${instructions ? `\n\n${instructions}` : ""}\n${end}`;
+    // Each file preserves its own unmanaged content, so platform-specific rules stay at their source.
+    if (!dryRun) {
+      const own = existsSync(path) ? strip(readFileSync(path, "utf8")) : "";
+      writeAtomic(path, `${own ? `${own}\n\n` : ""}${block}\n`);
+    }
+    if (instructions !== undefined) records.push({ path, sha256: sha256(block), kind: "platform-entrypoint" });
+  }
 }
 const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "independence"];
 function workflowFieldsFromFrontmatter(fields: Frontmatter): JsonObject {
@@ -646,9 +689,19 @@ export async function install(options: InstallOptions): Promise<number> {
     if (unknown.length) throw new Error(`unknown integration: ${unknown.join(", ")} (known: ${Object.keys(known).join(", ")})`);
   }
   const skillCatalog = catalog(source);
-  const retiredSkills = readJson(join(source, "adapters", "managed-manifest.json")).retired_skills || [];
+  const manifest = readJson(join(source, "adapters", "managed-manifest.json"));
+  const retiredSkills = manifest.retired_skills || [];
   if (!Array.isArray(retiredSkills) || retiredSkills.some((name) => typeof name !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || skillCatalog[name])) throw new Error("invalid retired_skills: expected non-catalog skill names");
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(skillCatalog, options, previous); const records: FileRecord[] = [];
+  const agents = nativeAgentDefinitions(source, manifest, selected);
+  let codexInstructions: string | undefined;
+  if (selected.includes("Codex") && manifest.codex !== undefined) {
+    if (!manifest.codex || typeof manifest.codex !== "object" || Array.isArray(manifest.codex)) throw new Error("invalid Codex configuration in managed manifest");
+    if (manifest.codex.coordinator_source !== undefined) {
+      codexInstructions = readFileSync(managedSourceFile(source, manifest.codex.coordinator_source, "Codex coordinator source"), "utf8").trim();
+      if (!codexInstructions) throw new Error("Codex coordinator source has no instructions");
+    }
+  }
   const canonical = join(home(), ".agents"); const sharedSkills = join(canonical, "skills"); const targetRoots = roots(options);
   const skillBackup = join(state, "migrations", `skills-${now().replace(/[:.]/g, "-")}-${process.pid}`);
   const imports = new Map<string, string[]>();
@@ -717,12 +770,14 @@ export async function install(options: InstallOptions): Promise<number> {
   if (!options.dryRun) for (const retire of retirementActions) retire();
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
-  // The Claude delegation rule is installed into the Claude root alone; the runtime every platform
-  // shares carries no copy of it.
+  // Instruction Markdown under adapters/<platform>/ is installed only into that platform's root, so the
+  // runtime every platform shares carries no copy of it; manifests, hook templates and rules are still copied.
   const delegationSource = join(source, "adapters", "claude", "delegation.md");
   for (const folder of ["adapters", "schemas"]) {
     for (const file of existsSync(join(source, folder)) ? filesAt(join(source, folder)) : []) {
-      if (resolve(file) !== resolve(delegationSource)) copyFile(file, join(runtime, folder, relative(join(source, folder), file)), records, "runtime", options.dryRun);
+      const inside = relative(join(source, folder), file);
+      if (folder === "adapters" && /\.md$/i.test(inside) && /[\\/]/.test(inside)) continue;
+      copyFile(file, join(runtime, folder, inside), records, "runtime", options.dryRun);
     }
   }
   pruneRuntime(runtime, records, options.dryRun);
@@ -738,23 +793,22 @@ export async function install(options: InstallOptions): Promise<number> {
     copyTree(sourceSkill, shared, records, "canonical-skill", options.dryRun);
   }
   for (const exposure of exposures) linkSkill(join(sharedSkills, exposure.name), exposure.destination, join(skillBackup, exposure.platform, exposure.name), records, options.dryRun);
-  const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
+  const destinations = selected.map((platform) => ({ path: join(targetRoots[platform], platforms[platform].entrypoint), instructions: platform === "Codex" ? codexInstructions : undefined }));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
   const presentSkills = existsSync(join(canonical, "skills")) ? readdirSync(join(canonical, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : [];
-  // Claude includes the canonical entrypoint and its own delegation rule; the other platforms keep a
-  // generated copy of the canonical body.
+  // Claude imports its rules; Codex supplements the generated shared body within its managed block.
   const claudeDelegation = selected.includes("Claude") && existsSync(delegationSource);
   const entryImports = new Map<string, string[]>();
   if (selected.includes("Claude")) entryImports.set(join(targetRoots.Claude, platforms.Claude.entrypoint), ["@~/.agents/AGENTS.md", ...(claudeDelegation ? [`@${CLAUDE_DELEGATION.join("/")}`] : [])]);
-  if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, options.dryRun, presentSkills, entryImports);
-  // Written after the entrypoints, so a rejected entrypoint leaves the installed rule matching its record.
+  if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, records, options.dryRun, presentSkills, entryImports);
+  // Written after the entrypoints, so a failed entrypoint write leaves the installed rule matching its record.
   if (claudeDelegation) installClaudeDelegation(delegationSource, targetRoots.Claude, records, options.dryRun);
   const node = process.execPath;
   for (const platform of selected) {
     const root = targetRoots[platform];
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform, source);
-    installAgents(source, platform, root, state, records, options.dryRun);
+    installAgents(agents[platform], platform, root, state, records, options.dryRun);
     if (platform === "Claude") ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
   }
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
@@ -800,6 +854,8 @@ export function verify(options: InstallOptions): number {
       try {
         if (record.kind === "platform-skill-link") {
           if (!safeSkillLink(record, managed) || typeof record.target !== "string" || record.sha256 !== sha256(resolve(record.target)) || !linkMatches(record.path, record.target)) errors.push(`managed skill link mismatch: ${record.path}`);
+        } else if (record.kind === "platform-entrypoint") {
+          if (!existsSync(record.path) || sha256(managedEntryBlock(readFileSync(record.path, "utf8")) || "") !== record.sha256) errors.push(`managed entrypoint block mismatch: ${record.path}`);
         } else if (!existsSync(record.path)) errors.push(`managed file is missing: ${record.path}`);
         else if (sha256(readFileSync(record.path)) !== record.sha256) errors.push(`managed file hash mismatch: ${record.path}`);
       } catch { errors.push(`managed path cannot be verified: ${record.path}`); }
@@ -820,6 +876,10 @@ export function uninstall(options: InstallOptions): number {
       continue;
     }
     if (linkedAncestor(record.path)) continue;
+    if (record.kind === "platform-entrypoint") {
+      if (removeManagedEntryBlock(record.path, record.sha256, options.dryRun)) removed += 1;
+      continue;
+    }
     if (existsSync(record.path) && sha256(readFileSync(record.path)) === record.sha256) { if (!options.dryRun) rmSync(record.path); removed += 1; }
   }
   const claudeRoot = managed.targets && typeof managed.targets === "object" && !Array.isArray(managed.targets) ? (managed.targets as JsonObject).Claude : undefined;

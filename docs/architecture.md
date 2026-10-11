@@ -37,6 +37,8 @@ Task-level Reviewer 的啟動時機由 [workflow review procedure](../.agents/sk
 
 平行開發使用平台原生 subagent，判斷入口與責任分配依 [workflow](../.agents/skills/workflow/SKILL.md)，worker 契約依 [worker](../.agents/agents/worker.md)。一般指派不要求 ExecutionPacket、獨立 worktree、worker-exec 或固定結果檔格式。
 
+Codex 的專用 coordinator 另要求實際工作預設委派與大型任務拆分。已識別 Codex task 的評估／原生 snapshot 使用既有 task-init、task-write 與 close-task gate，契約仍由 task.schema.json 擁有；未標記的 legacy task 與其他平台不新增此 gate。程序與 attestation 邊界見 [Workflow runtime](modules/workflow-runtime.md#codex-coordinator-gate)。
+
 `execution-packet` CLI 供明確選用 packet 契約的呼叫端使用。它帶有 task intent、classification、compiled capability／step、procedure pointers、required evidence 與 plan identity；task.md／task.json 是 authority。task-init、task-write 與 ExecutionPacket 共用 procedure resolver，依探索 profile、coordinator role 與 doc_gap 加入指引。`procedure` 是工作指引；`evidence` 是完成步驟的可驗證紀錄，兩者不可互換。
 
 ### task.md 與 task.json 的分工
@@ -59,7 +61,7 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 
 `src/orchestration/protocol.ts`、`schemas/orchestration.schema.json` 與 orchestration CLI 是工作包（packet）契約的選用介面；不作為正常平行開發的必要控制層。只有明確選用該介面時，才使用其 worktree、packet、receipt、artifact、Retry 與整合 state machine。原生指派直接使用平台工具，整合後回到 [Finalization](../.agents/skills/workflow/evidence.md#finalization)：主 agent 執行整體驗收與 proofs，再做 task-level Reviewer 與 close-task。
 
-Installer 從 `.agents/agents/*.md` 產生 Claude 與 Codex 的原生 agent 定義。orchestration writable root 與 Claude additionalDirectories 只供 orchestration CLI 使用，並非原生 worker 的隔離要求。沒有可用原生 subagent 的平台採循序實作。
+Installer 從 `.agents/agents/*.md` 產生 Claude 與 Codex 的原生 agent 定義；Reader／Worker 角色內文共用，Codex 可追加專用交接指示；Planner 使用 Codex 專用來源與平台限制。模型與 sandbox 等平台設定來自 manifest 的平台欄位。只適用單一平台的規則放在 `adapters/<platform>/` 並只安裝到該平台，例如 Claude 的派工規則，見 [managed skill installation](modules/managed-skill-installation.md)。orchestration writable root 與 Claude additionalDirectories 只供 orchestration CLI 使用，並非原生 worker 的隔離要求。沒有可用原生 subagent 的平台採循序實作。
 
 ## Classification 與 confirmation 的 trust boundary
 
@@ -112,3 +114,4 @@ Repo 內技能的必裝與平台範圍契約見 [managed skill installation](mod
 ## 模組文件索引
 
 - [Platform hooks](modules/platform-hooks.md)：context hook templates、managed hook 清理與平台授權邊界。
+- [Workflow runtime](modules/workflow-runtime.md)：lifecycle、evidence 與 Codex 拆分／原生觀察 gate。

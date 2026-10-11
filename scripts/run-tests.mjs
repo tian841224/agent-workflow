@@ -76,5 +76,7 @@ if (!files.length) {
 }
 
 console.error(`run-tests: profile=${profile} files=${files.length}`);
-const result = spawnSync(process.execPath, ["--test", ...files], { cwd: root, stdio: "inherit" });
+const fixtureEnv = { ...process.env };
+delete fixtureEnv.CODEX_THREAD_ID;
+const result = spawnSync(process.execPath, ["--test", ...files], { cwd: root, stdio: "inherit", env: fixtureEnv });
 process.exit(result.status ?? 1);

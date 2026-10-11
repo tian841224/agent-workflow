@@ -4,6 +4,7 @@ import { JsonObject, output, projectIdentity } from "../core.js";
 import { acceptanceCases, acceptanceErrors, acceptanceRequired, AcceptanceCase, intentHash } from "../intent.js";
 import { compilePlanForTaskPath, CompiledWorkflowPlan } from "../workflow-policy.js";
 import { deliverySnapshot, evidenceSatisfied, executionFreshnessErrors, latestEvidence, roleFreshnessErrors } from "./evidence.js";
+import { codexAssessmentErrors, codexExecutionErrors, UNAVAILABLE_INTENT_HASH } from "./codex-delegation.js";
 import { NextAction, nextActions } from "./next.js";
 import { ownershipErrors } from "./ownership.js";
 import { freezeRequired, schemaErrors } from "./task-schema.js";
@@ -15,6 +16,7 @@ export type GateMissing =
   | { kind: "intent"; reason: string }
   | { kind: "classification"; fields: string[] }
   | { kind: "approval" }
+  | { kind: "codex_delegation"; stage: "assessment" | "execution"; reasons: string[] }
   | { kind: "acceptance"; id: string; command: string }
   | { kind: "proof"; id: string; title: string; undecided_by?: string[] }
   | { kind: "role"; id: string };
@@ -36,6 +38,11 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
     try { liveIntentHash = intentHash(markdown); }
     catch (error) { const reason = String((error as Error).message || error); errors.push(reason); missing.push({ kind: "intent", reason }); }
   }
+  const assessmentErrors = codexAssessmentErrors(state);
+  const executionErrors = assessmentErrors.length ? [] : codexExecutionErrors(state, liveIntentHash || UNAVAILABLE_INTENT_HASH);
+  if (assessmentErrors.length) missing.push({ kind: "codex_delegation", stage: "assessment", reasons: assessmentErrors });
+  if (executionErrors.length) missing.push({ kind: "codex_delegation", stage: "execution", reasons: executionErrors });
+  errors.push(...assessmentErrors, ...executionErrors);
   const acceptanceIssues = markdown.trim() ? acceptanceErrors(markdown, acceptanceRequired(state)) : [];
   if (acceptanceIssues.length) { errors.push(...acceptanceIssues); missing.push({ kind: "intent", reason: acceptanceIssues.join("; ") }); }
   const acceptance = acceptanceIssues.length ? [] : acceptanceCases(markdown).cases;

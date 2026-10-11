@@ -23,6 +23,10 @@ export function nextActions(taskJsonPath: string, repoRoot: string, gate: Pick<G
   const actions: NextAction[] = [];
   const of = <K extends GateMissing["kind"]>(kind: K): Extract<GateMissing, { kind: K }>[] => gate.missing.filter((item): item is Extract<GateMissing, { kind: K }> => item.kind === kind);
   for (const item of of("intent")) actions.push({ command: `edit ${quote(join(dirname(taskJsonPath), "task.md"))}`, why: item.reason });
+  for (const item of of("codex_delegation")) actions.push({
+    command: `echo '{"codex_delegation":${item.stage === "assessment" ? '<assessment object>' : '<native_agents and observations from public native tools>'}}' | agent-workflow task-write --task-path ${task}`,
+    why: `${item.stage === "assessment" ? "assess the split before dispatch" : "record native IDs and a status snapshot before close"}: ${item.reasons.join("; ")}`
+  });
   const fields = [...new Set(of("classification").flatMap((item) => item.fields))];
   if (fields.length) actions.push({ command: `echo '${declareJson(fields)}' | agent-workflow task-write --task-path ${task}`, why: `declare ${fields.join(", ")}` });
   // Declaring a fact first can remove an undecided proof, which is cheaper than running it.

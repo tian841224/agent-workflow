@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,6 +9,225 @@ import { test } from "node:test";
 // Install always writes canonical skills under the user's home regardless of the --*-target flags,
 // so every spawned install/repair gets its own home instead of racing on the developer's ~/.agents.
 const isolatedHome = (root) => ({ ...process.env, HOME: join(root, "home"), USERPROFILE: join(root, "home") });
+
+function delegationFixture(t, copySource = false) {
+  const root = mkdtempSync(join(tmpdir(), "agent-workflow-delegation-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = copySource ? join(root, "source") : process.cwd();
+  if (copySource) {
+    mkdirSync(join(source, "dist"), { recursive: true });
+    for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) copyFileSync(join("dist", bundle), join(source, "dist", bundle));
+    for (const folder of ["adapters", "schemas", ".agents"]) cpSync(folder, join(source, folder), { recursive: true });
+    copyFileSync("AGENTS.md", join(source, "AGENTS.md"));
+  }
+  const run = (action, target = "All", extra = []) => spawnSync(process.execPath, [join(source, "dist", "agent-workflow.mjs"), action, "--non-interactive", "--target-agent", target, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini"), ...extra], { cwd: source, encoding: "utf8", env: isolatedHome(root) });
+  return { root, source, run, manifestPath: join(source, "adapters", "managed-manifest.json") };
+}
+
+test("Codex delegation installs three unpinned roles without changing other platform instructions", (t) => {
+  for (const target of ["All", "Codex"]) {
+    const { root, run } = delegationFixture(t);
+    const entries = [join(root, "home", ".agents", "AGENTS.md"), join(root, "claude", "CLAUDE.md"), join(root, "codex", "AGENTS.md"), join(root, "gemini", "GEMINI.md")];
+    for (const path of entries) {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, "User's shared instructions\n");
+    }
+    const configPath = join(root, "codex", "config.toml");
+    writeFileSync(configPath, 'model = "user-selected-model"\n');
+    mkdirSync(join(root, "codex", "agents"));
+    const userAgent = join(root, "codex", "agents", "user-role.toml");
+    writeFileSync(userAgent, 'name = "user-role"\n');
+    let installed;
+    for (const action of ["install", "repair", "repair"]) {
+      const result = run(action, target);
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      const current = new Map();
+      for (const [name, effort, sandbox] of [["reader", "medium", "read-only"], ["worker", "max", "workspace-write"], ["planner", "high", "read-only"]]) {
+        const path = join(root, "codex", "agents", `agent-workflow-${name}.toml`);
+        const role = readFileSync(path, "utf8");
+        assert.match(role, new RegExp(`^name = "agent-workflow-${name}"$`, "m"));
+        assert.match(role, /^description = "[^\n]+"$/m);
+        assert.match(role, new RegExp(`^model_reasoning_effort = "${effort}"$`, "m"));
+        assert.match(role, new RegExp(`^sandbox_mode = "${sandbox}"$`, "m"));
+        assert.match(role, /^developer_instructions = '''\n[\s\S]+\n'''/m);
+        assert.doesNotMatch(role, /^model\s*=|config_file\s*=/m);
+        assert.equal((role.match(/Only the coordinator opens subagents/g) || []).length, 1);
+        current.set(path, role);
+      }
+      for (const path of entries) {
+        const body = readFileSync(path, "utf8");
+        assert.match(body, /User's shared instructions/);
+        if (path === entries[2]) {
+          const block = body.match(/<!-- agent-workflow v7 managed:start -->[\s\S]*?<!-- agent-workflow v7 managed:end -->/)[0];
+          assert.equal((block.match(/## Codex 任務委派/g) || []).length, 1);
+        } else {
+          assert.doesNotMatch(body, /Codex 任務委派|agent-workflow-planner|最新可用 (?:Luna|Sol|Astra)/);
+          if (target === "Codex" && path !== entries[0]) assert.equal(body, "User's shared instructions\n");
+        }
+        current.set(path, body);
+      }
+      assert.equal(readFileSync(configPath, "utf8"), 'model = "user-selected-model"\n');
+      assert.equal(readFileSync(userAgent, "utf8"), 'name = "user-role"\n');
+      assert.equal(existsSync(join(root, "claude", "agents", "agent-workflow-planner.md")), false);
+      assert.equal(existsSync(join(root, "gemini", "agents")), false);
+      if (target === "All") {
+        for (const name of ["reader", "worker"]) assert.doesNotMatch(readFileSync(join(root, "claude", "agents", `agent-workflow-${name}.md`), "utf8"), /Codex 子代理交接|coordinator opens subagents|model_reasoning_effort/);
+      } else assert.equal(existsSync(join(root, "claude", "agents")), false);
+      if (installed) assert.deepEqual(current, installed, "repair preserves generated bytes and user text");
+      installed = current;
+      const records = JSON.parse(readFileSync(join(root, "state", "managed-runtime.json"), "utf8")).files;
+      assert.deepEqual(records.filter((record) => record.kind === "platform-entrypoint").map((record) => record.path), [entries[2]]);
+      for (const [path, body] of current) if (path.endsWith(".toml")) assert.ok(records.some((record) => record.path === path && record.kind === "platform-agent" && record.sha256 === createHash("sha256").update(body).digest("hex")));
+      const verified = run("verify", target);
+      assert.equal(verified.status, 0, verified.stdout + verified.stderr);
+    }
+  }
+});
+
+test("the installed Codex routing contract delegates work and selects current native model capabilities", (t) => {
+  const { root, run } = delegationFixture(t);
+  const result = run("install", "Codex");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const body = readFileSync(join(root, "codex", "AGENTS.md"), "utf8");
+  const rows = [...body.matchAll(/\| `agent-workflow-(reader|worker|planner)` \| 最新可用 (Luna|Sol|Astra) \| `(medium|max|high)` \|/g)].map((match) => match.slice(1));
+  assert.deepEqual(rows, [["reader", "Luna", "medium"], ["worker", "Sol", "max"], ["planner", "Astra", "high"]]);
+  assert.match(body, /簡單問答[\s\S]*主對話直接回答[\s\S]*單一工作也指派一個子代理/);
+  assert.match(body, /大型讀取、分析或開發[\s\S]*必須評估拆分[\s\S]*至少兩個獨立子任務[\s\S]*必須平行[\s\S]*先啟動[\s\S]*再等待/);
+  assert.match(body, /共用檔案只指定一個 owner[\s\S]*循序委派/);
+  assert.match(body, /整合與測試指定一個 worker[\s\S]*主對話[\s\S]*驗收/);
+  assert.match(body, /主對話[\s\S]*持有 managed lifecycle、gate、證據登錄[\s\S]*worker 自行讀碼、實作與測試/);
+  assert.match(body, /獨立程式審查[\s\S]*新的 `agent-workflow-worker`[\s\S]*唯讀審查[\s\S]*Sol／max[\s\S]*Reader 只提供事實/);
+  assert.match(body, /當次原生 spawn 工具公開[\s\S]*supported reasoning efforts[\s\S]*版本數字逐段比較/);
+  assert.match(body, /先選最新版，再確認[\s\S]*effort[\s\S]*不可[\s\S]*較舊版/);
+  assert.match(body, /明確傳入角色、選出的完整模型 ID[\s\S]*fork_turns="none"[\s\S]*不複製整段對話/);
+  assert.match(body, /清單缺失、系列不存在、版本無法判定或 effort 不支援[\s\S]*停止該委派[\s\S]*不默默降版[\s\S]*繼承父模型/);
+  assert.doesNotMatch(body, /gpt-\d|model_cache|resolver\.m?js/);
+});
+
+test("native agent platform restrictions prune only selected unchanged managed definitions", (t) => {
+  for (const edited of [false, true]) {
+    const { root, run, manifestPath } = delegationFixture(t, true);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.agents.planner.platforms = ["Claude", "Codex"];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const installed = run("install");
+    assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+    const oldPlanner = join(root, "claude", "agents", "agent-workflow-planner.md");
+    assert.ok(existsSync(oldPlanner));
+    if (edited) writeFileSync(oldPlanner, "user-modified planner\n");
+    manifest.agents.planner.platforms = ["Codex"];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    assert.equal(run("repair", "Codex").status, 0);
+    assert.ok(existsSync(oldPlanner), "an unselected platform is preserved");
+    const repaired = run("repair");
+    assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+    assert.equal(existsSync(oldPlanner), edited);
+    if (edited) assert.equal(readFileSync(oldPlanner, "utf8"), "user-modified planner\n");
+    assert.ok(existsSync(join(root, "codex", "agents", "agent-workflow-planner.toml")));
+    assert.equal(run("verify").status, 0);
+  }
+});
+
+test("invalid native role platforms and unsafe or missing sources fail before installation writes", (t) => {
+  const { root, source, run, manifestPath } = delegationFixture(t, true);
+  const original = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const cases = [
+    ...[[], ["codex"], "Codex", ["Claude", 1], ["Antigravity"]].map((platforms) => ({ change: (manifest) => { manifest.agents.planner.platforms = platforms; }, error: /invalid platforms for agent planner/ })),
+    { change: (manifest) => { manifest.agents.planner.source = "adapters/codex/agents/missing.md"; }, error: /agent source for planner is missing/ },
+    { change: (manifest) => { manifest.agents.worker.codex.instructions_source = "adapters/codex/agents/missing.md"; }, error: /agent instructions source for worker \(Codex\) is missing/ },
+    { change: (manifest) => { manifest.codex.coordinator_source = "adapters/codex/missing.md"; }, error: /Codex coordinator source is missing/ },
+    ...["../outside.md", join(root, "outside.md"), "", null].map((source) => ({ change: (manifest) => { manifest.agents.planner.source = source; }, error: /invalid agent source for planner/ })),
+    { change: (manifest) => { manifest.agents.reader.codex.model_reasoning_effort = "unsupported"; }, error: /invalid reasoning effort for agent reader \(Codex\)/ }
+  ];
+  writeFileSync(join(root, "outside.md"), "outside source");
+  for (const { change, error } of cases) {
+    const manifest = structuredClone(original);
+    change(manifest);
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    for (const extra of [[], ["--dry-run"]]) {
+      const result = run("install", "Codex", extra);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, error);
+      for (const directory of ["state", "codex", "claude", "gemini", "home"]) assert.equal(existsSync(join(root, directory)), false, `${directory} was written during a failed preflight`);
+    }
+  }
+  writeFileSync(manifestPath, JSON.stringify(original));
+  writeFileSync(join(source, "adapters", "codex", "agents", "subagent.md"), "Unembeddable ''' delimiter");
+  const rejected = run("install", "Codex");
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /cannot be embedded in a TOML literal string/);
+  assert.equal(existsSync(join(root, "state")), false);
+  const claude = run("install", "Claude");
+  assert.equal(claude.status, 0, claude.stdout + claude.stderr);
+});
+
+test("Codex entrypoint verification ignores user text and uninstall preserves modified managed blocks", (t) => {
+  for (const changed of [false, true]) {
+    const { root, run } = delegationFixture(t);
+    const installed = run("install", "Codex");
+    assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+    const path = join(root, "codex", "AGENTS.md");
+    const userText = "User's independent instructions\n\n";
+    writeFileSync(path, userText + readFileSync(path, "utf8"));
+    assert.equal(run("verify", "Codex").status, 0, "unmanaged text is outside the verified block");
+    if (changed) {
+      writeFileSync(path, readFileSync(path, "utf8").replace("## Codex 任務委派", "## user-modified delegation"));
+      const verified = run("verify", "Codex");
+      assert.notEqual(verified.status, 0);
+      assert.match(verified.stdout, /managed entrypoint block mismatch/);
+    }
+    const before = readFileSync(path, "utf8");
+    const dry = run("uninstall", "Codex", ["--dry-run"]);
+    assert.equal(dry.status, 0, dry.stdout + dry.stderr);
+    assert.equal(readFileSync(path, "utf8"), before);
+    const uninstalled = run("uninstall", "Codex");
+    assert.equal(uninstalled.status, 0, uninstalled.stdout + uninstalled.stderr);
+    assert.equal(readFileSync(path, "utf8"), changed ? before : userText.trim());
+  }
+});
+
+test("Codex target relocation strips only unchanged old entrypoint blocks and keeps other platform records", (t) => {
+  for (const changed of [false, true]) {
+    const { root, source, run } = delegationFixture(t);
+    const oldCodex = join(root, "codex"); const newCodex = join(root, "codex-next");
+    const runAt = (action, target = "Codex", extra = []) => spawnSync(process.execPath, [join(source, "dist", "agent-workflow.mjs"), action, "--non-interactive", "--target-agent", target, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", newCodex, "--antigravity-target", join(root, "gemini"), ...extra], { cwd: source, encoding: "utf8", env: isolatedHome(root) });
+    const installed = run("install");
+    assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+    const oldEntry = join(oldCodex, "AGENTS.md");
+    const userText = "Old target user's own text";
+    writeFileSync(oldEntry, userText + "\n\n" + readFileSync(oldEntry, "utf8"));
+    if (changed) writeFileSync(oldEntry, readFileSync(oldEntry, "utf8").replace("## Codex 任務委派", "## user-modified delegation"));
+    const before = readFileSync(oldEntry, "utf8");
+    const statePath = join(root, "state", "managed-runtime.json");
+    const oldState = readFileSync(statePath, "utf8");
+    const otherRecords = JSON.parse(oldState).files.filter((record) => record.path.startsWith(join(root, "claude")) || record.path.startsWith(join(root, "gemini")));
+    const dry = runAt("repair", "Codex", ["--dry-run"]);
+    assert.equal(dry.status, 0, dry.stdout + dry.stderr);
+    assert.equal(readFileSync(oldEntry, "utf8"), before);
+    assert.equal(readFileSync(statePath, "utf8"), oldState);
+    if (!changed) {
+      rmSync(oldEntry);
+      mkdirSync(oldEntry);
+      const failed = runAt("repair");
+      assert.notEqual(failed.status, 0, "an unreadable old entrypoint must fail relocation");
+      assert.equal(readFileSync(statePath, "utf8"), oldState, "failure keeps the old target metadata for retry");
+      rmSync(oldEntry, { recursive: true });
+      writeFileSync(oldEntry, before);
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const repaired = runAt("repair");
+      assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+      assert.equal(readFileSync(oldEntry, "utf8"), changed ? before : userText);
+      assert.match(readFileSync(join(newCodex, "AGENTS.md"), "utf8"), /## Codex 任務委派/);
+      const state = JSON.parse(readFileSync(statePath, "utf8"));
+      assert.equal(state.targets.Codex, newCodex);
+      assert.equal(state.files.some((record) => record.path.startsWith(oldCodex + (process.platform === "win32" ? "\\" : "/"))), false);
+      for (const record of otherRecords) assert.ok(state.files.some((current) => current.path === record.path && current.sha256 === record.sha256));
+      const verified = runAt("verify", "All");
+      assert.equal(verified.status, 0, verified.stdout + verified.stderr);
+    }
+  }
+});
 
 function retirementFixture() {
   const root = join(tmpdir(), `agent-workflow-retirement-${process.pid}-${Date.now()}`);
@@ -782,3 +1001,27 @@ test("Antigravity hook command assembly outputs clean node on Windows and avoids
   }
 });
 
+test("canonical shared entrypoint never inherits unmanaged content from platform destinations", () => {
+  const root = join(tmpdir(), `agent-workflow-isolation-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const geminiTarget = join(root, "gemini");
+  const claudeTarget = join(root, "claude");
+  const codexTarget = join(root, "codex");
+  mkdirSync(geminiTarget, { recursive: true });
+
+  const geminiEntry = join(geminiTarget, "GEMINI.md");
+  const antigravityCustomRule = "# Antigravity 派工與協同規則\n\n專屬 Gemini 協同規定。";
+  writeFileSync(geminiEntry, antigravityCustomRule);
+
+  const targets = ["--claude-target", claudeTarget, "--codex-target", codexTarget, "--antigravity-target", geminiTarget];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+  assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+
+  const installedGemini = readFileSync(geminiEntry, "utf8");
+  assert.match(installedGemini, /Antigravity 派工與協同規則/);
+  assert.match(installedGemini, /agent-workflow v7 managed:start/);
+
+  const canonicalEntry = join(root, "home", ".agents", "AGENTS.md");
+  const installedCanonical = readFileSync(canonicalEntry, "utf8");
+  assert.doesNotMatch(installedCanonical, /Antigravity 派工與協同規則/, "canonical ~/.agents/AGENTS.md must never contain Antigravity rules");
+});

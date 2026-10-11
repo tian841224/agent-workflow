@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { git, JsonObject, projectIdentity, readJson, stateRoot } from "../core.js";
 import { acceptanceErrors, acceptanceRequired, intentValidationErrors } from "../intent.js";
+import { codexAssessmentErrors } from "./codex-delegation.js";
 import { schemaErrors } from "./task-schema.js";
 import { activeLeaseConflict } from "./worktree-lease.js";
 
@@ -30,6 +31,7 @@ export function readinessChecks(taskPath: string, repoRootValue: string, stateRo
     try {
       taskState = knownState || readJson(taskPath);
       const errors = schemaErrors(taskState);
+      errors.push(...codexAssessmentErrors(taskState));
       const taskMd = join(dirname(taskPath), "task.md");
       if (existsSync(taskMd)) {
         const markdown = readFileSync(taskMd, "utf8");

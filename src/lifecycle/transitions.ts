@@ -5,6 +5,7 @@ import { intentHash, intentValidationErrors } from "../intent.js";
 import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
 import { resolveProcedures } from "../execution/execution-packet.js";
 import { taskContext } from "../task-context.js";
+import { applyCodexDelegationPatch, UNAVAILABLE_INTENT_HASH } from "./codex-delegation.js";
 import { nextActions } from "./next.js";
 import { evaluateTaskGate, nextForState } from "./task-gate.js";
 import { readinessChecks, readinessSummary } from "./readiness.js";
@@ -64,6 +65,7 @@ const TASK_INIT_WRITABLE_FIELDS = new Set([
   "code_change", "managed_change", "task_type",
   "impact_scope", "impact_effect", "impact_confidence", "risk_flags",
   "workflow_facts", "workflow_request", "workflow_decision",
+  "execution_platform", "codex_delegation",
   "project_docs",
   "independence", "subtask_role", "parent_task_id", "file_ownership",
   "delivery_status", "integration_status"
@@ -123,15 +125,18 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
       const createTask = (): JsonObject => {
         const baseCommit = codeChange ? activateCodeTask("task-init", taskId, root, identity, repoRootValue, adoptCurrentDiff, path) : undefined;
         const stamp = now();
+        const { codex_delegation, ...initialPatch } = patch;
         const state: JsonObject = {
           schema_version: 6, id: taskId, project_id: identity.projectId, worktree_id: identity.worktreeId,
           code_change: false, managed_change: false, risk_flags: [], created_at: stamp, updated_at: stamp, state_revision: 1, plan_revision: 1,
           lifecycle: { status: "in_progress", transitions: [{ at: stamp, action: "create", from: "new", to: "in_progress", actor }] },
           evidence: [], waivers: [],
           ...(baseCommit ? { base_commit: baseCommit } : {}),
-          ...patch,
+          ...(Object.hasOwn(process.env, "CODEX_THREAD_ID") ? { execution_platform: "Codex" } : {}),
+          ...initialPatch,
           ...runtimeSeed
         };
+        if (Object.hasOwn(patch, "codex_delegation")) applyCodexDelegationPatch(state, codex_delegation, taskIntentHash(path));
         recordIntentConfirmation(state, path, confirmation);
         attestIntentIfFrozen(state, path);
         const errors = schemaErrors(state);
@@ -173,7 +178,14 @@ function downgradeErrors(before: JsonObject, patch: JsonObject): string[] {
   return errors;
 }
 
-const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision", "project_docs", "independence"]);
+function taskIntentHash(path: string): string {
+  const taskMd = join(dirname(path), "task.md");
+  if (!existsSync(taskMd)) return UNAVAILABLE_INTENT_HASH;
+  try { return intentHash(readFileSync(taskMd, "utf8")); }
+  catch { return UNAVAILABLE_INTENT_HASH; }
+}
+
+const TASK_WRITABLE_FIELDS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request", "workflow_decision", "project_docs", "independence", "execution_platform", "codex_delegation"]);
 const CLASSIFICATION_KEYS = new Set(["code_change", "managed_change", "task_type", "impact_scope", "impact_effect", "impact_confidence", "risk_flags", "workflow_facts", "workflow_request"]);
 export function taskWrite(value: string, patch: JsonObject, stateRootValue?: string, repoRootValue = process.cwd(), adoptCurrentDiff = false, reclassification?: { confirmedByUser: string; reason: string; actor: string }, emitOutput = true, allowProjectDocEvidence = false): number {
   const path = taskPath(value);
@@ -205,6 +217,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
         // a stale writer racing another write must not be able to slip a downgrade past this check
         // just because its own read happened before the other writer's change landed.
         assertMutable(current, reclassification ? "reclassify" : "task-write", OPEN_STATUSES);
+        if (current.execution_platform === "Codex" && Object.hasOwn(patch, "execution_platform") && patch.execution_platform !== "Codex") throw new Error("task-write: execution_platform cannot be removed or changed once Codex");
         if (current.code_change === true && patch.code_change === false) throw new Error("task-write: code_change cannot transition from true back to false; supersede this task and create a new non-code task instead");
         if (!reclassification) {
           const downgrades = downgradeErrors(current, patch);
@@ -212,12 +225,14 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
         }
         const beforePlan = classificationTouched ? compilePlanForTaskPath(current, path) : undefined;
         for (const [key, fieldValue] of Object.entries(patch)) {
+          if (key === "codex_delegation") continue;
           if (key === "project_docs" && !allowProjectDocEvidence && fieldValue && typeof fieldValue === "object" && !Array.isArray(fieldValue)) {
             const existing = current.project_docs && typeof current.project_docs === "object" && !Array.isArray(current.project_docs) ? current.project_docs as JsonObject : {};
             const incoming = fieldValue as JsonObject;
             current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}) };
           } else current[key] = fieldValue;
         }
+        if (Object.hasOwn(patch, "codex_delegation")) applyCodexDelegationPatch(current, patch.codex_delegation, taskIntentHash(path));
         // Activation rebinds identity/base_commit here rather than trusting whatever task-init
         // recorded, so a task-write --repo-root pointed at the real repo still self-corrects a task
         // created against the wrong one.
