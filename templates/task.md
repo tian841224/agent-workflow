@@ -14,7 +14,7 @@
 
 <Which behaviors will be modified/reviewed/verified>
 
-<!-- Freeze-required tasks add this inside Scope:
+<!-- Development tasks and freeze-required tasks add this inside Scope:
 ### Non-goals and compatibility
 <What this task deliberately preserves or excludes>
 -->

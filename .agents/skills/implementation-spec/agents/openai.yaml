@@ -2,6 +2,6 @@ interface:
 
   display_name: "開發規格計畫"
 
-  short_description: "將開發計畫寫成可直接實作、交付與驗收的程式開發規格書，明確定義行為與契約"
+  short_description: "先寫待使用者確認的開發規格（做什麼、動哪裡、怎麼驗），核准後再展開到可直接實作"
 
-  default_prompt: "使用 $implementation-spec，將這項開發需求寫成可交付的程式開發規格書，包含實作設計、資料與介面契約、異常處理及驗收條件。"
+  default_prompt: "使用 $implementation-spec，將這項開發需求寫成待確認的開發規格，包含開發內容、修改位置、商業邏輯、完成條件與驗收案例。"

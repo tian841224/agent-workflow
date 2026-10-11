@@ -40,7 +40,7 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
 | 功能 | 實際用途 |
 | --- | --- |
 | 任務分流 | 會改變程式行為的修改走 managed workflow；純文件、問答與唯讀分析直接處理 |
-| 開發前的規格與驗收 | Managed 開發任務先進入 Plan mode，依 implementation-spec 產出 task.md 規格，使用者確認後才開發；規格深度隨影響調整，單一檔案且沒有風險 flag 的修改可直接在對話確認 |
+| 開發前的規格與驗收 | Managed 開發任務先進入 Plan mode，依 implementation-spec 產出只寫做什麼、動哪裡、怎麼驗的 task.md 規格，使用者確認後才展開實作設計並開發；展開深度隨影響調整，單一檔案且沒有風險 flag 的修改可直接在對話確認 |
 | 開發前的脈絡 | `task-init --paths` 一次回傳相關的專案文件、記憶，以及改過同一批路徑的已結案 task；缺文件時，只補這次碰到的模組 |
 | 計畫編譯 | 依影響範圍、風險與信心選取能力；必須實際執行的步驟列為 `proofs` 進入 gate，其餘分析步驟成為 `checklist` |
 | 驗收與 freshness | runtime 實際執行每條驗收案例的指令，記錄 exit code、輸出摘要與交付指紋；交付一改變，舊紀錄就失效 |
@@ -65,7 +65,7 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
         |
         v
       +-- 開發任務 --> Plan mode --> implementation-spec 產出規格
-      |                               （行為、設計、契約、驗收）
+      |                               （做什麼、動哪裡、怎麼驗）
       |                                 |
       |                               使用者確認 --> 保存 task.md
       |
@@ -73,6 +73,8 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
         |
         v
       task-init --paths --> 計畫、readiness、相關文件／記憶／歷程、next
+        |
+        跨模組或涉及契約、資料的開發任務 --> 把規格展開到可直接實作
         |
         agent 判斷工作是否適合平行，依平台能力使用原生 subagent
         |
@@ -186,7 +188,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | --- | --- |
 | [workflow](.agents/skills/workflow/SKILL.md) | 分流 managed change，從定義驗收標準一路到結案 |
 | [planning](.agents/skills/planning/SKILL.md) | 釐清架構方向、重要取捨或真正模糊的需求 |
-| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | Managed 開發任務在 Plan mode 產出待使用者確認的 task.md 規格，或撰寫可交付的開發規格；Claude Code、Codex 與 Antigravity 必裝 |
+| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | Managed 開發任務在 Plan mode 產出待使用者確認的 task.md 規格，核准後再展開到可直接實作；Claude Code、Codex 與 Antigravity 必裝 |
 | [grill-me](.agents/skills/grill-me/SKILL.md) | 使用者要求深入提問，或需要釐清高風險假設 |
 | [project-docs](.agents/skills/project-docs/SKILL.md) | 開發前補上這次碰到的模組文件、改動後更新失準的文件、記錄專案決策 |
 | [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組介面、責任邊界、seam 與 adapter |
