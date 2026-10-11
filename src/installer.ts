@@ -196,8 +196,8 @@ function pruneRuntime(runtime: string, records: FileRecord[], dryRun: boolean): 
   };
   removeEmptyDirectories(runtime);
 }
-const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "platform-skill-link", "canonical-template", "platform-agent"]);
-type AgentPlatformConfig = { tools?: string; model?: string; sandbox_mode?: string; orchestration_writable?: boolean };
+const MANAGED_ASSET_KINDS = new Set(["canonical-skill", "platform-skill", "platform-skill-link", "canonical-template", "platform-agent", "platform-rule"]);
+type AgentPlatformConfig = { tools?: string; model?: string; effort?: string; sandbox_mode?: string; orchestration_writable?: boolean };
 // Native subagent definitions generated from the canonical `.agents/agents/*.md` bodies. Each platform
 // discovers them from its own directory (Claude `agents/*.md`, Codex `agents/*.toml`); Antigravity has
 // no native subagent to register, so its tasks stay sequential.
@@ -218,7 +218,7 @@ function installAgents(source: string, platform: Platform, platformRoot: string,
     let destination: string; let content: string;
     if (platform === "Claude") {
       destination = join(directory, `${id}.md`);
-      content = `---\nname: ${id}\ndescription: ${description}\n${config.tools ? `tools: ${config.tools}\n` : ""}${config.model ? `model: ${config.model}\n` : ""}---\n\n${body}\n`;
+      content = `---\nname: ${id}\ndescription: ${description}\n${config.tools ? `tools: ${config.tools}\n` : ""}${config.model ? `model: ${config.model}\n` : ""}${config.effort ? `effort: ${config.effort}\n` : ""}---\n\n${body}\n`;
     } else {
       if (body.includes("'''")) throw new Error(`${sourcePath} contains ''' and cannot be embedded in a TOML literal string`);
       destination = join(directory, `${id}.toml`);
@@ -230,6 +230,16 @@ function installAgents(source: string, platform: Platform, platformRoot: string,
     if (!dryRun) writeAtomic(destination, content);
     records.push({ path: destination, sha256: sha256(content), kind: "platform-agent" });
   }
+}
+// Path of the Claude-only delegation rule relative to the Claude root; CLAUDE.md imports it by this path.
+const CLAUDE_DELEGATION = ["agent-workflow", "delegation.md"];
+// Installs the delegation rule into the Claude root, the only platform location that holds it, so no
+// other platform's entrypoint, skill directory or agent definition leads to it.
+function installClaudeDelegation(sourcePath: string, claudeRoot: string, records: FileRecord[], dryRun: boolean): void {
+  const destination = join(claudeRoot, ...CLAUDE_DELEGATION);
+  const content = readFileSync(sourcePath, "utf8");
+  if (!dryRun) writeAtomic(destination, content);
+  records.push({ path: destination, sha256: sha256(content), kind: "platform-rule" });
 }
 // Claude subagents may only touch the project and its additional directories; the batch worktrees
 // live under the state root, so that directory is added once and removed again by uninstall.
@@ -393,19 +403,58 @@ function policyBlock(source: string, skill: string): string {
   if (!match) throw new Error(`${skill}/SKILL.md has no <!-- enforcement:start/end --> block for {{POLICY:${skill}}}`);
   return match[1].trim();
 }
-function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, topLevel: boolean, source: string): void {
+let cachedNodeOnPath: boolean | undefined;
+function isNodeOnPath(): boolean {
+  if (cachedNodeOnPath !== undefined) return cachedNodeOnPath;
+  try {
+    const probe = spawnSync("node", ["--version"], { encoding: "utf8", windowsHide: true });
+    cachedNodeOnPath = probe.status === 0;
+  } catch {
+    cachedNodeOnPath = false;
+  }
+  return cachedNodeOnPath;
+}
+
+function normalizeHookCommand(command: string, platform: Platform, node: string): string {
+  if (platform === "Antigravity") {
+    if (isNodeOnPath()) {
+      return command.replace(/^"\{\{NODE_EXE\}\}"\s*/, "node ").replace(/^\{\{NODE_EXE\}\}\s*/, "node ");
+    }
+    const withNode = command.replaceAll("{{NODE_EXE}}", node);
+    return process.platform === "win32" ? `"${withNode}"` : withNode;
+  }
+  return command.replaceAll("{{NODE_EXE}}", node);
+}
+
+function normalizeHookCommands(value: Json, platform: Platform, node: string): Json {
+  if (Array.isArray(value)) return value.map((item) => normalizeHookCommands(item, platform, node));
+  if (!value || typeof value !== "object") return value;
+  const record = value as JsonObject;
+  const result: JsonObject = {};
+  for (const [key, item] of Object.entries(record)) {
+    if (key === "command" && typeof item === "string") {
+      result[key] = normalizeHookCommand(item, platform, node);
+    } else {
+      result[key] = normalizeHookCommands(item, platform, node);
+    }
+  }
+  return result;
+}
+
+function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, platform: Platform, source: string): void {
   let templated = JSON.stringify(fragment)
     .replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\"))
-    .replaceAll("{{STATE_ROOT}}", state.replaceAll("\\", "\\\\"))
-    .replaceAll("{{NODE_EXE}}", node.replaceAll("\\", "\\\\"));
+    .replaceAll("{{STATE_ROOT}}", state.replaceAll("\\", "\\\\"));
   // JSON.stringify on the extracted block yields a quoted, escaped string; stripping its outer
   // quotes gives exactly the escaped form the surrounding JSON string literal needs.
   templated = templated.replace(/\{\{POLICY:([a-z0-9-]+)\}\}/g, (_match, skill: string) => JSON.stringify(policyBlock(source, skill)).slice(1, -1));
   const replaced = JSON.parse(templated) as JsonObject;
+  const normalizedReplaced = normalizeHookCommands(replaced, platform, node) as JsonObject;
   let current: JsonObject = {};
   if (existsSync(destination)) current = readJson(destination);
   current = removeOwnHooks(current, runtime) as JsonObject;
-  const merged = topLevel ? { ...current, ...replaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (replaced.hooks || {}) as JsonObject) };
+  const topLevel = platform === "Antigravity";
+  const merged = topLevel ? { ...current, ...normalizedReplaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (normalizedReplaced.hooks || {}) as JsonObject) };
   if (!dryRun) writeJson(destination, merged);
 }
 // Turns the repository's AGENTS.md into the entrypoint installed for every project: lines that only
@@ -417,13 +466,16 @@ function installedEntryBody(body: string, presentSkills: string[]): string {
     const marker = line.match(/<!--\s*skill:([a-z0-9-]+)\s*-->/i); return !marker || presentSkills.includes(marker[1]);
   }).join("\n").replaceAll("](.agents/", "](~/.agents/");
 }
-function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean, presentSkills: string[]): void {
+// `imports` maps a destination to the import lines that replace the copied body in its managed block,
+// for a platform whose entrypoint can include the canonical file instead of carrying a copy.
+function managedEntrypoint(source: string, canonical: string, destinations: string[], dryRun: boolean, presentSkills: string[], imports: Map<string, string[]> = new Map()): void {
   const begin = "<!-- agent-workflow v7 managed:start -->", end = "<!-- agent-workflow v7 managed:end -->";
   const strip = (value: string) => value.replace(/\r?\n?<!-- agent-workflow v[4567] managed:start -->[\s\S]*?<!-- agent-workflow v[4567] managed:end -->\r?\n?/g, "").trim();
   const candidates = [canonical, ...destinations].filter(existsSync).map((path) => strip(readFileSync(path, "utf8"))).filter(Boolean);
   if (new Set(candidates).size > 1) throw new Error("conflicting unmanaged entrypoint content found; refusing to overwrite it");
-  const content = `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${installedEntryBody(readFileSync(source, "utf8").trim(), presentSkills)}\n${end}\n`;
-  if (!dryRun) for (const path of [canonical, ...destinations]) writeAtomic(path, content);
+  const body = installedEntryBody(readFileSync(source, "utf8").trim(), presentSkills);
+  const content = (managed: string) => `${candidates[0] ? `${candidates[0]}\n\n` : ""}${begin}\n${managed}\n${end}\n`;
+  if (!dryRun) for (const path of [canonical, ...destinations]) writeAtomic(path, content(imports.get(path)?.join("\n") ?? body));
 }
 const workflowFrontmatterKeys = ["project_id", "worktree_id", "code_change", "workflow_mode", "task_type", "risk_flags", "impact_scope", "impact_effect", "impact_confidence", "workflow_request", "independence"];
 function workflowFieldsFromFrontmatter(fields: Frontmatter): JsonObject {
@@ -665,7 +717,14 @@ export async function install(options: InstallOptions): Promise<number> {
   if (!options.dryRun) for (const retire of retirementActions) retire();
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
-  for (const folder of ["adapters", "schemas"]) if (existsSync(join(source, folder))) copyTree(join(source, folder), join(runtime, folder), records, "runtime", options.dryRun);
+  // The Claude delegation rule is installed into the Claude root alone; the runtime every platform
+  // shares carries no copy of it.
+  const delegationSource = join(source, "adapters", "claude", "delegation.md");
+  for (const folder of ["adapters", "schemas"]) {
+    for (const file of existsSync(join(source, folder)) ? filesAt(join(source, folder)) : []) {
+      if (resolve(file) !== resolve(delegationSource)) copyFile(file, join(runtime, folder, relative(join(source, folder), file)), records, "runtime", options.dryRun);
+    }
+  }
   pruneRuntime(runtime, records, options.dryRun);
   if (selectedSkills.includes("localization-tw")) writeLocalizationPolicy(source, runtime, records, options.dryRun);
   const cliDirectory = installCliShims(join(source, "dist", "agent-workflow.mjs"), options, records);
@@ -682,12 +741,19 @@ export async function install(options: InstallOptions): Promise<number> {
   const destinations = selected.map((platform) => join(targetRoots[platform], platforms[platform].entrypoint));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
   const presentSkills = existsSync(join(canonical, "skills")) ? readdirSync(join(canonical, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : [];
-  if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, options.dryRun, presentSkills);
+  // Claude includes the canonical entrypoint and its own delegation rule; the other platforms keep a
+  // generated copy of the canonical body.
+  const claudeDelegation = selected.includes("Claude") && existsSync(delegationSource);
+  const entryImports = new Map<string, string[]>();
+  if (selected.includes("Claude")) entryImports.set(join(targetRoots.Claude, platforms.Claude.entrypoint), ["@~/.agents/AGENTS.md", ...(claudeDelegation ? [`@${CLAUDE_DELEGATION.join("/")}`] : [])]);
+  if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, options.dryRun, presentSkills, entryImports);
+  // Written after the entrypoints, so a rejected entrypoint leaves the installed rule matching its record.
+  if (claudeDelegation) installClaudeDelegation(delegationSource, targetRoots.Claude, records, options.dryRun);
   const node = process.execPath;
   for (const platform of selected) {
     const root = targetRoots[platform];
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
-    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform === "Antigravity", source);
+    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform, source);
     installAgents(source, platform, root, state, records, options.dryRun);
     if (platform === "Claude") ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
   }
@@ -747,7 +813,8 @@ export function uninstall(options: InstallOptions): number {
   for (const item of Array.isArray(managed.files) ? managed.files : []) {
     if (!item || typeof item !== "object") continue;
     const record = item as JsonObject;
-    if (typeof record.path !== "string" || typeof record.sha256 !== "string" || record.kind === "canonical-skill") continue;
+    // Uninstall leaves the entrypoints in place, so the rule CLAUDE.md imports stays with them.
+    if (typeof record.path !== "string" || typeof record.sha256 !== "string" || record.kind === "canonical-skill" || record.kind === "platform-rule") continue;
     if (record.kind === "platform-skill-link") {
       if (safeSkillLink(record, managed) && typeof record.target === "string" && linkMatches(record.path, record.target)) { if (!options.dryRun) unlinkSync(record.path); removed += 1; }
       continue;

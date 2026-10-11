@@ -132,9 +132,25 @@ async function main(): Promise<void> {
     let payload: JsonObject = {};
     if (event || platform.toLowerCase() === "antigravity") { try { payload = stdinJson(); } catch { payload = {}; } }
     let invocationNum: number | undefined;
-    if (platform.toLowerCase() === "antigravity") invocationNum = typeof payload.invocationNum === "number" ? payload.invocationNum : undefined;
+    if (platform.toLowerCase() === "antigravity") {
+      invocationNum = typeof payload.invocationNum === "number" ? payload.invocationNum : (typeof payload.invocation_num === "number" ? payload.invocation_num : undefined);
+    }
     if (platform.toLowerCase() === "antigravity" && invocationNum !== 0) { process.stdout.write(`${JSON.stringify({ injectSteps: [] })}\n`); return; }
-    (await import("./knowledge.js")).memoryContext(platform, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "query"), option(parsed.values, "cwd", typeof payload.cwd === "string" ? payload.cwd : process.cwd()), invocationNum, flag(parsed.values, "auto"), event ? { event, prompt: typeof payload.prompt === "string" ? payload.prompt : undefined, sessionId: typeof payload.session_id === "string" ? payload.session_id : undefined } : undefined);
+    const hookCwd = typeof payload.cwd === "string" && payload.cwd
+      ? payload.cwd
+      : (Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === "string" && payload.workspacePaths[0]
+          ? payload.workspacePaths[0]
+          : process.cwd());
+    const sessionId = typeof payload.session_id === "string" ? payload.session_id : (typeof payload.conversationId === "string" ? payload.conversationId : undefined);
+    (await import("./knowledge.js")).memoryContext(
+      platform,
+      option(parsed.values, "state-root", stateRoot()),
+      option(parsed.values, "query"),
+      option(parsed.values, "cwd", hookCwd),
+      invocationNum,
+      flag(parsed.values, "auto"),
+      event ? { event, prompt: typeof payload.prompt === "string" ? payload.prompt : undefined, sessionId } : undefined
+    );
   }
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
   else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);

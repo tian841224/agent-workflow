@@ -133,3 +133,30 @@ test("automatic memory context requires relevance and Antigravity still injects 
   assert.deepEqual(memory({ invocationNum: 3 }, "demo memory"), { injectSteps: [] });
   assert.deepEqual(memory({}, "demo memory"), { injectSteps: [] });
 });
+
+test("Antigravity payload resolves workspacePaths when cwd is omitted", () => {
+  const state = join(tmpdir(), `agent-workflow-ag-payload-${process.pid}-${Date.now()}`);
+  const projectDir = join(tmpdir(), `agent-workflow-ag-project-${process.pid}-${Date.now()}`);
+  const entries = join(state, "knowledge", "global", "entries");
+  mkdirSync(entries, { recursive: true });
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(entries, "demo.md"), "---\nid: demo\ntopic: demo-memory\nscope: global\nstatus: verified\nupdated_at: 2026-01-01T00:00:00Z\n---\n\nremembered detail\n");
+
+  const runMemory = (payload, query = "demo memory") =>
+    JSON.parse(run(["memory-context", "--platform", "Antigravity", "--state-root", state, "--auto", "--query", query], payload).stdout);
+
+  const withoutCwdInvocationZero = runMemory({
+    workspacePaths: [projectDir],
+    invocationNum: 0
+  });
+  assert.equal(withoutCwdInvocationZero.injectSteps.length, 1,
+    `Must inject when invocationNum is 0: ${JSON.stringify(withoutCwdInvocationZero)}`);
+  assert.match(withoutCwdInvocationZero.injectSteps[0].ephemeralMessage, /demo-memory/);
+
+  const invocationOne = runMemory({
+    workspacePaths: [projectDir],
+    invocationNum: 1
+  });
+  assert.deepEqual(invocationOne, { injectSteps: [] }, "Must skip injection for subsequent invocations (invocationNum > 0)");
+});
+

@@ -629,7 +629,11 @@ test("the installed entrypoint drops repo-only lines and points .agents links at
   ].join("\n"));
   const installed = spawnSync(process.execPath, [join(sandbox, "dist", "agent-workflow.mjs"), "install", "--non-interactive", "--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: sandbox, encoding: "utf8", env: isolatedHome(root) });
   assert.equal(installed.status, 0, installed.stdout + installed.stderr);
-  for (const entry of [join(root, "home", ".agents", "AGENTS.md"), join(root, "claude", "CLAUDE.md"), join(root, "codex", "AGENTS.md"), join(root, "gemini", "GEMINI.md")]) {
+  // Claude imports the canonical copy, so the filtered body reaches it through that file.
+  const claudeEntry = readFileSync(join(root, "claude", "CLAUDE.md"), "utf8");
+  assert.match(claudeEntry, /^@~\/\.agents\/AGENTS\.md$/m);
+  assert.doesNotMatch(claudeEntry, /shared rule|repository rule|installed skill rule/);
+  for (const entry of [join(root, "home", ".agents", "AGENTS.md"), join(root, "codex", "AGENTS.md"), join(root, "gemini", "GEMINI.md")]) {
     const body = readFileSync(entry, "utf8");
     assert.match(body, /shared rule → \[workflow\]\(~\/\.agents\/skills\/workflow\/SKILL\.md\)/, entry);
     assert.doesNotMatch(body, /\]\(\.agents\//, `${entry} keeps a link that only resolves inside the repository`);
@@ -748,3 +752,33 @@ test("a dry run leaves a source-deleted canonical file and the managed state unt
   assert.ok(existsSync(stale));
   assert.equal(readFileSync(statePath, "utf8"), before);
 });
+
+test("Antigravity hook command assembly outputs clean node on Windows and avoids quote stripping", () => {
+  const root = join(tmpdir(), `agent-workflow-antigravity-quotes-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const geminiTarget = join(root, "gemini");
+  const targets = ["--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", geminiTarget];
+  const run = (args) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+  assert.equal(run(["install", "--non-interactive", "--state-root", state, ...targets]).status, 0);
+
+  const hooksPath = join(geminiTarget, "config", "hooks.json");
+  const config = JSON.parse(readFileSync(hooksPath, "utf8"));
+  const memoryCmd = config["agent-workflow-memory-context"].PreInvocation[0].command;
+  const localeCmd = config["agent-workflow-locale-context"].PreInvocation[0].command;
+
+  assert.match(memoryCmd, /^node\s+"/, "memory-context hook must start with clean node invocation");
+  assert.match(localeCmd, /^node\s+"/, "locale-context hook must start with clean node invocation");
+  assert.match(memoryCmd, /--platform Antigravity/);
+  assert.match(localeCmd, /--platform Antigravity/);
+  assert.match(memoryCmd, /--event SessionStart/);
+
+  if (process.platform === "win32") {
+    const result = spawnSync("cmd.exe", ["/c", memoryCmd], {
+      windowsVerbatimArguments: true,
+      encoding: "utf8",
+      input: JSON.stringify({ invocationNum: 1 })
+    });
+    assert.equal(result.status, 0, `cmd /c execution failed: ${result.stderr || result.stdout}`);
+  }
+});
+

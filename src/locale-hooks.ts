@@ -39,10 +39,12 @@ function firstInjectionOfSession(sessionId: Json | undefined): boolean {
 export function runLocaleContext(payload: JsonObject, root: string, platform = "Claude"): void {
   const policy = readLocalePolicy(root);
   const antigravity = platform.toLowerCase() === "antigravity";
+  const invocationNum = typeof payload.invocationNum === "number" ? payload.invocationNum : (typeof payload.invocation_num === "number" ? payload.invocation_num : undefined);
   // Antigravity fires PreInvocation on every model invocation, not once per session.
-  if (antigravity && payload.invocationNum !== 0) { output({ injectSteps: [] }); return; }
+  if (antigravity && invocationNum !== 0) { output({ injectSteps: [] }); return; }
   if (!policy || !policy.terms.length) { if (antigravity) output({ injectSteps: [] }); return; }
-  const context = localeContext(policy, antigravity || firstInjectionOfSession(payload.session_id));
+  const sessionId = typeof payload.session_id === "string" ? payload.session_id : (typeof payload.conversationId === "string" ? payload.conversationId : undefined);
+  const context = localeContext(policy, antigravity || firstInjectionOfSession(sessionId));
   if (antigravity) output({ injectSteps: [{ ephemeralMessage: context }] });
   else output({ hookSpecificOutput: { hookEventName: typeof payload.hook_event_name === "string" ? payload.hook_event_name : "UserPromptSubmit", additionalContext: context } });
 }
