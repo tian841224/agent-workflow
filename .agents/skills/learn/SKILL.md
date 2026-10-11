@@ -37,4 +37,4 @@ agent-workflow learn --action Capture --cwd <cwd> --state-root <state-root> --sc
 
 The canonical writable store is `~/.agent-workflow` (override with `AGENT_WORKFLOW_STATE_ROOT`). The installer embeds that same absolute state root in Claude, Codex, and Antigravity hooks, so `learn` writes are readable by every platform. `memory-context` also reads native platform memory directories as read-only leads marked `needs_verification`; verify those claims against the current project before relying on them.
 
-See [memory procedure](../workflow/memory.md) for bounded selection, freshness, project scope, and verification rules.
+Read the [memory procedure](../workflow/memory.md) when searching existing entries before a capture, writing to Global scope (evidence and approval requirements), or capturing a pitfall from a review blocker.

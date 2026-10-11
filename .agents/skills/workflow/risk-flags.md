@@ -45,4 +45,4 @@ flag 一旦填上就生效，沒有「補了某種證據就自動解除」這回
 
 ## unclear_requirements
 
-釐清與規格確認流程見 workflow skill 的第 2–4 步。使用者確認規格後，先保存 task.md，再執行帶 `--confirmed-by "user message" --as-user` 的 `task-init`，記錄為使用者確認。
+釐清與規格確認流程見 workflow skill 的第 2–4 步；使用者確認後的記錄方式依[意圖確認](#意圖確認)。

@@ -14,6 +14,10 @@
 
 `plan_hash` 只涵蓋 selected capability、`required_evidence` 與 exploration profile。policy 或分類改了，但這三者沒變時，既有 evidence 仍然有效。
 
+## task_type: mechanical
+
+純機械性、不改變行為的修改（改名、搬移、格式、有測試保護的常數）用 `task_type: mechanical`。
+
 ## 移除 required 的唯一路徑
 
 `agent-workflow waive --task <task> --requirement-id <被豁免的 requirement> --confirmed-by-user <文字>`。waiver 同時綁定當下的 `plan_hash` 與 `plan_revision`，分類一變就會失效。驗收案例不能 waive；要改驗收標準，就修改 task.md，然後重新驗收。
