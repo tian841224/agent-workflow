@@ -61,7 +61,7 @@ Lifecycle transition 只能經由 `TaskLifecycle` 執行，其他層不得直接
 
 `src/orchestration/protocol.ts`、`schemas/orchestration.schema.json` 與 orchestration CLI 是工作包（packet）契約的選用介面；不作為正常平行開發的必要控制層。只有明確選用該介面時，才使用其 worktree、packet、receipt、artifact、Retry 與整合 state machine。原生指派直接使用平台工具，整合後回到 [Finalization](../.agents/skills/workflow/evidence.md#finalization)：主 agent 執行整體驗收與 proofs，再做 task-level Reviewer 與 close-task。
 
-Installer 從 `.agents/agents/*.md` 產生 Claude 與 Codex 的原生 agent 定義；Reader／Worker 角色內文共用，Codex 可追加專用交接指示；Planner 使用 Codex 專用來源與平台限制。Claude 平台設定來自共用 manifest；Codex 的設定與來源由 [Codex adapter](../adapters/codex/managed-config.json) 擁有，只在選取 Codex 時讀取，該子樹不複製到共用 runtime。只適用單一平台的規則放在 `adapters/<platform>/` 並只安裝到該平台，例如 Claude 與 Antigravity 的派工規則，見 [managed skill installation](modules/managed-skill-installation.md)。orchestration writable root 與 Claude additionalDirectories 只供 orchestration CLI 使用，並非原生 worker 的隔離要求。沒有可用原生 subagent 的平台採循序實作。
+Installer 從 `.agents/agents/*.md` 產生 Claude 與 Codex 的原生 agent 定義；Reader／Worker 角色內文共用，Codex 可追加專用交接指示；Planner 使用 Codex 專用來源與平台限制。Claude 的設定由 [Claude adapter](../adapters/claude/managed-config.json) 擁有，Codex 的設定與來源由 [Codex adapter](../adapters/codex/managed-config.json) 擁有，各自只在選取該平台時讀取。只適用單一平台的設定與規則放在 `adapters/<platform>/` 並只安裝到該平台自己的目錄，例如 hook template、原生 agent 設定與派工規則；`adapters/` 的平台子目錄不複製到共用 runtime，共用位置（`~/.agents/`、`~/.agent-workflow/runtime/`）只放跨平台共用的內容，見 [managed skill installation](modules/managed-skill-installation.md)。orchestration writable root 與 Claude additionalDirectories 只供 orchestration CLI 使用，並非原生 worker 的隔離要求。沒有可用原生 subagent 的平台採循序實作。
 
 ## Classification 與 confirmation 的 trust boundary
 

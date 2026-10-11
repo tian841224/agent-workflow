@@ -21,7 +21,7 @@ function delegationFixture(t, copySource = false) {
     copyFileSync("AGENTS.md", join(source, "AGENTS.md"));
   }
   const run = (action, target = "All", extra = [], bundle = join(source, "dist", "agent-workflow.mjs")) => spawnSync(process.execPath, [bundle, action, "--non-interactive", "--target-agent", target, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini"), ...extra], { cwd: source, encoding: "utf8", env: { ...isolatedHome(root), AGENT_WORKFLOW_STATE_ROOT: join(root, "state") } });
-  return { root, source, run, manifestPath: join(source, "adapters", "managed-manifest.json"), codexConfigPath: join(source, "adapters", "codex", "managed-config.json") };
+  return { root, source, run, manifestPath: join(source, "adapters", "managed-manifest.json"), codexConfigPath: join(source, "adapters", "codex", "managed-config.json"), claudeConfigPath: join(source, "adapters", "claude", "managed-config.json") };
 }
 
 test("Codex delegation installs three unpinned roles without changing other platform instructions", (t) => {
@@ -107,19 +107,17 @@ test("the installed Codex routing contract delegates work and selects current na
   assert.doesNotMatch(body, /gpt-\d|model_cache|resolver\.m?js/);
 });
 
-test("native agent platform restrictions prune only selected unchanged managed definitions", (t) => {
+test("a native agent dropped from its platform configuration prunes only selected unchanged managed definitions", (t) => {
   for (const edited of [false, true]) {
-    const { root, run, manifestPath } = delegationFixture(t, true);
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    manifest.agents.worker.platforms = ["Claude"];
-    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const { root, run, claudeConfigPath } = delegationFixture(t, true);
     const installed = run("install");
     assert.equal(installed.status, 0, installed.stdout + installed.stderr);
     const oldWorker = join(root, "claude", "agents", "agent-workflow-worker.md");
     assert.ok(existsSync(oldWorker));
     if (edited) writeFileSync(oldWorker, "user-modified worker\n");
-    manifest.agents.worker.platforms = ["Codex"];
-    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const claudeConfig = JSON.parse(readFileSync(claudeConfigPath, "utf8"));
+    delete claudeConfig.agents.worker;
+    writeFileSync(claudeConfigPath, JSON.stringify(claudeConfig));
     assert.equal(run("repair", "Codex").status, 0);
     assert.ok(existsSync(oldWorker), "an unselected platform is preserved");
     const repaired = run("repair");
@@ -131,12 +129,10 @@ test("native agent platform restrictions prune only selected unchanged managed d
   }
 });
 
-test("invalid native role platforms and unsafe or missing sources fail before installation writes", (t) => {
+test("unsafe or missing native role sources fail before installation writes", (t) => {
   const { root, source, run, codexConfigPath } = delegationFixture(t, true);
   const original = JSON.parse(readFileSync(codexConfigPath, "utf8"));
   const cases = [
-    ...[[], ["codex"], "Codex", ["Claude", 1], ["Antigravity"]].map((platforms) => ({ change: (config) => { config.agents.planner.platforms = platforms; }, error: /invalid platforms for agent planner/ })),
-    { change: (config) => { config.agents.planner.platforms = ["Claude", "Codex"]; }, error: /the Codex adapter only supports Codex/ },
     { change: (config) => { config.agents.planner.source = "adapters/codex/agents/missing.md"; }, error: /agent source for planner is missing/ },
     { change: (config) => { config.agents.worker.instructions_source = "adapters/codex/agents/missing.md"; }, error: /agent instructions source for worker \(Codex\) is missing/ },
     { change: (config) => { config.coordinator_source = "adapters/codex/missing.md"; }, error: /Codex coordinator source is missing/ },
@@ -913,7 +909,8 @@ test("the installed entrypoint drops repo-only lines and points .agents links at
   const geminiEntry = readFileSync(join(root, "gemini", "GEMINI.md"), "utf8");
   assert.match(geminiEntry, /^@\.\.\/home\/\.agents\/AGENTS\.md$/m);
   assert.doesNotMatch(geminiEntry, /shared rule|repository rule|installed skill rule/);
-  for (const entry of [join(root, "home", ".agents", "AGENTS.md"), join(root, "codex", "AGENTS.md")]) {
+  {
+    const entry = join(root, "home", ".agents", "AGENTS.md");
     const body = readFileSync(entry, "utf8");
     assert.match(body, /shared rule → \[workflow\]\(~\/\.agents\/skills\/workflow\/SKILL\.md\)/, entry);
     assert.doesNotMatch(body, /\]\(\.agents\//, `${entry} keeps a link that only resolves inside the repository`);
@@ -921,6 +918,10 @@ test("the installed entrypoint drops repo-only lines and points .agents links at
     assert.match(body, /installed skill rule/, entry);
     assert.doesNotMatch(body, /absent skill rule/, entry);
   }
+  // Codex has no import syntax, so its block names the canonical file instead of carrying the filtered body.
+  const codexEntry = readFileSync(join(root, "codex", "AGENTS.md"), "utf8");
+  assert.ok(codexEntry.includes(`\`${join(root, "home", ".agents", "AGENTS.md")}\``), "the Codex block points at the canonical copy");
+  assert.doesNotMatch(codexEntry, /shared rule|repository rule|installed skill rule|absent skill rule/);
   assert.ok(existsSync(join(root, "home", ".agents", "skills", "workflow", "SKILL.md")), "the rewritten link names a file the install laid down");
 });
 

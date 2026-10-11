@@ -23,6 +23,10 @@ Claude／Codex 的 `UserPromptSubmit` 執行 `locale-context` 與 `memory-contex
 
 `removeOwnHooks` 依 managed runtime 路徑或 managed marker 辨識自有 hook；Antigravity 另以 `agent-workflow-` key 辨識。移除自有 handler 後保留同群組的使用者 handler，因此模板沒有 Git guard 時，repair 會清除舊 managed guard。
 
+`uninstall > removeOwnHooks > write settings`（對每個平台，先於刪除 runtime）
+
+Uninstall 以同一個 `removeOwnHooks` 清除 `managed-runtime.json` 記錄的 Claude、Codex、Antigravity hook 檔，使用者自己的 hook 與設定保留；沒有自有 hook 時不寫檔。清除後 Claude／Codex 留下 `{"hooks": {"UserPromptSubmit": []}}` 加上使用者內容，Antigravity 移除 `agent-workflow-` 開頭的頂層 key。hook template 只從安裝來源讀取，不存在於共用 runtime。
+
 ## Shared state
 
 平台設定保存已安裝 hooks。`managed-runtime.json` 保存 runtime 路徑與安裝紀錄。選用的 `adapters/codex/execpolicy.rules` 以 prompt 要求 Git 操作確認；目前安裝器不寫入該 rules 檔。

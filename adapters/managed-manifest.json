@@ -4,10 +4,6 @@
   "canonical": ["templates/"],
   "unmanaged_skills": [],
   "retired_skills": ["adhd-comms", "humanizer", "doc-coauthoring"],
-  "agents": {
-    "worker": {"claude": {"model": "sonnet", "effort": "high"}},
-    "reader": {"claude": {"tools": "Read, Glob, Grep", "model": "haiku"}}
-  },
   "skills": {
     "workflow": {"required": true, "description": "workflow policy、task gate 與執行規則"},
     "writing-for-agents": {"required": true, "description": "撰寫或修改 .agents/ 底下文件的 pointer 與分層揭露規則"},

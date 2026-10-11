@@ -213,20 +213,15 @@ function codexSourceFile(source: string, value: Json | undefined, label: string)
   if (isAbsolute(delta) || delta === ".." || delta.startsWith(`..${sep}`)) throw new Error(`invalid ${label}: path leaves the Codex adapter`);
   return path;
 }
-function nativeAgentDefinitions(source: string, manifest: JsonObject, selected: Platform[], codex?: JsonObject): Record<Platform, NativeAgentDefinition[]> {
+// `configs` holds each selected platform's own adapter configuration (adapters/<platform>/managed-config.json); an agent listed there belongs to that platform alone.
+function nativeAgentDefinitions(source: string, selected: Platform[], configs: Partial<Record<Platform, JsonObject>>): Record<Platform, NativeAgentDefinition[]> {
   const definitions: Record<Platform, NativeAgentDefinition[]> = { Claude: [], Codex: [], Antigravity: [] };
   for (const platform of selected.filter((value) => value !== "Antigravity")) {
-    const agents = (platform === "Codex" ? codex : manifest)?.agents ?? {};
+    const agents = configs[platform]?.agents ?? {};
     if (!agents || typeof agents !== "object" || Array.isArray(agents)) throw new Error(`invalid ${platform} agents: expected an object`);
     for (const [name, settings] of Object.entries(agents)) {
       if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error(`invalid agent definition: ${name}`);
-      const allowed = settings.platforms;
-      if (allowed !== undefined && (!Array.isArray(allowed) || !allowed.length || allowed.some((value) => value !== "Claude" && value !== "Codex"))) throw new Error(`invalid platforms for agent ${name}: expected a non-empty list of Claude or Codex`);
-      if (platform === "Codex" && Array.isArray(allowed) && allowed.some((value) => value !== "Codex")) throw new Error(`invalid platforms for agent ${name}: the Codex adapter only supports Codex`);
-      if (Array.isArray(allowed) && !allowed.includes(platform)) continue;
-      const value = platform === "Codex" ? settings : settings[platform.toLowerCase()] ?? {};
-      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`invalid ${platform} settings for agent ${name}`);
-      const config = value as AgentPlatformConfig;
+      const config = settings as AgentPlatformConfig;
       if (config.model_reasoning_effort !== undefined && !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(config.model_reasoning_effort)) throw new Error(`invalid reasoning effort for agent ${name} (${platform})`);
       const sourceFile = platform === "Codex" ? codexSourceFile : managedSourceFile;
       const sourcePath = settings.source === undefined ? managedSourceFile(source, `.agents/agents/${name}.md`, `agent source for ${name}`) : sourceFile(source, settings.source, `agent source for ${name}`);
@@ -493,7 +488,8 @@ function mergeHook(fragment: JsonObject, destination: string, runtime: string, s
   const merged = topLevel ? { ...current, ...normalizedReplaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (normalizedReplaced.hooks || {}) as JsonObject) };
   if (!dryRun) writeJson(destination, merged);
 }
-// Turns the repository's AGENTS.md into the entrypoint installed for every project: lines that only
+// Turns the repository's AGENTS.md into the canonical entrypoint installed for every project (only
+// ~/.agents/AGENTS.md carries this body; platform entrypoints import or point at it): lines that only
 // apply inside this repository or name a skill that is not installed are dropped, and links into
 // .agents/ point at the canonical home copy, the one place they resolve from another project.
 function installedEntryBody(body: string, presentSkills: string[]): string {
@@ -512,8 +508,9 @@ function removeManagedEntryBlock(path: string, digest: string, dryRun: boolean):
   if (!dryRun) writeAtomic(path, raw.replace(block, "").trim());
   return true;
 }
-// `imports` maps a destination to the import lines that replace the copied body in its managed block,
-// for a platform whose entrypoint can include the canonical file instead of carrying a copy.
+// `imports` maps a destination to the lines that replace the copied body in its managed block: an
+// import line for a platform that can include the canonical file, or a pointer line telling the agent
+// to read it for a platform that cannot. Only a destination without an entry carries the body itself.
 function managedEntrypoint(source: string, canonical: string, destinations: { path: string; instructions?: string }[], records: FileRecord[], dryRun: boolean, presentSkills: string[], imports: Map<string, string[]> = new Map()): void {
   const begin = "<!-- agent-workflow v7 managed:start -->", end = "<!-- agent-workflow v7 managed:end -->";
   const strip = (value: string) => value.replace(/\r?\n?<!-- agent-workflow v[4567] managed:start -->[\s\S]*?<!-- agent-workflow v[4567] managed:end -->\r?\n?/g, "").trim();
@@ -703,7 +700,8 @@ export async function install(options: InstallOptions): Promise<number> {
   if (!Array.isArray(retiredSkills) || retiredSkills.some((name) => typeof name !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || skillCatalog[name])) throw new Error("invalid retired_skills: expected non-catalog skill names");
   const selected = targetPlatforms(options.target); const selectedSkills = await selectSkills(skillCatalog, options, previous); const records: FileRecord[] = [];
   const codex = selected.includes("Codex") ? readJson(codexSourceFile(source, "adapters/codex/managed-config.json", "Codex configuration source")) : undefined;
-  const agents = nativeAgentDefinitions(source, manifest, selected, codex);
+  const claude = selected.includes("Claude") ? readJson(managedSourceFile(source, "adapters/claude/managed-config.json", "Claude configuration source")) : undefined;
+  const agents = nativeAgentDefinitions(source, selected, { Claude: claude, Codex: codex });
   let codexInstructions: string | undefined;
   if (codex) {
     codexInstructions = readFileSync(codexSourceFile(source, codex.coordinator_source, "Codex coordinator source"), "utf8").trim();
@@ -777,12 +775,12 @@ export async function install(options: InstallOptions): Promise<number> {
   if (!options.dryRun) for (const retire of retirementActions) retire();
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
-  // Platform instruction Markdown and the Codex adapter stay out of the shared runtime.
+  // Only adapters/'s top-level manifests are shared; every adapters/<platform>/ subtree (hook templates, settings,
+  // instructions) is read from the source at install time and lands only in that platform's own root.
   for (const folder of ["adapters", "schemas"]) {
     for (const file of existsSync(join(source, folder)) ? filesAt(join(source, folder)) : []) {
       const inside = relative(join(source, folder), file);
-      if (folder === "adapters" && inside.split(/[\\/]/)[0] === "codex") continue;
-      if (folder === "adapters" && /\.md$/i.test(inside) && /[\\/]/.test(inside)) continue;
+      if (folder === "adapters" && /[\\/]/.test(inside)) continue;
       copyFile(file, join(runtime, folder, inside), records, "runtime", options.dryRun);
     }
   }
@@ -802,10 +800,12 @@ export async function install(options: InstallOptions): Promise<number> {
   const destinations = selected.map((platform) => ({ path: join(targetRoots[platform], platforms[platform].entrypoint), instructions: platform === "Codex" ? codexInstructions : undefined }));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
   const presentSkills = existsSync(join(canonical, "skills")) ? readdirSync(join(canonical, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : [];
-  // Claude and Antigravity reference the canonical rules and their own delegation rule; Codex supplements
-  // the generated shared body within its managed block.
+  // Claude and Antigravity import the canonical rules and their own delegation rule. Codex has no import
+  // syntax and loads a single global file, so its block tells the agent to read the canonical file and
+  // then carries only the Codex instructions.
   const delegationSources = new Map<Platform, string>();
   const entryImports = new Map<string, string[]>();
+  if (selected.includes("Codex")) entryImports.set(join(targetRoots.Codex, platforms.Codex.entrypoint), [`開始任何工作前，先完整讀取 \`${join(canonical, "AGENTS.md")}\` 並遵守其中的共用規則；本檔只補充 Codex 專屬規則。`]);
   for (const platform of ["Claude", "Antigravity"] as const) {
     if (!selected.includes(platform)) continue;
     const rule = join(source, "adapters", platform.toLowerCase(), "delegation.md");
@@ -897,15 +897,15 @@ export function uninstall(options: InstallOptions): number {
     }
     if (existsSync(record.path) && sha256(readFileSync(record.path)) === record.sha256) { if (!options.dryRun) rmSync(record.path); removed += 1; }
   }
-  const claudeRoot = managed.targets && typeof managed.targets === "object" && !Array.isArray(managed.targets) ? (managed.targets as JsonObject).Claude : undefined;
-  const claudeSettings = typeof claudeRoot === "string" ? join(claudeRoot, ...platforms.Claude.hook) : "";
-  if (!options.dryRun && claudeSettings && existsSync(claudeSettings)) {
-    const settings = readJson(claudeSettings); const permissions = settings.permissions as JsonObject | undefined;
-    if (permissions && Array.isArray(permissions.additionalDirectories)) {
-      const orchestration = resolve(join(state, "orchestration"));
-      permissions.additionalDirectories = permissions.additionalDirectories.filter((item) => resolve(String(item)) !== orchestration);
-      writeJson(claudeSettings, settings);
-    }
+  // Hooks go before the runtime they point at; each platform's hook file is read and written once, and only when something of ours was in it.
+  const targets = managed.targets && typeof managed.targets === "object" && !Array.isArray(managed.targets) ? managed.targets as JsonObject : {};
+  for (const platform of Object.keys(platforms) as Platform[]) {
+    const root = targets[platform]; if (typeof root !== "string") continue;
+    const hookFile = join(root, ...platforms[platform].hook);
+    if (linkedAncestor(hookFile) || !existsSync(hookFile)) continue;
+    const current = readJson(hookFile); const cleaned = removeOwnHooks(current, join(state, "runtime")) as JsonObject; const permissions = cleaned.permissions as JsonObject | undefined;
+    if (platform === "Claude" && permissions && Array.isArray(permissions.additionalDirectories)) permissions.additionalDirectories = permissions.additionalDirectories.filter((item) => resolve(String(item)) !== resolve(join(state, "orchestration")));
+    if (!options.dryRun && JSON.stringify(cleaned) !== JSON.stringify(current)) writeJson(hookFile, cleaned);
   }
   if (!options.dryRun && existsSync(join(state, "runtime"))) rmSync(join(state, "runtime"), { recursive: true, force: true });
   output({ ok: true, removed, preserved: ["projects", "knowledge", "skills", "migrations"] }); return 0;

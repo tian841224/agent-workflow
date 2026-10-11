@@ -164,14 +164,14 @@ Protocol 3 runtime CLI 與 state 是選用介面；原生平行開發不以它�
 | 平台 | 入口規則 | skills | hooks | 原生 agent |
 | --- | --- | --- | --- | --- |
 | Claude Code | `~/.claude/CLAUDE.md`（引入 `~/.agents/AGENTS.md` 與 `~/.claude/agent-workflow/delegation.md`） | `~/.claude/skills` | `settings.json`（含 orchestration CLI 使用的 `additionalDirectories`） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
-| Codex | `~/.codex/AGENTS.md` | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader,planner}.toml` |
+| Codex | `~/.codex/AGENTS.md`（指標指向 `~/.agents/AGENTS.md`，另含 Codex coordinator 指示） | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader,planner}.toml` |
 | Antigravity | `~/.gemini/GEMINI.md`（引用 `~/.agents/AGENTS.md` 與 `~/.gemini/agent-workflow/delegation.md`） | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
-Claude Code 的派工規則只安裝在 Claude 目錄：主對話負責派工與結果驗證，讀取交給 Haiku 的 reader、規劃交給 Opus、實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
+Claude Code 的派工規則只安裝在 Claude 目錄：主對話負責派工與結果驗證，讀取交給 Haiku 的 reader、規劃交給 Opus、實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，原生角色設定是 `adapters/claude/managed-config.json`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
 
-技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
+技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份，並移除三個平台設定檔中由 agent-workflow 寫入的 hook；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
 
-Codex 的角色設定與委派程序由 [Codex adapter](adapters/codex/managed-config.json) 及其[coordinator 指示](adapters/codex/coordinator.md) 擁有，只安裝至 Codex 目錄。共用 runtime 排除 Codex adapter；原生 consumer 的載入與實際分派需另行驗證。
+Codex 的角色設定與委派程序由 [Codex adapter](adapters/codex/managed-config.json) 及其[coordinator 指示](adapters/codex/coordinator.md) 擁有，只安裝至 Codex 目錄。共用 runtime 排除所有平台 adapter 子目錄；原生 consumer 的載入與實際分派需另行驗證。
 
 重跑 `npm run setup` 即可更新，`agent-workflow verify` 檢查安裝是否完整。升級前，先把進行中的 managed task 結案或 supersede：plan 的計算方式改變時，進行中 task 的驗證紀錄會失效。
 

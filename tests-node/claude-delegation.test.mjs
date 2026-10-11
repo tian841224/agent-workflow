@@ -49,12 +49,13 @@ const managedLines = (entry) => {
   return block[1].split("\n").filter(Boolean);
 };
 
-function assertCodexEntrypoint(entry, shared) {
-  assert.doesNotMatch(shared, /^## Codex 任務委派$/m);
+// The Codex block is a pointer to the canonical file followed by the coordinator instructions; it carries no shared rule text.
+function assertCodexEntrypoint(entry, canonicalFile) {
+  assert.doesNotMatch(readFileSync(canonicalFile, "utf8"), /^## Codex 任務委派$/m);
+  const pointer = `開始任何工作前，先完整讀取 \`${canonicalFile}\` 並遵守其中的共用規則；本檔只補充 Codex 專屬規則。`;
   const supplement = readFileSync(join("adapters", "codex", "coordinator.md"), "utf8").trim();
-  const end = "<!-- agent-workflow v7 managed:end -->";
-  assert.ok(shared.includes(`\n${end}`));
-  assert.equal(entry, shared.replace(`\n${end}`, `\n\n${supplement}\n${end}`));
+  assert.equal(entry, `<!-- agent-workflow v7 managed:start -->\n${pointer}\n\n${supplement}\n<!-- agent-workflow v7 managed:end -->\n`);
+  assert.doesNotMatch(entry, SHARED_RULE);
 }
 
 test("AC1 the Claude entrypoint imports the canonical rules instead of carrying a copy", () => {
@@ -80,10 +81,9 @@ test("AC2 the delegation rule and the Claude model settings exist only under the
   }
   // The whole install, including the runtime and state every platform shares, holds exactly one copy.
   assert.deepEqual(files(target.root).filter(carriesRule), [target.delegation]);
-  // Canonical retains the shared body; only Codex appends its coordinator instructions.
-  const shared = readFileSync(join(target.canonical, "AGENTS.md"), "utf8");
-  assert.match(shared, SHARED_RULE);
-  assertCodexEntrypoint(readFileSync(join(target.codex, "AGENTS.md"), "utf8"), shared);
+  // Canonical retains the shared body; Codex points at it and adds only its coordinator instructions.
+  assert.match(readFileSync(join(target.canonical, "AGENTS.md"), "utf8"), SHARED_RULE);
+  assertCodexEntrypoint(readFileSync(join(target.codex, "AGENTS.md"), "utf8"), join(target.canonical, "AGENTS.md"));
   const definitions = files(join(target.codex, "agents")).filter((file) => file.endsWith(".toml"));
   assert.ok(definitions.length >= 2, "Codex has its worker and reader definitions");
   for (const file of definitions) assert.doesNotMatch(readFileSync(file, "utf8"), /^(model|effort)\s*=|sonnet|opus|haiku/m, file);
@@ -94,8 +94,8 @@ test("AC3 a Codex-only install lays down no Claude delegation rule", () => {
   assert.deepEqual(files(target.root).filter((file) => /delegation\.md$/.test(file)), []);
   assert.equal(existsSync(target.claudeEntry), false);
   const entry = readFileSync(join(target.codex, "AGENTS.md"), "utf8");
-  assertCodexEntrypoint(entry, readFileSync(join(target.canonical, "AGENTS.md"), "utf8"));
-  for (const heading of [/^## 分流$/m, /^## 硬護欄$/m, /^## 程式碼註解$/m]) assert.match(entry, heading);
+  assertCodexEntrypoint(entry, join(target.canonical, "AGENTS.md"));
+  for (const heading of [/^## 分流$/m, /^## 硬護欄$/m, /^## 程式碼註解$/m]) assert.doesNotMatch(entry, heading);
   assert.doesNotMatch(entry, DELEGATION_TRACE);
 });
 
