@@ -650,3 +650,101 @@ test("doc-coauthoring is retired from the catalog", () => {
   assert.equal(existsSync(join(root, "home", ".agents", "skills", "doc-coauthoring")), false);
   assert.equal(existsSync(join(process.cwd(), ".agents", "skills", "doc-coauthoring")), false, "a retired skill has no source left in the repository");
 });
+
+// A sandbox copy of the repository is the install source, so a test can delete a skill file from
+// the source after the first install without touching the real tree.
+function staleCanonicalFixture(label, { skillName = "workflow", relativePath = ["references", "stale.md"], target = "All", installArgs = [] } = {}) {
+  const root = join(tmpdir(), `agent-workflow-stale-canonical-${label}-${process.pid}-${Date.now()}`);
+  const source = join(root, "source");
+  mkdirSync(join(source, "dist"), { recursive: true });
+  for (const bundle of ["agent-workflow.mjs", "agent-workflow-hook.mjs"]) copyFileSync(join("dist", bundle), join(source, "dist", bundle));
+  for (const folder of ["adapters", "schemas", ".agents"]) cpSync(folder, join(source, folder), { recursive: true });
+  copyFileSync("AGENTS.md", join(source, "AGENTS.md"));
+  const sourceStale = join(source, ".agents", "skills", skillName, ...relativePath);
+  mkdirSync(join(sourceStale, ".."), { recursive: true });
+  writeFileSync(sourceStale, "reference removed from the source later\n");
+  const run = (action, extra = [], agent = target) => spawnSync(process.execPath, [join(source, "dist", "agent-workflow.mjs"), action, "--non-interactive", "--target-agent", agent, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini"), ...extra], { cwd: source, encoding: "utf8", env: isolatedHome(root) });
+  const installed = run("install", installArgs);
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const skill = join(root, "home", ".agents", "skills", skillName);
+  const stale = join(skill, ...relativePath);
+  const statePath = join(root, "state", "managed-runtime.json");
+  const recorded = () => JSON.parse(readFileSync(statePath, "utf8")).files.some((record) => record.path === stale);
+  assert.ok(existsSync(stale));
+  assert.equal(recorded(), true);
+  return { run, skill, stale, statePath, recorded, removeFromSource: () => rmSync(join(source, ".agents", "skills", skillName, relativePath[0]), { recursive: true }) };
+}
+
+test("a canonical skill file deleted from the source is removed with its record when unchanged", () => {
+  const { run, skill, stale, recorded, removeFromSource } = staleCanonicalFixture("unchanged");
+  removeFromSource();
+  const installed = run("install");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  assert.equal(existsSync(stale), false);
+  assert.equal(existsSync(join(skill, "references")), false, "the directory emptied by the removal goes with it");
+  assert.ok(existsSync(join(skill, "SKILL.md")));
+  assert.equal(recorded(), false);
+  assert.ok(existsSync(join(JSON.parse(installed.stdout).skill_backup, "canonical", "workflow", "references", "stale.md")), "the removed content stays recoverable");
+  assert.equal(run("verify").status, 0);
+  const again = run("install");
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  assert.equal(JSON.parse(again.stdout).skill_backup, null, "the cleaned skill matches the source, so a repeat install has nothing to back up");
+});
+
+test("removing a source-deleted canonical file stops at the first directory that still has content", () => {
+  const { run, skill, stale, recorded, removeFromSource } = staleCanonicalFixture("nested", { relativePath: ["references", "deep", "stale.md"] });
+  const notes = join(skill, "references", "notes.md");
+  writeFileSync(notes, "user-owned notes");
+  removeFromSource();
+  const installed = run("install");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  assert.equal(existsSync(stale), false);
+  assert.equal(existsSync(join(skill, "references", "deep")), false);
+  assert.equal(readFileSync(notes, "utf8"), "user-owned notes");
+  assert.ok(existsSync(join(skill, "SKILL.md")));
+  assert.equal(recorded(), false);
+  assert.equal(run("verify").status, 0);
+});
+
+test("a canonical skill that is not rewritten in this run keeps its source-deleted file and record", () => {
+  const { run, stale, recorded, removeFromSource } = staleCanonicalFixture("not-rewritten", { skillName: "distill", target: "Claude", installArgs: ["--skills", "all"] });
+  removeFromSource();
+  const installed = run("install", ["--skills", "workflow"], "Codex");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  assert.equal(JSON.parse(installed.stdout).selected_skills.includes("distill"), false);
+  assert.ok(existsSync(stale));
+  assert.equal(recorded(), true);
+  assert.equal(run("verify").status, 0);
+});
+
+test("a user-edited canonical file deleted from the source is kept and no longer recorded", () => {
+  const { run, stale, recorded, removeFromSource } = staleCanonicalFixture("edited");
+  writeFileSync(stale, "user-owned modification");
+  removeFromSource();
+  const installed = run("install");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  assert.equal(readFileSync(stale, "utf8"), "user-owned modification");
+  assert.equal(recorded(), false);
+  assert.equal(run("verify").status, 0);
+});
+
+test("a record for a source-deleted canonical file that is already gone is dropped", () => {
+  const { run, stale, recorded, removeFromSource } = staleCanonicalFixture("missing");
+  rmSync(stale);
+  assert.match(run("verify").stdout, /managed file is missing/);
+  removeFromSource();
+  const installed = run("install");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  assert.equal(recorded(), false);
+  assert.equal(run("verify").status, 0);
+});
+
+test("a dry run leaves a source-deleted canonical file and the managed state untouched", () => {
+  const { run, stale, statePath, removeFromSource } = staleCanonicalFixture("dry-run");
+  removeFromSource();
+  const before = readFileSync(statePath, "utf8");
+  const planned = run("install", ["--dry-run"]);
+  assert.equal(planned.status, 0, planned.stdout + planned.stderr);
+  assert.ok(existsSync(stale));
+  assert.equal(readFileSync(statePath, "utf8"), before);
+});

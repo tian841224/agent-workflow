@@ -29,7 +29,7 @@ covers:
 - 寫入前檢查所有選取平台：技能根目錄與共用技能必須是普通目錄；拒絕指向其他目標的既有連結、巢狀連結與不同內容的非 catalog 技能。
 - 選取平台內既有的有效技能（根目錄有 `SKILL.md` 且名稱合法）也轉為共用實體連結。已安裝的 catalog 技能以 repo 更新 canonical；這不會額外將未選取的 optional 技能加入其他平台。非 catalog 技能合併缺少的檔案，不覆寫既有檔案；同一路徑內容不同時失敗並保留原狀。`.system` 與 plugin cache 不在這個流程內。
 - 普通平台目錄先改名保存到 state 的 `migrations/skills-<timestamp>-<pid>/<platform>/<name>`，再建立連結；連結建立失敗會還原原目錄，不退回副本。跨磁碟改名不支援時保留原目錄並失敗。
-- repo 是 catalog 技能的更新來源；canonical 內容不同時先完整備份到同一批次的 `canonical/<name>`。既有額外檔案保留。回復時先停止安裝器操作，移除平台連結再將備份目錄搬回原路徑；需回復共用版本時使用 canonical 備份。
+- repo 是 catalog 技能的更新來源；canonical 內容不同時先完整備份到同一批次的 `canonical/<name>`。既有額外檔案保留。來源已刪除的檔案在更新該技能時處理：雜湊與紀錄相同就從 canonical 移除，並移除因此變空的子目錄；使用者改過的保留為額外檔案；已不存在的不做檔案操作。三種情況的紀錄都從 managed state 移除；雜湊相同卻刪除失敗的檔案保留紀錄，下次安裝再試。回復時先停止安裝器操作，移除平台連結再將備份目錄搬回原路徑；需回復共用版本時使用 canonical 備份。
 
 ## Shared state
 
@@ -38,6 +38,7 @@ managed-runtime.json 的 selected_skills 記錄 repo 選取結果，不代表每
 ## Invariants and gotchas
 
 - Repair 僅移除不再適用且仍指向預期 canonical 的 managed 連結；不透過 Junction 刪除檔案。舊普通副本只清除雜湊未變的 managed 檔案，保留使用者修改及未納管檔案。
+- 來源已刪除檔案的清理只套用在本次有重新寫入的 canonical 技能（選取的技能與選取平台上已存在的 catalog 技能）；本次未重新寫入的技能（退役技能，以及未選取且不在選取平台上的技能）其 canonical 實體與紀錄維持原狀，供回復與其他平台的退役判斷使用。
 - Uninstall 保留 canonical 技能實體與 migrations 備份，僅移除仍屬預期目標的 managed 平台連結。錯誤目標、使用者替換的目錄或未知連結保留。
 - dry-run 會執行前置檢查，不更新 runtime、canonical、備份、連結或 managed state。
 - 路徑邊界以實際根目錄身分檢查，Windows 忽略大小寫。變更平台 target 時清理舊 target 仍屬 managed 的連結與檔案，保留其他平台紀錄；使用者修改仍保留。

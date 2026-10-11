@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -242,9 +242,10 @@ function ensureClaudeOrchestrationDirectory(settingsPath: string, state: string,
   if (!dryRun) writeJson(settingsPath, { ...current, permissions: { ...permissions, additionalDirectories: [...listed, directory] } });
   return directory;
 }
-function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, dryRun: boolean): void {
+function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, rewrittenSkillRoots: string[], dryRun: boolean): void {
   const keep = new Set(records.filter((record) => MANAGED_ASSET_KINDS.has(record.kind)).map((record) => pathKey(record.path)));
   const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map(pathKey);
+  const rewritten = rewrittenSkillRoots.map(pathKey);
   for (const item of Array.isArray(previous.files) ? previous.files : []) {
     if (!item || typeof item !== "object") continue;
     const record = item as JsonObject;
@@ -253,13 +254,21 @@ function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonic
     const path = resolve(record.path);
     const key = pathKey(path);
     if (keep.has(key) || !managedRoots.some((root) => key === root || key.startsWith(root + sep))) continue;
-    if (record.kind === "canonical-skill") continue;
+    // A canonical skill rewritten this run has every source file in `records`, so a record outside
+    // that list is a file deleted from the source. Other canonical skills keep their recovery copy.
+    const skillRoot = record.kind === "canonical-skill" ? rewritten.find((root) => key.startsWith(root + sep)) : undefined;
+    if (record.kind === "canonical-skill" && !skillRoot) continue;
     if (record.kind === "platform-skill-link") {
       if (typeof record.target === "string" && safeSkillLink(record, previous) && linkMatches(path, record.target) && !dryRun) unlinkSync(path);
       continue;
     }
     if (linkedAncestor(path) || !existsSync(path)) continue;
-    try { if (sha256(readFileSync(path)) === record.sha256 && !dryRun) rmSync(path); } catch { /* preserve files that cannot be checked */ }
+    try {
+      if (sha256(readFileSync(path)) !== record.sha256 || dryRun) continue;
+      rmSync(path);
+      // An emptied directory would keep the skill digest different from the source on every install.
+      if (skillRoot) for (let directory = dirname(path); pathKey(directory).startsWith(skillRoot + sep) && readdirSync(directory).length === 0; directory = dirname(directory)) rmdirSync(directory);
+    } catch { /* preserve files that cannot be checked or removed */ }
   }
 }
 function catalog(root: string): Record<string, JsonObject> {
@@ -684,12 +693,21 @@ export async function install(options: InstallOptions): Promise<number> {
   }
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
   const previousRoots = { ...targetRoots, ...Object.fromEntries(Object.entries(previousTargets).filter(([, value]) => typeof value === "string").map(([name, value]) => [name, resolve(value as string)])) };
-  pruneManagedAssets(previous, records, canonical, selected, previousRoots, options.dryRun);
+  const rewrittenSkillRoots = [...materializedSkills].map((skill) => join(sharedSkills, skill));
+  pruneManagedAssets(previous, records, canonical, selected, previousRoots, rewrittenSkillRoots, options.dryRun);
   // A single-platform repair must keep the other platforms visible to Verify and Uninstall.
   for (const item of Array.isArray(previous.files) ? previous.files : []) {
     if (!item || typeof item !== "object") continue;
     const record = item as FileRecord;
     if (typeof record.path !== "string" || records.some((current) => pathKey(current.path) === pathKey(record.path))) continue;
+    // `records` already holds the full file list of every canonical skill rewritten this run. A
+    // source-deleted file still on disk with its recorded hash could not be removed; keeping its
+    // record lets the next run retry.
+    if (record.kind === "canonical-skill" && rewrittenSkillRoots.some((root) => pathKey(record.path).startsWith(pathKey(root) + sep))) {
+      let removalPending = false;
+      try { removalPending = existsSync(record.path) && sha256(readFileSync(record.path)) === record.sha256; } catch { /* an unreadable file is not retried */ }
+      if (!removalPending) continue;
+    }
     const inSelectedPlatform = selected.some((platform) => pathKey(record.path).startsWith(pathKey(previousRoots[platform]) + sep) || pathKey(record.path).startsWith(pathKey(targetRoots[platform]) + sep));
     if (!inSelectedPlatform && record.kind !== "runtime" && record.kind !== "cli-shim" && record.kind !== "canonical-template") records.push(record);
   }
