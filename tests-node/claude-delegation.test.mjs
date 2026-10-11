@@ -67,18 +67,22 @@ test("AC1 the Claude entrypoint imports the canonical rules instead of carrying 
 test("AC2 the delegation rule and the Claude model settings exist only under the Claude root", () => {
   const target = installed("ac2");
   assert.ok(existsSync(target.delegation));
-  for (const root of [target.codex, target.gemini, target.canonical]) {
+  // Antigravity has a rule of its own under the same file name, so the Claude rule is recognised by its content.
+  const rule = readFileSync(join("adapters", "claude", "delegation.md"), "utf8");
+  const others = ["AGENTS.md", join("adapters", "antigravity", "delegation.md"), join("adapters", "codex", "coordinator.md")].map((path) => readFileSync(path, "utf8"));
+  const claudeOnly = rule.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length >= 25 && !others.some((other) => other.includes(line)));
+  assert.ok(claudeOnly.length > 0);
+  const carriesRule = (file) => { const content = readFileSync(file, "utf8"); return claudeOnly.some((line) => content.includes(line)); };
+  for (const root of [target.codex, target.gemini, target.canonical, target.state]) {
     const found = files(root);
     assert.ok(found.length, `${root} was installed`);
-    for (const file of found) assert.doesNotMatch(readFileSync(file, "utf8"), DELEGATION_TRACE, file);
+    assert.deepEqual(found.filter(carriesRule), [], root);
   }
   // The whole install, including the runtime and state every platform shares, holds exactly one copy.
-  assert.deepEqual(files(target.root).filter((file) => /delegation\.md$/.test(file)), [target.delegation]);
-  for (const file of files(target.state)) assert.doesNotMatch(readFileSync(file, "utf8"), /派工規則|保留這些工作|主對話直接處理/, file);
-  // Canonical and Gemini retain the shared body; only Codex appends its coordinator instructions.
+  assert.deepEqual(files(target.root).filter(carriesRule), [target.delegation]);
+  // Canonical retains the shared body; only Codex appends its coordinator instructions.
   const shared = readFileSync(join(target.canonical, "AGENTS.md"), "utf8");
   assert.match(shared, SHARED_RULE);
-  assert.equal(readFileSync(join(target.gemini, "GEMINI.md"), "utf8"), shared);
   assertCodexEntrypoint(readFileSync(join(target.codex, "AGENTS.md"), "utf8"), shared);
   const definitions = files(join(target.codex, "agents")).filter((file) => file.endsWith(".toml"));
   assert.ok(definitions.length >= 2, "Codex has its worker and reader definitions");

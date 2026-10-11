@@ -262,12 +262,12 @@ function installAgents(definitions: NativeAgentDefinition[], platform: Platform,
     records.push({ path: destination, sha256: sha256(content), kind: "platform-agent" });
   }
 }
-// Path of the Claude-only delegation rule relative to the Claude root; CLAUDE.md imports it by this path.
-const CLAUDE_DELEGATION = ["agent-workflow", "delegation.md"];
-// Installs the delegation rule into the Claude root, the only platform location that holds it, so no
+// Path of a platform's delegation rule relative to that platform's root; the entry file imports it by this path.
+const PLATFORM_DELEGATION = ["agent-workflow", "delegation.md"];
+// Installs a platform's delegation rule into that platform's root, the only location that holds it, so no
 // other platform's entrypoint, skill directory or agent definition leads to it.
-function installClaudeDelegation(sourcePath: string, claudeRoot: string, records: FileRecord[], dryRun: boolean): void {
-  const destination = join(claudeRoot, ...CLAUDE_DELEGATION);
+function installPlatformDelegation(sourcePath: string, platformRoot: string, records: FileRecord[], dryRun: boolean): void {
+  const destination = join(platformRoot, ...PLATFORM_DELEGATION);
   const content = readFileSync(sourcePath, "utf8");
   if (!dryRun) writeAtomic(destination, content);
   records.push({ path: destination, sha256: sha256(content), kind: "platform-rule" });
@@ -778,7 +778,6 @@ export async function install(options: InstallOptions): Promise<number> {
   copyFile(join(source, "dist", "agent-workflow.mjs"), join(runtime, "agent-workflow.mjs"), records, "runtime", options.dryRun);
   copyFile(join(source, "dist", "agent-workflow-hook.mjs"), join(runtime, "agent-workflow-hook.mjs"), records, "runtime", options.dryRun);
   // Platform instruction Markdown and the Codex adapter stay out of the shared runtime.
-  const delegationSource = join(source, "adapters", "claude", "delegation.md");
   for (const folder of ["adapters", "schemas"]) {
     for (const file of existsSync(join(source, folder)) ? filesAt(join(source, folder)) : []) {
       const inside = relative(join(source, folder), file);
@@ -803,13 +802,22 @@ export async function install(options: InstallOptions): Promise<number> {
   const destinations = selected.map((platform) => ({ path: join(targetRoots[platform], platforms[platform].entrypoint), instructions: platform === "Codex" ? codexInstructions : undefined }));
   const entrySource = existsSync(join(source, "AGENTS.md")) ? join(source, "AGENTS.md") : join(runtime, "AGENTS.md");
   const presentSkills = existsSync(join(canonical, "skills")) ? readdirSync(join(canonical, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : [];
-  // Claude imports its rules; Codex supplements the generated shared body within its managed block.
-  const claudeDelegation = selected.includes("Claude") && existsSync(delegationSource);
+  // Claude and Antigravity reference the canonical rules and their own delegation rule; Codex supplements
+  // the generated shared body within its managed block.
+  const delegationSources = new Map<Platform, string>();
   const entryImports = new Map<string, string[]>();
-  if (selected.includes("Claude")) entryImports.set(join(targetRoots.Claude, platforms.Claude.entrypoint), ["@~/.agents/AGENTS.md", ...(claudeDelegation ? [`@${CLAUDE_DELEGATION.join("/")}`] : [])]);
+  for (const platform of ["Claude", "Antigravity"] as const) {
+    if (!selected.includes(platform)) continue;
+    const rule = join(source, "adapters", platform.toLowerCase(), "delegation.md");
+    if (existsSync(rule)) delegationSources.set(platform, rule);
+    const entry = join(targetRoots[platform], platforms[platform].entrypoint);
+    // Claude expands the home directory; Antigravity resolves a reference against the rule file's own directory.
+    const shared = platform === "Claude" ? "@~/.agents/AGENTS.md" : `@${relative(dirname(entry), join(canonical, "AGENTS.md")).replaceAll("\\", "/")}`;
+    entryImports.set(entry, [shared, ...(delegationSources.has(platform) ? [`@${PLATFORM_DELEGATION.join("/")}`] : [])]);
+  }
   if (existsSync(entrySource)) managedEntrypoint(entrySource, join(canonical, "AGENTS.md"), destinations, records, options.dryRun, presentSkills, entryImports);
   // Written after the entrypoints, so a failed entrypoint write leaves the installed rule matching its record.
-  if (claudeDelegation) installClaudeDelegation(delegationSource, targetRoots.Claude, records, options.dryRun);
+  for (const [platform, rule] of delegationSources) installPlatformDelegation(rule, targetRoots[platform], records, options.dryRun);
   const node = process.execPath;
   for (const platform of selected) {
     const root = targetRoots[platform];

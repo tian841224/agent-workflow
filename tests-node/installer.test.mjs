@@ -906,11 +906,14 @@ test("the installed entrypoint drops repo-only lines and points .agents links at
   ].join("\n"));
   const installed = spawnSync(process.execPath, [join(sandbox, "dist", "agent-workflow.mjs"), "install", "--non-interactive", "--target-agent", "All", "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini")], { cwd: sandbox, encoding: "utf8", env: isolatedHome(root) });
   assert.equal(installed.status, 0, installed.stdout + installed.stderr);
-  // Claude imports the canonical copy, so the filtered body reaches it through that file.
+  // Claude and Antigravity reference the canonical copy, so the filtered body reaches them through that file.
   const claudeEntry = readFileSync(join(root, "claude", "CLAUDE.md"), "utf8");
   assert.match(claudeEntry, /^@~\/\.agents\/AGENTS\.md$/m);
   assert.doesNotMatch(claudeEntry, /shared rule|repository rule|installed skill rule/);
-  for (const entry of [join(root, "home", ".agents", "AGENTS.md"), join(root, "codex", "AGENTS.md"), join(root, "gemini", "GEMINI.md")]) {
+  const geminiEntry = readFileSync(join(root, "gemini", "GEMINI.md"), "utf8");
+  assert.match(geminiEntry, /^@\.\.\/home\/\.agents\/AGENTS\.md$/m);
+  assert.doesNotMatch(geminiEntry, /shared rule|repository rule|installed skill rule/);
+  for (const entry of [join(root, "home", ".agents", "AGENTS.md"), join(root, "codex", "AGENTS.md")]) {
     const body = readFileSync(entry, "utf8");
     assert.match(body, /shared rule → \[workflow\]\(~\/\.agents\/skills\/workflow\/SKILL\.md\)/, entry);
     assert.doesNotMatch(body, /\]\(\.agents\//, `${entry} keeps a link that only resolves inside the repository`);

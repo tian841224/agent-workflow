@@ -165,9 +165,9 @@ Protocol 3 runtime CLI 與 state 是選用介面；原生平行開發不以它�
 | --- | --- | --- | --- | --- |
 | Claude Code | `~/.claude/CLAUDE.md`（引入 `~/.agents/AGENTS.md` 與 `~/.claude/agent-workflow/delegation.md`） | `~/.claude/skills` | `settings.json`（含 orchestration CLI 使用的 `additionalDirectories`） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
 | Codex | `~/.codex/AGENTS.md` | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader,planner}.toml` |
-| Antigravity | `~/.gemini/GEMINI.md` | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
+| Antigravity | `~/.gemini/GEMINI.md`（引用 `~/.agents/AGENTS.md` 與 `~/.gemini/agent-workflow/delegation.md`） | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
-Claude Code 的派工規則只安裝在 Claude 目錄：主對話負責派工與結果驗證，讀取交給 Haiku 的 reader、規劃交給 Opus、實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，Codex 與 Antigravity 的安裝內容不包含它。
+Claude Code 的派工規則只安裝在 Claude 目錄：主對話負責派工與結果驗證，讀取交給 Haiku 的 reader、規劃交給 Opus、實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
 
 技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
 
@@ -252,7 +252,7 @@ Claude Code             Codex              Antigravity
 |-- .agents/                  安裝後的共用指引、skills 與 templates
 |-- .claude/                  Claude Code：CLAUDE.md、skills、agents、settings.json、agent-workflow/delegation.md
 |-- .codex/                   Codex：AGENTS.md、skills、agents、hooks.json
-|-- .gemini/                  Antigravity：GEMINI.md、config/skills、config/hooks.json
+|-- .gemini/                  Antigravity：GEMINI.md、config/skills、config/hooks.json、agent-workflow/delegation.md
 `-- .agent-workflow/          共用 runtime 與可寫資料
     |-- managed-runtime.json 安裝版本、雜湊與 managed files 紀錄
     |-- runtime/             已安裝的 bundle、adapters、schemas
@@ -285,4 +285,4 @@ Claude Code             Codex              Antigravity
 | v7 | 統一驗證並降低重複成本 | 整合 hooks、前置檢查、最終驗證與結案路徑，保留切片局部回饋，減少重複確認與不必要的文件載入。 | 從多個角色各自重跑檢查，改為共用 impact map、delivery fingerprint 與單一結案 gate；在維持 verification integrity 的前提下縮短往返。 |
 | v7.1 | 以驗收案例為完成依據 | 開發前寫 Given／When／Then 驗收案例，由 runtime 逐條執行；分析步驟改為 checklist；指令輸出附 `next`；程式修改一律獨立 Review，第二輪起只審變動範圍；`task-init --paths` 帶出相關文件、記憶與歷程；記憶加上 tags 與 paths。 | 從 agent 逐條自述的 evidence 改為可執行的驗收；policy 修改不再讓進行中 task 的驗證失效；移除任務狀態檔的 guard 與三個重複的記錄／診斷指令，減少往返與誤擋。 |
 | v7.2 | 平行開發交給平台原生 subagent | 實作前由 agent 判斷工作能否獨立完成，適合時直接指派目標、責任範圍與驗收條件，主 agent 整合後執行全部驗收；Git 操作改由入口規則要求使用者授權，不再安裝 Git guard hook。 | 平行開發不再需要固定的 orchestration 流程、packet 或獨立 worktree；Protocol 3 CLI 只保留相容性。 |
-| v7.3 | Claude 主對話改為派工與驗證 | Claude 依工作類型把讀取、規劃、實作、複審派給指定模型的 subagent；`CLAUDE.md` 改為引入共用入口與 Claude 專屬派工規則。 | 主對話的 context 不再承載讀檔與實作過程；Claude 專屬設定與其他平台隔離，Codex 與 Antigravity 的安裝內容不變。各平台入口檔 managed 區塊以外的內容各自保留，不會複製到其他平台。 |
+| v7.3 | Claude 主對話改為派工與驗證 | Claude 依工作類型把讀取、規劃、實作、複審派給指定模型的 subagent；`CLAUDE.md` 改為引入共用入口與 Claude 專屬派工規則。 | 主對話的 context 不再承載讀檔與實作過程；各平台自己的規則（Claude 派工規則、Codex coordinator 指示、Antigravity 派工規則）只安裝在該平台目錄，不影響其他平台。各平台入口檔 managed 區塊以外的內容各自保留，不會複製到其他平台。 |
