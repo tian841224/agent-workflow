@@ -14,6 +14,8 @@ export const commandOptions: Record<string, string[]> = {
   "migrate-state": ["state-root", "dry-run"],
   "git-guard": ["platform", "event", "state-root"],
   "locale-context": ["platform", "state-root"],
+  "session-start": ["platform", "state-root"],
+  "session-cleanup": ["platform", "state-root"],
   "memory-context": ["platform", "state-root", "query", "cwd", "auto", "event"],
   "execution-packet": [...TASK_TARGET_OPTIONS, "repo-root"],
   skill: ["action", "name", "from", "source", "source-type", "skill-path", "root"],
@@ -123,6 +125,11 @@ async function main(): Promise<void> {
   else if (command === "locale-context") {
     let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
     (await import("./locale-hooks.js")).runLocaleContext(payload, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "platform", "Claude"));
+  }
+  else if (command === "session-start" || command === "session-cleanup") {
+    let payload = {}; try { payload = stdinJson(); } catch { payload = {}; }
+    const sessionCleanup = await import("./session-cleanup.js");
+    (command === "session-start" ? sessionCleanup.runSessionStart : sessionCleanup.runSessionCleanup)(payload, option(parsed.values, "state-root", stateRoot()), option(parsed.values, "platform", "Claude"));
   }
   else if (command === "memory-context") {
     const platform = option(parsed.values, "platform", "Codex");

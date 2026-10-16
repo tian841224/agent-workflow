@@ -1,5 +1,27 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" session-start --platform Claude --state-root \"{{STATE_ROOT}}\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" session-cleanup --platform Claude --state-root \"{{STATE_ROOT}}\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

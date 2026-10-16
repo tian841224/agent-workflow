@@ -45,7 +45,7 @@ for (const [opName, op] of Object.entries(OPERATIONS)) {
 test("adapter templates retain context hooks without an automatic Git guard", () => {
   for (const path of ["adapters/claude/settings.hooks.json", "adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     const body = readFileSync(path, "utf8");
-    assert.doesNotMatch(body, /git-guard|PreToolUse|skill-guard|PostToolUse|SessionEnd/, path);
+    assert.doesNotMatch(body, /git-guard|PreToolUse|skill-guard|PostToolUse/, path);
     // Claude/Codex have a per-turn UserPromptSubmit event and no longer pay for a separate
     // SessionStart scan; Antigravity has no prompt-submit lifecycle, so its one PreInvocation hook
     // is still the startup navigation event.
@@ -53,6 +53,25 @@ test("adapter templates retain context hooks without an automatic Git guard", ()
     if (path.includes("antigravity")) assert.match(body, /--event SessionStart/, `${path} must preserve startup memory navigation`);
     else assert.match(body, /--event UserPromptSubmit/, `${path} must filter memory for each submitted task`);
   }
+});
+
+test("session lifecycle events carry only the session cleanup hooks", () => {
+  const claude = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
+  const codex = JSON.parse(readFileSync("adapters/codex/hooks.json", "utf8")).hooks;
+  const antigravity = JSON.parse(readFileSync("adapters/antigravity/hooks.json", "utf8"))["agent-workflow-session-cleanup"];
+  const commands = (groups) => groups.flatMap((group) => group.hooks ? group.hooks : [group]).map((handler) => handler.command);
+  for (const [platform, hooks] of [["Claude", claude], ["Codex", codex]]) {
+    assert.equal(commands(hooks.SessionStart).length, 1);
+    assert.match(commands(hooks.SessionStart)[0], new RegExp(`agent-workflow-hook\\.mjs" session-start --platform ${platform} `));
+    assert.equal(commands(hooks.SessionEnd).length, 1);
+    assert.match(commands(hooks.SessionEnd)[0], new RegExp(`agent-workflow-hook\\.mjs" session-cleanup --platform ${platform} `));
+  }
+  // Codex gives SessionEnd hooks 3 seconds at most; Claude's default budget is 1.5 seconds until a timeout is set.
+  assert.ok(codex.SessionEnd[0].hooks[0].timeout <= 3);
+  assert.ok(claude.SessionEnd[0].hooks[0].timeout > 1.5);
+  assert.match(commands(antigravity.PreInvocation)[0], /session-start --platform Antigravity /);
+  assert.match(commands(antigravity.Stop)[0], /session-cleanup --platform Antigravity /);
+  assert.deepEqual(Object.keys(antigravity).sort(), ["PreInvocation", "Stop"]);
 });
 
 test("platform adapters do not start a separate clean-comments Stop agent", () => {
@@ -87,8 +106,8 @@ test("required localization skill and the before-reply vocabulary are the locale
   // Claude/Codex inject the vocabulary with every submitted prompt so it sits right before the reply.
   assert.equal((JSON.stringify(claudeHooks.UserPromptSubmit).match(/locale-context --platform Claude/g) || []).length, 1);
   assert.equal((JSON.stringify(codexHooks.UserPromptSubmit).match(/locale-context --platform Codex/g) || []).length, 1);
-  assert.equal(claudeHooks.SessionStart, undefined);
-  assert.equal(codexHooks.SessionStart, undefined);
+  // SessionStart exists only to record when a session began for cleanup, never to inject context.
+  for (const hooks of [claudeHooks, codexHooks]) assert.doesNotMatch(JSON.stringify(hooks.SessionStart), /locale-context|memory-context/);
   assert.equal((JSON.stringify(antigravityHooks["agent-workflow-locale-context"].PreInvocation).match(/locale-context --platform Antigravity/g) || []).length, 1);
 });
 

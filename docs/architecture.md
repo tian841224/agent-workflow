@@ -72,11 +72,11 @@ Installer 從 `.agents/agents/*.md` 產生 Claude 與 Codex 的原生 agent 定�
 
 ## Hook trust boundary
 
-自動 hook 只提供 locale 與 memory context；平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
+自動 hook 只提供 locale 與 memory context，以及 session 結束時的資源清理；平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
 
 手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 對受限 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。
 
-`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有 PostToolUse／SessionEnd guard。三平台共用同一組 context hook 功能：輸出前注入的 localization-tw skill 規則，以及依任務自動篩選的 memory hook。localization-tw skill 的核心規則（`locale.md` 的 Core rules）與用詞清單由 `locale-context` 注入，來源是安裝時由 vocabulary.md 產生的 policy：Claude／Codex 的每次 `UserPromptSubmit` 都注入用詞清單，核心規則同一個 session 只在第一次注入（以 `os.tmpdir()` 的 session 標記判斷，payload 沒有 session id 時每次都注入）；Antigravity 在首次 `PreInvocation` 注入兩者。注入內容緊接在要寫的回覆之前，讓 agent 在輸出前先讀過 skill 再寫，而不是另外多一次工具往返去載入整個 skill；回覆送出後不再檢查或要求修正，因為那時回覆已經顯示給使用者，事後更正只會重複內容。用詞清單每一輪都進 context，所以只收錄不需要例外就能判斷的中國用語（收錄條件在 vocabulary.md）。Claude／Codex 在 `UserPromptSubmit` 觸發；Antigravity 沒有等價的 prompt-submit lifecycle，在首次 `PreInvocation` 提供 skill 規則與主題導航。
+Session 清理 hook 與 context 注入分開：Claude／Codex 的 `SessionStart` 只記錄 session 起點，`SessionEnd` 關閉 agent 程序的存活子孫並刪除 `os.tmpdir()` 第一層、建立時間落在本 session 單獨執行期間的項目；Antigravity 沒有 session 事件，改在 `Stop` 只清暫存檔、不關閉程序。它只處理這個 session 自己產生的一次性資源，失敗一律放行（exit 0）並寫入 `<state-root>/logs/session-cleanup.jsonl`，不判定 task 結案，也不影響 task runtime 的 authority。`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有 PostToolUse guard。三平台共用同一組 context hook 功能：輸出前注入的 localization-tw skill 規則，以及依任務自動篩選的 memory hook。localization-tw skill 的核心規則（`locale.md` 的 Core rules）與用詞清單由 `locale-context` 注入，來源是安裝時由 vocabulary.md 產生的 policy：Claude／Codex 的每次 `UserPromptSubmit` 都注入用詞清單，核心規則同一個 session 只在第一次注入（以 `os.tmpdir()` 的 session 標記判斷，payload 沒有 session id 時每次都注入）；Antigravity 在首次 `PreInvocation` 注入兩者。注入內容緊接在要寫的回覆之前，讓 agent 在輸出前先讀過 skill 再寫，而不是另外多一次工具往返去載入整個 skill；回覆送出後不再檢查或要求修正，因為那時回覆已經顯示給使用者，事後更正只會重複內容。用詞清單每一輪都進 context，所以只收錄不需要例外就能判斷的中國用語（收錄條件在 vocabulary.md）。Claude／Codex 在 `UserPromptSubmit` 觸發；Antigravity 沒有等價的 prompt-submit lifecycle，在首次 `PreInvocation` 提供 skill 規則與主題導航。
 
 平台權限由平台管理；agent 行為規則不是 shell sandbox，也不提供密碼學的使用者授權證明。task runtime 的 schema、鎖、evidence freshness 與 reviewer gate 的 authority 不受 hook 影響。安裝與舊 managed hook 清理契約見 [platform hooks](modules/platform-hooks.md)。
 

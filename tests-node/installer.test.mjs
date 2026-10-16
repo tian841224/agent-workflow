@@ -757,6 +757,25 @@ test("repeated repairs do not duplicate a platform's own managed hooks (Windows 
   assert.equal((prompt.match(/memory-context --platform Claude/g) || []).length, 1);
 });
 
+test("session cleanup hooks install once per platform across repairs and uninstall removes them", () => {
+  const root = join(tmpdir(), `agent-workflow-session-hooks-${process.pid}-${Date.now()}`);
+  const state = join(root, "state");
+  const claudeTarget = join(root, "claude");
+  const codexTarget = join(root, "codex");
+  const geminiTarget = join(root, "gemini");
+  const targets = ["--claude-target", claudeTarget, "--codex-target", codexTarget, "--antigravity-target", geminiTarget];
+  const run = (action) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", action, "--non-interactive", "--state-root", state, ...targets], { cwd: process.cwd(), encoding: "utf8", env: isolatedHome(root) });
+  const files = [join(claudeTarget, "settings.json"), join(codexTarget, "hooks.json"), join(geminiTarget, "config", "hooks.json")];
+  const count = (pattern) => files.map((file) => (readFileSync(file, "utf8").match(pattern) || []).length);
+  try {
+    for (const action of ["install", "repair", "repair"]) assert.equal(run(action).status, 0);
+    assert.deepEqual(count(/session-start --platform/g), [1, 1, 1]);
+    assert.deepEqual(count(/session-cleanup --platform/g), [1, 1, 1]);
+    assert.equal(run("uninstall").status, 0);
+    assert.deepEqual(count(/session-start|session-cleanup/g), [0, 0, 0]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("repair removes retired Git guards on all platforms while preserving mixed user hooks", () => {
   const root = join(tmpdir(), `agent-workflow-retire-git-policy-${process.pid}-${Date.now()}`);
   const state = join(root, "state");

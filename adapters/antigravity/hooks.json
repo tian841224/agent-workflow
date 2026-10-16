@@ -8,6 +8,22 @@
       }
     ]
   },
+  "agent-workflow-session-cleanup": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" session-start --platform Antigravity --state-root \"{{STATE_ROOT}}\"",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" session-cleanup --platform Antigravity --state-root \"{{STATE_ROOT}}\"",
+        "timeout": 15
+      }
+    ]
+  },
   "agent-workflow-locale-context": {
     "PreInvocation": [
       {

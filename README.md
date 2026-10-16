@@ -49,7 +49,7 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
 | 根因追查 | bug 修好或 review 確認問題後，判斷是缺測試、缺文件、缺規範還是 workflow 缺陷，並補上對應的防線 |
 | 記憶與學習 | 使用者的決策、更正與可重用結論依 tags 與路徑分類保存；專案決策寫進專案文件，個人偏好寫進共用記憶 |
 | 平行開發 | 實作前由 agent 判斷工作是否能獨立完成；適合時使用平台原生 subagent，分配責任範圍，再由主 agent 整合驗證 |
-| 平台 hooks | 輸出前注入 localization-tw skill 的規則，以及依任務自動篩選注入的記憶；Git 操作依入口規則取得使用者授權 |
+| 平台 hooks | 輸出前注入 localization-tw skill 的規則，以及依任務自動篩選注入的記憶；session 結束時關閉 agent 啟動的背景程序並清除期間新增的暫存檔；Git 操作依入口規則取得使用者授權 |
 
 ### 一個 managed task 如何完成
 
@@ -257,6 +257,8 @@ Claude Code             Codex              Antigravity
     |-- managed-runtime.json 安裝版本、雜湊與 managed files 紀錄
     |-- runtime/             已安裝的 bundle、adapters、schemas
     |-- knowledge/global/    跨專案的共用記憶
+    |-- sessions/            進行中 session 的起點紀錄（供結束時的暫存檔清理判斷範圍）
+    |-- logs/                session-cleanup.jsonl：每次清理關閉的程序與刪除的路徑
     |-- projects/<project-id>/
     |   |-- knowledge/       該專案的記憶（含 tags 與 paths）
     |   `-- tasks/<task-id>/

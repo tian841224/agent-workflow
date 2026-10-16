@@ -1,6 +1,28 @@
 {
   "description": "agent-workflow minimal hooks",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" session-start --platform Codex --state-root \"{{STATE_ROOT}}\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{NODE_EXE}}\" \"{{RUNTIME_DIR}}\\agent-workflow-hook.mjs\" session-cleanup --platform Codex --state-root \"{{STATE_ROOT}}\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
