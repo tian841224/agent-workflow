@@ -220,6 +220,44 @@ test("runtime evidence becomes stale when the delivered worktree changes after v
   assert.ok(gate().errors.some((error) => /execution evidence is stale/.test(error)));
 });
 
+test("a code task cannot close while a doc covering its delivery is neither updated nor recorded unchanged", () => {
+  const root = join(tmpdir(), `agent-workflow-doc-gate-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, "src", "auth"), { recursive: true });
+  mkdirSync(join(repo, "docs", "modules"), { recursive: true });
+  vcs(repo, ["init", "-q"]); vcs(repo, ["config", "user.email", "t@e.com"]); vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "src", "auth", "login.ts"), "one");
+  writeFileSync(join(repo, "docs", "modules", "auth.md"), "---\ndoc_type: module\ncovers:\n  - src/auth/\n---\n\n# Auth\n");
+  writeFileSync(join(repo, "docs", "architecture.md"), "---\ndoc_type: architecture\ncovers:\n  - src/\n---\n\n# Architecture\n");
+  vcs(repo, ["add", "."]); vcs(repo, ["commit", "-q", "-m", "init"]);
+  const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
+  const task = join(root, "state", "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Doc gate\n\n## Goal\n\nVerify covering docs are settled.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  const fresh = () => writeFileSync(path, JSON.stringify(validTask({ task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: [], base_commit: head })));
+  const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
+  const docErrors = (result) => result.errors.filter((error) => /project doc covers delivered paths/.test(error));
+  fresh();
+  writeFileSync(join(repo, "src", "auth", "login.ts"), "two");
+
+  const unsettled = gate();
+  assert.equal(docErrors(unsettled).length, 1, unsettled.errors.join("; "));
+  assert.match(docErrors(unsettled)[0], /docs\/modules\/auth\.md/);
+  assert.ok(unsettled.next.some((action) => action.command.includes(`{"project_docs":{"unchanged":["docs/modules/auth.md"]}}`)), JSON.stringify(unsettled.next));
+
+  // `unchanged` merges across writes, so a later `next` adding one doc keeps the earlier ones.
+  for (const doc of ["docs/other.md", "docs/modules/auth.md"]) {
+    const written = spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path, "--repo-root", repo], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify({ project_docs: { unchanged: [doc] } }) });
+    assert.equal(written.status, 0, written.stdout || written.stderr);
+  }
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).project_docs.unchanged, ["docs/other.md", "docs/modules/auth.md"]);
+  assert.deepEqual(docErrors(gate()), []);
+
+  fresh();
+  writeFileSync(join(repo, "docs", "modules", "auth.md"), "---\ndoc_type: module\ncovers:\n  - src/auth/\n---\n\n# Auth\n\nUpdated.\n");
+  assert.deepEqual(docErrors(gate()), [], "a doc edited in the delivery is settled");
+});
+
 test("evidence-run spawn: a .cmd shim such as npm runs as typed and verbose output still records its exit code", async () => {
   const root = join(tmpdir(), `agent-workflow-evidence-spawn-${process.pid}-${Date.now()}`);
   const repo = join(root, "repo");

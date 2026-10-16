@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { JsonObject, output, projectIdentity } from "../core.js";
 import { acceptanceCases, acceptanceErrors, acceptanceRequired, AcceptanceCase, intentHash } from "../intent.js";
+import { unsettledDocs } from "../project-doc.js";
 import { compilePlanForTaskPath, CompiledWorkflowPlan } from "../workflow-policy.js";
 import { deliverySnapshot, evidenceSatisfied, executionFreshnessErrors, latestEvidence, roleFreshnessErrors } from "./evidence.js";
 import { codexAssessmentErrors, codexExecutionErrors, UNAVAILABLE_INTENT_HASH } from "./codex-delegation.js";
@@ -19,6 +20,7 @@ export type GateMissing =
   | { kind: "codex_delegation"; stage: "assessment" | "execution"; reasons: string[] }
   | { kind: "acceptance"; id: string; command: string }
   | { kind: "proof"; id: string; title: string; undecided_by?: string[] }
+  | { kind: "project_doc"; path: string }
   | { kind: "role"; id: string };
 export type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[]; missing: GateMissing[]; plan?: CompiledWorkflowPlan; acceptance: AcceptanceCase[] };
 
@@ -80,6 +82,12 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
     const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan!.plan_hash && Number(item.plan_revision || 0) === Number(state.plan_revision || 0) && String(item.intent_hash || "") === liveIntentHash).map((item) => String(item.requirement_id || "")));
     const ownershipSnapshot = Array.isArray(state.file_ownership) && state.file_ownership.length ? ensureLiveDelivery() : undefined;
     errors.push(...ownershipErrors(state, repoRoot, evidence, ownershipSnapshot?.paths));
+    // Only a code task has a base_commit, so only its delivery is scoped to this task's own changes.
+    const delivered = state.code_change === true ? ensureLiveDelivery() : undefined;
+    if (delivered) for (const doc of unsettledDocs(repoRoot, delivered.paths, state.project_docs as JsonObject | undefined)) {
+      errors.push(`project doc covers delivered paths but is neither updated nor recorded in project_docs.unchanged: ${doc}`);
+      missing.push({ kind: "project_doc", path: doc });
+    }
     const proofSteps = new Map(plan.proofs.map((step) => [step.id, step]));
     const pending = (key: string): void => {
       if (key.startsWith("acceptance.")) { const id = key.slice("acceptance.".length); missing.push({ kind: "acceptance", id, command: acceptance.find((item) => item.id === id)?.command || "" }); }

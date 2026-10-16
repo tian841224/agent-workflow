@@ -188,3 +188,14 @@ export function lookupDocs(root: string, docRoot: string, requestedPaths: string
   const overview_candidates = current.filter((item) => OVERVIEW_TYPES.includes(String(item.doc_type))).map((item) => ({ path: item.path, doc_type: item.doc_type, content_sha256: item.content_sha256, reason: "repo-wide overview; read when the compiled exploration profile or task impact requires it", digest_status: digestStatus(root, item, prior, taskValue) }));
   return { docs: mapped, overview_candidates, uncovered: requested.filter((path) => !matched.has(normalizeRepoPath(path))) } as unknown as JsonObject;
 }
+
+// The close gate's doc check: a doc that Lookup routes the delivered paths to must be edited in the
+// delivery or named in project_docs.updated/unchanged, so a stale doc needs an explicit decision.
+// ponytail: `unchanged` is not bound to the delivery fingerprint, so code changed after the
+// confirmation is not re-demanded; the Reviewer's doc check covers it until binding is worth the cost.
+export function unsettledDocs(root: string, deliveryPaths: string[], projectDocs: JsonObject = {}): string[] {
+  if (!deliveryPaths.length) return [];
+  const strings = (value: unknown): string[] => Array.isArray(value) ? value.map(String) : [];
+  const settled = new Set([...deliveryPaths, ...strings(projectDocs.updated), ...strings(projectDocs.unchanged)].map((path) => projectDocPath(root, resolve(root, path))));
+  return (lookupDocs(root, "docs", deliveryPaths).docs as JsonObject[]).map((doc) => projectDocPath(root, String(doc.path))).filter((path) => !settled.has(path));
+}

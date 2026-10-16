@@ -34,6 +34,9 @@ export function nextActions(taskJsonPath: string, repoRoot: string, gate: Pick<G
   const facts = [...new Set(undecided.flatMap((item) => item.undecided_by || []))].filter((field) => !fields.includes(field));
   if (facts.length) actions.push({ command: `echo '${declareJson(facts)}' | agent-workflow task-write --task-path ${task}`, why: `declaring ${facts.join(", ")} settles whether ${undecided.map((item) => item.id).join(", ")} must run; skip if the proof applies anyway` });
   if (of("approval").length) actions.push({ command: `agent-workflow approve-intent --task-path ${task} --confirmed-by agent`, why: "freeze-required intent must be attested against the current task.md" });
+  // A doc edit changes the delivery and stales every run, so docs are settled before the runs below.
+  const docs = of("project_doc").map((item) => item.path);
+  if (docs.length) actions.push({ command: `echo '${JSON.stringify({ project_docs: { unchanged: docs } })}' | agent-workflow task-write --task-path ${task}`, why: `these docs cover delivered paths: update any whose recorded facts changed (project-docs skill), then record only the still-accurate ones as unchanged: ${docs.join(", ")}` });
   // One run can prove several cases that share a command, so cases are grouped by their Verify command.
   const byCommand = new Map<string, string[]>();
   for (const item of of("acceptance")) byCommand.set(item.command, [...(byCommand.get(item.command) || []), `acceptance.${item.id}`]);

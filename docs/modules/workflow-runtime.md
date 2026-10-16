@@ -62,7 +62,7 @@ ID、角色／scope、觀察時間與 evidence 是 caller attestation。CLI 檢�
 
 `pre-review > reviewer > review-record`：`pre-review` 一次回傳 `git diff --check` 結果與該工作樹的 `workspace_sha256`；帶 `--task-path` 時另外回傳這一輪的 review brief（第一輪是完整 delivery，之後只有上一輪之後內容有變動的路徑，並附上一輪的結論、驗收案例與 checklist）。`review-record` 可接受這個 transient `--expected-workspace-sha256`；若工作樹已變更就拒絕寫入，review 欄位與每個路徑的 digest 仍由 runtime 依目前 diff 計算。
 
-每個 task 指令的輸出都附上 `next`：由 gate 的缺口（intent、分類、驗收案例、proofs、Reviewer）推出補上缺口的完整指令，全部滿足時指向 `close-task`。
+每個 task 指令的輸出都附上 `next`：由 gate 的缺口（intent、分類、專案文件、驗收案例、proofs、Reviewer）推出補上缺口的完整指令，全部滿足時指向 `close-task`。專案文件排在所有 run 之前，因為修改文件會改變 delivery 並使 receipt 失效。
 
 `project-doc Lookup/Check/Remember > document metadata and section validation > project_docs task state`
 
@@ -89,6 +89,7 @@ on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint ever
 - `task-report` never writes task state and never changes gate results.
 - Explicit test paths are validated; a missing path fails instead of silently running zero tests. `scripts/run-tests.mjs` makes the validation scope explicit: focused and affected require selected paths, regression accepts a selected subsystem or all tests, and full runs the complete suite. It clears inherited CODEX_THREAD_ID; Codex fixtures explicitly supply their marker so unrelated legacy fixtures keep their original platform.
 - `project-doc Remember` records only documents that were actually checked and read; Lookup reports `reusable` only when both the path and current `content_sha256` are present in task state.
+- A code task's gate requires every non-overview doc that Lookup routes the delivered paths to be edited in the delivery or named in `project_docs.updated`/`unchanged`. `unchanged` merges across `task-write` calls and is not bound to the delivery fingerprint, so the Reviewer's doc check is what catches a doc that drifted after it was recorded.
 - `review-record` never accepts persisted review scope or digest fields from the caller; `--expected-workspace-sha256` is only a pre-review freshness guard and is not stored as role evidence.
 - Role evidence is fail-closed on scope: a changed path that `reviewed_paths` does not cover invalidates the review, so a delivery that grows after a PASS needs another review round.
 

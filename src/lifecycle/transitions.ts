@@ -86,8 +86,8 @@ function attestIntentIfFrozen(state: JsonObject, path: string): void {
 function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
   const projectDocsPatch = patch.project_docs;
   if (!projectDocsPatch || typeof projectDocsPatch !== "object" || Array.isArray(projectDocsPatch)) return;
-  const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated");
-  if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated`);
+  const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated" && key !== "unchanged");
+  if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated and project_docs.unchanged`);
 }
 // Records who confirmed the task.md the task is created from, so a specification the user approved
 // before task-init needs no separate approve-intent call. An invalid intent is left for readiness to
@@ -229,7 +229,11 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
           if (key === "project_docs" && !allowProjectDocEvidence && fieldValue && typeof fieldValue === "object" && !Array.isArray(fieldValue)) {
             const existing = current.project_docs && typeof current.project_docs === "object" && !Array.isArray(current.project_docs) ? current.project_docs as JsonObject : {};
             const incoming = fieldValue as JsonObject;
-            current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}) };
+            // `unchanged` is appended to as the gate's `next` names more docs, so it merges instead of replacing.
+            // A non-array value is passed through so the schema check below rejects it.
+            const unchanged: JsonObject = !Object.prototype.hasOwnProperty.call(incoming, "unchanged") ? {}
+              : { unchanged: Array.isArray(incoming.unchanged) ? [...new Set([...(Array.isArray(existing.unchanged) ? existing.unchanged : []), ...incoming.unchanged])] : incoming.unchanged };
+            current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}), ...unchanged };
           } else current[key] = fieldValue;
         }
         if (Object.hasOwn(patch, "codex_delegation")) applyCodexDelegationPatch(current, patch.codex_delegation, taskIntentHash(path));

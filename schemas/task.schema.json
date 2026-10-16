@@ -29,6 +29,7 @@
       "properties": {
         "read": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "updated": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "unchanged": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "digests": {
           "type": "array",
           "items": {

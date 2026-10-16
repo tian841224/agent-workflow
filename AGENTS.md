@@ -20,6 +20,7 @@
 - 修改 `.agents/` 底下 agent 或 skill 文件 → `writing-for-agents`；新增 skill 的 manifest 分類也依該 skill 處理。<!-- repo-only -->
 - 使用 Plan mode 時 → 先載入 [implementation-spec](.agents/skills/implementation-spec/SKILL.md)，再依 skill 的適用範圍決定規格深度；短計畫不必擴寫成完整規格。
 - 保存決策、更正或可重用結論時 → 一律依 [learn](.agents/skills/learn/SKILL.md) 分流寫入專案文件或 `~/.agent-workflow` 共用記憶，不寫平台原生記憶；三個平台才讀得到同一份。<!-- skill:learn -->
+- 修改程式行為時 → 依 [project-docs](.agents/skills/project-docs/SKILL.md) 更新涵蓋改動路徑的 `docs/` 文件；專案還沒有任何文件時先建立。<!-- skill:project-docs -->
 - 修改 agents、skills、hooks 或 workflow contract → 先讀 [docs/architecture.md](docs/architecture.md) 的「架構設計方向」與「Framework 變更政策」；改 hook 另讀「Hook trust boundary」。<!-- repo-only -->
 - 使用者提及先前脈絡、prompt 太短、影響面中途改變或平台沒有 prompt hook → 依 [memory.md](.agents/skills/workflow/memory.md) 明確查詢記憶；其餘情況直接使用 hook 注入的記憶。
 - 查看或分析前端頁面 → 優先讀 DOM，無法解析時才用截圖。

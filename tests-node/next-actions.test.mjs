@@ -25,6 +25,12 @@ test("an undecided proof names the facts that settle it before asking for its ru
   assert.ok(actions.some((action) => /evidence-run .*--requirement-id custom\.CX1/.test(action.command)), JSON.stringify(actions));
 });
 
+test("unsettled project docs come before any run, since a doc edit stales the delivery", () => {
+  const actions = nextActions(task, "/repo", gate([{ kind: "acceptance", id: "AC1", command: "npm test" }, { kind: "project_doc", path: "docs/a.md" }, { kind: "project_doc", path: "docs/b.md" }]));
+  assert.deepEqual(declared(actions[0].command), { project_docs: { unchanged: ["docs/a.md", "docs/b.md"] } });
+  assert.match(actions[1].command, /evidence-run/);
+});
+
 test("an invalid gate with no scripted gap still returns a next step", () => {
   const actions = nextActions(task, "/repo", gate([], ["code task has no base_commit; task delivery baseline is missing"]));
   assert.equal(actions.length, 1);
