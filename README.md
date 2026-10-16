@@ -212,6 +212,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、部署、migration 與外部整合的實際環境驗證 |
 | [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的結論或 review 原因提煉改善；草稿核准後才生效 |
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
+| [git-commit](.agents/skills/git-commit/SKILL.md) | 撰寫 commit 訊息、規劃 commit 拆分與發起 PR／MR |
 
 ### 原生 agent
 

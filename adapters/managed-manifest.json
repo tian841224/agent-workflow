@@ -21,6 +21,7 @@
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
     "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
     "localization-tw": {"required": true, "description": "翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 AGENTS.md 常駐規則與每次提交訊息時注入的 skill 規則處理"},
-    "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證"}
+    "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證"},
+    "git-commit": {"required": false, "description": "commit 訊息格式（類型(模組): 標題）、單一功能拆分規則與 PR／MR 標題內文"}
   }
 }
