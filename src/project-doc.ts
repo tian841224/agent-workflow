@@ -199,3 +199,12 @@ export function unsettledDocs(root: string, deliveryPaths: string[], projectDocs
   const settled = new Set([...deliveryPaths, ...strings(projectDocs.updated), ...strings(projectDocs.unchanged)].map((path) => projectDocPath(root, resolve(root, path))));
   return (lookupDocs(root, "docs", deliveryPaths).docs as JsonObject[]).map((doc) => projectDocPath(root, String(doc.path))).filter((path) => !settled.has(path));
 }
+
+// The close gate's other doc check: a delivered path no doc covers must get a doc or an explicit
+// not_warranted reason, so task-init's doc_gap cannot be skipped silently. Docs themselves are exempt.
+export function uncoveredPaths(root: string, deliveryPaths: string[], projectDocs: JsonObject = {}): string[] {
+  const candidates = deliveryPaths.filter((path) => !normalizeRepoPath(path.replaceAll("\\", "/")).startsWith("docs/"));
+  if (!candidates.length) return [];
+  const waived = new Set((Array.isArray(projectDocs.not_warranted) ? projectDocs.not_warranted : []).map((item) => normalizeRepoPath(String((item as JsonObject)?.path || "").replaceAll("\\", "/"))));
+  return (lookupDocs(root, "docs", candidates).uncovered as string[]).filter((path) => !waived.has(normalizeRepoPath(path)));
+}

@@ -30,6 +30,18 @@
         "read": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "updated": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "unchanged": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "not_warranted": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "reason"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
         "digests": {
           "type": "array",
           "items": {

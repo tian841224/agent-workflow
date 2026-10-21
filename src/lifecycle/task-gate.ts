@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { JsonObject, output, projectIdentity } from "../core.js";
 import { acceptanceCases, acceptanceErrors, acceptanceRequired, AcceptanceCase, intentHash } from "../intent.js";
-import { unsettledDocs } from "../project-doc.js";
+import { uncoveredPaths, unsettledDocs } from "../project-doc.js";
 import { compilePlanForTaskPath, CompiledWorkflowPlan } from "../workflow-policy.js";
 import { deliverySnapshot, evidenceSatisfied, executionFreshnessErrors, latestEvidence, roleFreshnessErrors } from "./evidence.js";
 import { codexAssessmentErrors, codexExecutionErrors, UNAVAILABLE_INTENT_HASH } from "./codex-delegation.js";
@@ -21,6 +21,7 @@ export type GateMissing =
   | { kind: "acceptance"; id: string; command: string }
   | { kind: "proof"; id: string; title: string; undecided_by?: string[] }
   | { kind: "project_doc"; path: string }
+  | { kind: "doc_gap"; path: string }
   | { kind: "role"; id: string };
 export type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[]; missing: GateMissing[]; plan?: CompiledWorkflowPlan; acceptance: AcceptanceCase[] };
 
@@ -87,6 +88,10 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
     if (delivered) for (const doc of unsettledDocs(repoRoot, delivered.paths, state.project_docs as JsonObject | undefined)) {
       errors.push(`project doc covers delivered paths but is neither updated nor recorded in project_docs.unchanged: ${doc}`);
       missing.push({ kind: "project_doc", path: doc });
+    }
+    if (delivered) for (const path of uncoveredPaths(repoRoot, delivered.paths, state.project_docs as JsonObject | undefined)) {
+      errors.push(`delivered path has no project doc: ${path}; write a module doc covering it or record it in project_docs.not_warranted with a reason`);
+      missing.push({ kind: "doc_gap", path });
     }
     const proofSteps = new Map(plan.proofs.map((step) => [step.id, step]));
     const pending = (key: string): void => {

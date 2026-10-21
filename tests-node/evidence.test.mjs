@@ -50,7 +50,7 @@ test("a delivery reaching outside file_ownership is an ownership violation, not 
   const path = join(task, "task.json");
   // managed_change: false keeps the gate focused on ownership — a managed task additionally owes
   // baseline_validation evidence and a decidable classification for every selected step.
-  const state = validTask({ managed_change: false, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", file_ownership: ["src/payment/"], base_commit: head });
+  const state = validTask({ managed_change: false, workflow_request: [], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", file_ownership: ["src/payment/"], base_commit: head, project_docs: { not_warranted: [{ path: "src/payment/service.ts", reason: "fixture" }] } });
   writeFileSync(path, JSON.stringify(state));
   const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
   writeFileSync(join(repo, "src", "payment", "service.ts"), "two");
@@ -110,7 +110,7 @@ test("role evidence survives a commit of the reviewed work and goes stale when t
   const path = join(task, "task.json");
   // managed_change: true with the task's acceptance case waived for this role-freshness fixture,
   // so the only thing left to go stale is role.reviewer.
-  const classification = { managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head };
+  const classification = { managed_change: true, workflow_request: ["reviewer"], impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", task_type: "fix", base_commit: head, project_docs: { not_warranted: [{ path: "reviewed.txt", reason: "fixture" }, { path: "unrelated.txt", reason: "fixture" }] } };
   const reviewedPaths = "reviewed.txt,unrelated.txt";
   const scopedDigest = () => JSON.parse(run(["worktree-fingerprint", "--path", repo, "--base", head, "--paths", reviewedPaths]).stdout).reviewed_diff_sha256;
   writeFileSync(path, JSON.stringify(validTask(classification)));
@@ -202,7 +202,7 @@ test("runtime evidence becomes stale when the delivered worktree changes after v
   const task = join(root, "state", "task"); mkdirSync(task, { recursive: true });
   writeFileSync(join(task, "task.md"), "# Delivery freshness\n\n## Goal\n\nVerify runtime evidence follows the delivered diff.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] stale delivery is rejected\n\n### Acceptance cases\n\n- **AC1** targeted delivery check\n  - Given a delivered change\n  - When the check runs\n  - Then it passes\n  - Verify: `node -e 0`\n");
   const path = join(task, "task.json");
-  const classification = { code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", risk_flags: [], workflow_request: [], base_commit: head };
+  const classification = { code_change: true, managed_change: true, task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", risk_flags: [], workflow_request: [], base_commit: head, project_docs: { not_warranted: [{ path: "tracked.txt", reason: "fixture" }] } };
   writeFileSync(path, JSON.stringify(validTask(classification)));
   writeFileSync(join(repo, "tracked.txt"), "two");
   const recorded = run(["evidence-run", "--task-path", path, "--cwd", repo, "--requirement-id", "acceptance.AC1", "--summary", "targeted delivery check", "--", process.execPath, "-e", "process.stdout.write('ok')"]);
@@ -256,6 +256,44 @@ test("a code task cannot close while a doc covering its delivery is neither upda
   fresh();
   writeFileSync(join(repo, "docs", "modules", "auth.md"), "---\ndoc_type: module\ncovers:\n  - src/auth/\n---\n\n# Auth\n\nUpdated.\n");
   assert.deepEqual(docErrors(gate()), [], "a doc edited in the delivery is settled");
+});
+
+test("a code task cannot close while a delivered path has no covering doc and no not_warranted reason", () => {
+  const root = join(tmpdir(), `agent-workflow-doc-gap-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, "src", "billing"), { recursive: true });
+  mkdirSync(join(repo, "docs"), { recursive: true });
+  vcs(repo, ["init", "-q"]); vcs(repo, ["config", "user.email", "t@e.com"]); vcs(repo, ["config", "user.name", "t"]);
+  writeFileSync(join(repo, "src", "billing", "pay.ts"), "one");
+  writeFileSync(join(repo, "docs", "architecture.md"), "---\ndoc_type: architecture\n---\n\n# Architecture\n");
+  vcs(repo, ["add", "."]); vcs(repo, ["commit", "-q", "-m", "init"]);
+  const head = vcs(repo, ["rev-parse", "HEAD"]).stdout.trim();
+  const task = join(root, "state", "task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Doc gap\n\n## Goal\n\nVerify uncovered paths are settled.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture is valid\n");
+  const path = join(task, "task.json");
+  const fresh = () => writeFileSync(path, JSON.stringify(validTask({ task_type: "fix", impact_scope: "file", impact_effect: "local_behavior", impact_confidence: "high", workflow_request: [], base_commit: head })));
+  const gate = () => JSON.parse(run(["task-gate", "--task-path", path, "--repo-root", repo]).stdout);
+  const gapErrors = (result) => result.errors.filter((error) => /delivered path has no project doc/.test(error));
+  const write = (patch) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", "task-write", "--task-path", path, "--repo-root", repo], { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(patch) });
+  fresh();
+  writeFileSync(join(repo, "src", "billing", "pay.ts"), "two");
+  writeFileSync(join(repo, "docs", "architecture.md"), "---\ndoc_type: architecture\n---\n\n# Architecture\n\nEdited.\n");
+
+  const blocked = gate();
+  assert.equal(gapErrors(blocked).length, 1, "only the code path counts; a delivered doc is never uncovered: " + blocked.errors.join("; "));
+  assert.match(gapErrors(blocked)[0], /src\/billing\/pay\.ts/);
+  assert.ok(blocked.next.some((action) => action.command.includes(`"not_warranted":[{"path":"src/billing/pay.ts"`)), JSON.stringify(blocked.next));
+
+  // not_warranted merges by path, so a second write keeps the first entry and replaces a repeated reason.
+  for (const reason of ["first", "local fix only"]) assert.equal(write({ project_docs: { not_warranted: [{ path: "src/billing/pay.ts", reason }, ...(reason === "first" ? [{ path: "src/other.ts", reason: "x" }] : [])] } }).status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).project_docs.not_warranted, [{ path: "src/billing/pay.ts", reason: "local fix only" }, { path: "src/other.ts", reason: "x" }]);
+  assert.deepEqual(gapErrors(gate()), []);
+  assert.notEqual(write({ project_docs: { not_warranted: [{ path: "src/billing/pay.ts" }] } }).status, 0, "a waiver needs a reason");
+
+  fresh();
+  mkdirSync(join(repo, "docs", "modules"), { recursive: true });
+  writeFileSync(join(repo, "docs", "modules", "billing.md"), "---\ndoc_type: module\ncovers:\n  - src/billing/\n---\n\n# Billing\n");
+  assert.deepEqual(gapErrors(gate()), [], "a module doc written in the delivery covers the path");
 });
 
 test("evidence-run spawn: a .cmd shim such as npm runs as typed and verbose output still records its exit code", async () => {

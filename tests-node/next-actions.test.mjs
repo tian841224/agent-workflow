@@ -31,6 +31,13 @@ test("unsettled project docs come before any run, since a doc edit stales the de
   assert.match(actions[1].command, /evidence-run/);
 });
 
+test("an uncovered delivered path asks for a doc or a not_warranted reason before any run", () => {
+  const actions = nextActions(task, "/repo", gate([{ kind: "acceptance", id: "AC1", command: "npm test" }, { kind: "doc_gap", path: "src/a.ts" }]));
+  assert.deepEqual(JSON.parse(actions[0].command.match(/echo '(.*)' \|/)[1]), { project_docs: { not_warranted: [{ path: "src/a.ts", reason: "<why no doc is warranted>" }] } });
+  assert.match(actions[0].why, /module doc/);
+  assert.match(actions[1].command, /evidence-run/);
+});
+
 test("an invalid gate with no scripted gap still returns a next step", () => {
   const actions = nextActions(task, "/repo", gate([], ["code task has no base_commit; task delivery baseline is missing"]));
   assert.equal(actions.length, 1);

@@ -41,7 +41,7 @@ Lookup 的 `docs` 與 `overview_candidates` 都是空的，代表沒有可快速
 |---|---|
 | 命中，且本次改動沒有改變文件記錄的事實 | 不改寫；在 workflow task 內把路徑寫入 `project_docs.unchanged` |
 | 命中，但入口、流程骨架、共用狀態、契約或假設已與文件不符 | 原地更新受影響的區塊 |
-| `uncovered` | 模組文件已在開發前補上；flow、api、decision 等其他類型依下方判準 |
+| `uncovered` | 模組文件已在開發前補上；仍未涵蓋的路徑依下方判準建立 flow、api、decision 等文件，或記為 not warranted |
 
 判準是「文件記錄的事實是否仍成立」，不是「有沒有改到檔案」——只動不影響流程骨架的實作細節時，正確結果就是 no-op。為了填欄位重寫既有文件只會產出沒有資訊量的內容。
 
@@ -54,7 +54,7 @@ Lookup 的 `docs` 與 `overview_candidates` 都是空的，代表沒有可快速
 - 難以逆轉的架構決策
 - 只看程式碼很難快速恢復的脈絡
 
-單純的 local bug fix、單一函式行為、簡單 CRUD 或 implementation detail 都不符合，記 `no-op: documentation not warranted`。長期重複改同一小模組仍逐次判斷，不因為「之前改過」就自動升級。
+單純的 local bug fix、單一函式行為、簡單 CRUD 或 implementation detail 都不符合；在 workflow task 內把該路徑與理由寫入 `project_docs.not_warranted`，task 外記 `no-op: documentation not warranted`。長期重複改同一小模組仍逐次判斷，不因為「之前改過」就自動升級。
 
 新增或修改對外端點時，`docs/api/<slug>.md` 沒有就建立、已有就核對 request／response／errors 是否仍正確。
 
@@ -62,4 +62,4 @@ Lookup 的 `docs` 與 `overview_candidates` 都是空的，代表沒有可快速
 
 ## 3. 在 workflow task 內
 
-只有本次實際建立或更新文件時，才透過 `agent-workflow task-write` 把路徑寫入 `project_docs.updated`；沒有文件變更就不寫，不填 `none` 之類的佔位值。命中但仍正確的文件寫入 `project_docs.unchanged`，可分次寫入，會與既有值合併。`code_change: true` 的 task 結案時，gate 要求每份涵蓋交付路徑的文件（overview 類除外）已在交付中修改，或列在 `updated`／`unchanged`。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據。需要人工閱讀時執行 `agent-workflow task-report`。
+只有本次實際建立或更新文件時，才透過 `agent-workflow task-write` 把路徑寫入 `project_docs.updated`；沒有文件變更就不寫，不填 `none` 之類的佔位值。命中但仍正確的文件寫入 `project_docs.unchanged`；不值得寫文件的未涵蓋路徑寫入 `project_docs.not_warranted`（`{path, reason}`）。兩者都可分次寫入，會與既有值合併。`code_change: true` 的 task 結案時，gate 要求每份涵蓋交付路徑的文件（overview 類除外）已在交付中修改，或列在 `updated`／`unchanged`；`docs/` 以外每個沒有文件涵蓋的交付路徑，要在交付中補上涵蓋它的文件，或列在 `not_warranted`。`project_docs.read` 與 `project_docs.digests` 一律由 `project-doc --action Remember` 寫入；task-write 更新 `updated` 時會保留既有的 read／digest 證據。需要人工閱讀時執行 `agent-workflow task-report`。

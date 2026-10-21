@@ -43,7 +43,8 @@ Runs once, after source and tests are stable:
 
 1. Check each project doc covering the delivered paths per section 2 of
    [project-docs](../project-docs/SKILL.md): update the ones whose recorded facts no longer hold and
-   record the rest in `project_docs.unchanged`. A doc edit changes the delivery, so this comes before any run.
+   record the rest in `project_docs.unchanged`. A delivered path no doc covers gets a doc covering it, or a
+   `project_docs.not_warranted` entry with its reason. A doc edit changes the delivery, so this comes before any run.
 2. `evidence-run` every acceptance case and proof, batching the ids each distinct command covers.
 3. When the plan selects a Reviewer, run it per [review.md](review.md). Read-only review leaves the runs
    reusable; findings that change the delivery require running each distinct final command once more.

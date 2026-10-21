@@ -37,6 +37,8 @@ export function nextActions(taskJsonPath: string, repoRoot: string, gate: Pick<G
   // A doc edit changes the delivery and stales every run, so docs are settled before the runs below.
   const docs = of("project_doc").map((item) => item.path);
   if (docs.length) actions.push({ command: `echo '${JSON.stringify({ project_docs: { unchanged: docs } })}' | agent-workflow task-write --task-path ${task}`, why: `these docs cover delivered paths: update any whose recorded facts changed (project-docs skill), then record only the still-accurate ones as unchanged: ${docs.join(", ")}` });
+  const gaps = of("doc_gap").map((item) => item.path);
+  if (gaps.length) actions.push({ command: `echo '${JSON.stringify({ project_docs: { not_warranted: gaps.map((path) => ({ path, reason: "<why no doc is warranted>" })) } })}' | agent-workflow task-write --task-path ${task}`, why: `no project doc covers ${gaps.join(", ")}: write a module doc covering the touched module (project-docs skill); record only paths that meet no documentation criterion as not_warranted` });
   // One run can prove several cases that share a command, so cases are grouped by their Verify command.
   const byCommand = new Map<string, string[]>();
   for (const item of of("acceptance")) byCommand.set(item.command, [...(byCommand.get(item.command) || []), `acceptance.${item.id}`]);

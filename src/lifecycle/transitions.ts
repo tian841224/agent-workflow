@@ -86,8 +86,8 @@ function attestIntentIfFrozen(state: JsonObject, path: string): void {
 function assertProjectDocsUpdateOnly(patch: JsonObject, command: string): void {
   const projectDocsPatch = patch.project_docs;
   if (!projectDocsPatch || typeof projectDocsPatch !== "object" || Array.isArray(projectDocsPatch)) return;
-  const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated" && key !== "unchanged");
-  if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated and project_docs.unchanged`);
+  const disallowed = Object.keys(projectDocsPatch).filter((key) => key !== "updated" && key !== "unchanged" && key !== "not_warranted");
+  if (disallowed.length) throw new Error(`${command}: project_docs.${disallowed.join("/project_docs.")} is managed by project-doc Remember; ${command} may update only project_docs.updated, project_docs.unchanged and project_docs.not_warranted`);
 }
 // Records who confirmed the task.md the task is created from, so a specification the user approved
 // before task-init needs no separate approve-intent call. An invalid intent is left for readiness to
@@ -233,7 +233,10 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
             // A non-array value is passed through so the schema check below rejects it.
             const unchanged: JsonObject = !Object.prototype.hasOwnProperty.call(incoming, "unchanged") ? {}
               : { unchanged: Array.isArray(incoming.unchanged) ? [...new Set([...(Array.isArray(existing.unchanged) ? existing.unchanged : []), ...incoming.unchanged])] : incoming.unchanged };
-            current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}), ...unchanged };
+            // not_warranted merges the same way, keyed by path so a later reason replaces an earlier one.
+            const notWarranted: JsonObject = !Object.prototype.hasOwnProperty.call(incoming, "not_warranted") ? {}
+              : { not_warranted: Array.isArray(incoming.not_warranted) ? [...new Map([...(Array.isArray(existing.not_warranted) ? existing.not_warranted : []), ...incoming.not_warranted].map((item) => [String((item as JsonObject)?.path), item])).values()] : incoming.not_warranted };
+            current.project_docs = { ...existing, ...(Object.prototype.hasOwnProperty.call(incoming, "updated") ? { updated: incoming.updated } : {}), ...unchanged, ...notWarranted };
           } else current[key] = fieldValue;
         }
         if (Object.hasOwn(patch, "codex_delegation")) applyCodexDelegationPatch(current, patch.codex_delegation, taskIntentHash(path));
