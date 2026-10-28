@@ -661,6 +661,27 @@ function taskSchemaV5toV6Migration(root: string, backup: string, dryRun = false)
   }
   return migrated;
 }
+// execution_platform and codex_delegation existed only for the retired Codex delegation gate; with
+// that gate gone nothing reads them, so they are dropped rather than carried as inert fields.
+function taskSchemaV6toV7Migration(root: string, backup: string, dryRun = false): number {
+  let migrated = 0;
+  for (const taskJson of filesAt(join(root, "projects")).filter((path) => basename(path) === "task.json")) {
+    const state = readJson(taskJson);
+    if (state.schema_version !== 6) continue;
+    if (!dryRun) {
+      // Its own subdirectory for the same reason as tasks-v6: an earlier step in the same call may
+      // already hold this task's backup at the shared relative path.
+      const backupTarget = join(backup, "tasks-v7", relative(join(root, "projects"), taskJson));
+      mkdirSync(dirname(backupTarget), { recursive: true });
+      writeAtomic(backupTarget, readFileSync(taskJson));
+      delete state.execution_platform; delete state.codex_delegation;
+      state.schema_version = 7;
+      writeJson(taskJson, state);
+    }
+    migrated += 1;
+  }
+  return migrated;
+}
 export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const state = resolve(root); const managedPath = join(state, "managed-runtime.json"); const existing = existsSync(managedPath) ? readJson(managedPath) : {};
   const migrations = (existing.migrations && typeof existing.migrations === "object" ? existing.migrations : {}) as JsonObject;
@@ -670,7 +691,8 @@ export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const alreadySchemaV4Migrated = migrations.v3_to_v4_task_schema;
   const alreadySchemaV5Migrated = migrations.v4_to_v5_task_schema;
   const alreadySchemaV6Migrated = migrations.v5_to_v6_task_schema;
-  if (alreadyPythonMigrated && alreadySchemaV2Migrated && alreadySchemaV3Migrated && alreadySchemaV4Migrated && alreadySchemaV5Migrated && alreadySchemaV6Migrated) return { migrated: false, reason: "already-migrated" };
+  const alreadySchemaV7Migrated = migrations.v6_to_v7_task_schema;
+  if (alreadyPythonMigrated && alreadySchemaV2Migrated && alreadySchemaV3Migrated && alreadySchemaV4Migrated && alreadySchemaV5Migrated && alreadySchemaV6Migrated && alreadySchemaV7Migrated) return { migrated: false, reason: "already-migrated" };
   const stamp = now().replace(/[:.]/g, "-"); const backup = join(state, "migrations", `python-v6-${stamp}`);
   if (!dryRun) { mkdirSync(backup, { recursive: true }); if (existsSync(managedPath)) writeAtomic(join(backup, "managed-runtime.json"), readFileSync(managedPath)); }
   const migratedTasks = dryRun || alreadyPythonMigrated ? 0 : taskMigration(state, backup);
@@ -679,7 +701,8 @@ export function migrateState(root = stateRoot(), dryRun = false): JsonObject {
   const migratedSchemaV4 = dryRun || alreadySchemaV4Migrated ? 0 : taskSchemaV3toV4Migration(state);
   const migratedSchemaV5 = alreadySchemaV5Migrated ? 0 : taskSchemaV4toV5Migration(state, backup, dryRun);
   const migratedSchemaV6 = alreadySchemaV6Migrated ? 0 : taskSchemaV5toV6Migration(state, backup, dryRun);
-  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, migrated_schema_v3: migratedSchemaV3, migrated_schema_v4: migratedSchemaV4, migrated_schema_v5: migratedSchemaV5, migrated_schema_v6: migratedSchemaV6, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
+  const migratedSchemaV7 = alreadySchemaV7Migrated ? 0 : taskSchemaV6toV7Migration(state, backup, dryRun);
+  return { migrated: true, backup, migrated_tasks: migratedTasks, migrated_schema_v2: migratedSchemaV2, migrated_schema_v3: migratedSchemaV3, migrated_schema_v4: migratedSchemaV4, migrated_schema_v5: migratedSchemaV5, migrated_schema_v6: migratedSchemaV6, migrated_schema_v7: migratedSchemaV7, preserved: ["selected_skills", "knowledge", "review-causes", "skill-drafts"] };
 }
 export async function install(options: InstallOptions): Promise<number> {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const source = sourceRoot(); const managedPath = join(state, "managed-runtime.json"); const previous = existsSync(managedPath) ? readJson(managedPath) : {};
@@ -846,7 +869,7 @@ export async function install(options: InstallOptions): Promise<number> {
     const inSelectedPlatform = selected.some((platform) => pathKey(record.path).startsWith(pathKey(previousRoots[platform]) + sep) || pathKey(record.path).startsWith(pathKey(targetRoots[platform]) + sep));
     if (!inSelectedPlatform && record.kind !== "runtime" && record.kind !== "cli-shim" && record.kind !== "canonical-template") records.push(record);
   }
-  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true } : {}) } });
+  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true, v6_to_v7_task_schema: true } : {}) } });
   const integrations = options.integrations;
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;

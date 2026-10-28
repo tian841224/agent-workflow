@@ -10,7 +10,7 @@ import { compile } from "./policy-compiler.mjs";
 // id matching the task-id pattern, no unknown top-level keys) before task-gate will validate it.
 function validTask(overrides = {}) {
   return {
-    schema_version: 6,
+    schema_version: 7,
     id: "20260101-000000-gate-test",
     project_id: "0123456789abcdef",
     worktree_id: "0123456789abcdef",
@@ -94,7 +94,7 @@ test("task-init creates a schema-valid task.json and refuses to overwrite an exi
   const created = run(["task-init", "--task-path", path, "--repo-root", repo], JSON.stringify({ code_change: true, task_type: "fix" }));
   assert.equal(created.status, 0, created.stderr);
   const state = JSON.parse(readFileSync(path, "utf8"));
-  assert.equal(state.schema_version, 6);
+  assert.equal(state.schema_version, 7);
   assert.equal(state.code_change, true);
   assert.equal(state.lifecycle.status, "in_progress");
   assert.equal(state.base_commit, vcs(["rev-parse", "HEAD"]).stdout.trim());
@@ -907,4 +907,25 @@ test("task-init refuses --as-user without naming where the user confirmed", () =
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(JSON.parse(result.stdout).errors.join("; "), /--as-user requires --confirmed-by/);
   assert.equal(existsSync(join(task, "task.json")), false, "a rejected call must not leave task state behind");
+});
+
+test("AC2 a task created under CODEX_THREAD_ID carries no platform marker and closes without any delegation record", () => {
+  const root = join(tmpdir(), `agent-workflow-codex-direct-${process.pid}-${Date.now()}`);
+  const repo = join(root, "repo"); mkdirSync(repo, { recursive: true });
+  const vcs = (args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  vcs(["init", "-q"]); vcs(["config", "user.email", "t@e.com"]); vcs(["config", "user.name", "t"]);
+  writeFileSync(join(repo, "file.txt"), "one"); vcs(["add", "."]); vcs(["commit", "-q", "-m", "init"]);
+  const task = join(root, "20260101-000000-codex-direct"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Codex direct\n\n## Goal\n\nClose a Codex task the coordinator did itself.\n\n## Scope\n\nTest fixture scope.\n\n## Completion criteria\n\n- [ ] fixture closes\n");
+  const path = join(task, "task.json");
+  const env = { ...process.env, CODEX_THREAD_ID: "thread-under-test" };
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input, env });
+  const created = run(["task-init", "--task-path", path, "--repo-root", repo], JSON.stringify({ code_change: false, managed_change: true, task_type: "chore", impact_scope: "file", impact_effect: "none", impact_confidence: "high" }));
+  assert.equal(created.status, 0, created.stdout + created.stderr);
+  const output = JSON.parse(created.stdout);
+  assert.equal(output.readiness.ready, true, JSON.stringify(output.readiness.blockers));
+  assert.equal(Object.hasOwn(JSON.parse(readFileSync(path, "utf8")), "execution_platform"), false);
+  const closed = run(["close-task", "--task-path", path, "--repo-root", repo]);
+  assert.equal(closed.status, 0, closed.stdout + closed.stderr);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).lifecycle.status, "closed");
 });

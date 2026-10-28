@@ -27,8 +27,6 @@ export function classificationHelp(): string {
   lines.push(`  risk_flags[]: ${enumValues(riskFlags).join(" | ")}`);
   const facts = (((taskSchema.$defs as JsonObject | undefined)?.workflowFacts as JsonObject | undefined)?.propertyNames) as JsonObject | undefined;
   lines.push(`  workflow_facts keys: ${enumValues(facts).join(" | ")}`);
-  lines.push(`  execution_platform: ${enumValues(properties.execution_platform).join(" | ")}`);
-  lines.push("  codex_delegation: assessment / native_agents / observations (Codex coordinator only; schemas/task.schema.json owns their shape)");
   return lines.join("\n");
 }
 

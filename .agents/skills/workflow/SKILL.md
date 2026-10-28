@@ -30,7 +30,7 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
    跨模組，或涉及契約、資料、狀態與失敗恢復的修改，接著依 [expansion.md](../implementation-spec/expansion.md) 把規格展開到可直接實作。若發現規格缺口，先補 task.md，必要時更新分類，實質規格變更回到第 3 步重新確認，intent 確認依 [risk-flags.md](risk-flags.md)。
 
    有 `doc_gap` 時，依 [project-docs](../project-docs/SKILL.md) 為這次碰到的模組補一份文件。分類補充（含 `task_type: mechanical` 的適用條件）見 [capability-selection.md](capability-selection.md#task_type-mechanical)。
-5. 實作前判斷工作能否獨立完成；適合平行時使用平台原生 subagent，明確分配責任範圍，由主 agent 整合並驗證結果；worker 數量與隔離方式由 agent 依任務及平台能力決定。找呼叫點、讀檔彙整這類不需判斷的唯讀查證派給 [reader](../../agents/reader.md)；需要判斷的複審依 [review.md](review.md)。plan 的 `checklist` 是實作與 review 都要涵蓋的分析項目；`proofs` 和驗收案例一樣，要用 `evidence-run` 實際執行。註解依入口文件的「程式碼註解」觸發規則；worker 的指派範圍符合條件時，訊息附上 [clean-comments](../clean-comments/SKILL.md) 路徑。安裝、同步、部署、migration、provisioning 或外部整合時，另讀 [operational-verification](../operational-verification/SKILL.md)。
+5. 實作由主 agent 進行；符合入口文件「Subagent」段落的平行或大量讀取工作才使用平台原生 subagent，明確分配責任範圍，由主 agent 整合並驗證結果；worker 數量與隔離方式由 agent 依任務及平台能力決定。複審依 [review.md](review.md)。plan 的 `checklist` 是實作與 review 都要涵蓋的分析項目；`proofs` 和驗收案例一樣，要用 `evidence-run` 實際執行。註解依入口文件的「程式碼註解」觸發規則；worker 的指派範圍符合條件時，訊息附上 [clean-comments](../clean-comments/SKILL.md) 路徑。安裝、同步、部署、migration、provisioning 或外部整合時，另讀 [operational-verification](../operational-verification/SKILL.md)。
 6. 之後照每個指令輸出的 `next` 補上 gate 缺口；驗證、Reviewer 與結案順序依 [Finalization](evidence.md#finalization)，證據有效性依同檔的 freshness 說明。
 7. bug 修好或 review 確認問題後，依 [root-cause](../root-cause/SKILL.md) 補上防止再發生的測試、文件、規範或 workflow 修正。使用者做的決策、更正與可重用結論，依 [learn](../learn/SKILL.md) 記錄。
 

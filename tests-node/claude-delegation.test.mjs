@@ -109,14 +109,17 @@ test("AC4 the Claude worker is pinned to sonnet at high effort and the reader st
   assert.doesNotMatch(reader, /^effort:/m);
 });
 
-test("AC5 the delegation rule maps the four kinds of work and the direct-handling threshold", () => {
-  const rule = readFileSync(installed("ac5").delegation, "utf8");
-  assert.match(rule, /\| [^|]*讀檔[^|]*\| `agent-workflow-reader` \| haiku/);
-  assert.match(rule, /\| [^|]*規劃[^|]*\| `Plan` \|[^|]*`model: opus`、`effort: high`/);
-  assert.match(rule, /\| [^|]*實作[^|]*\| `agent-workflow-worker` \| sonnet、high/);
+test("AC5 the delegation rule maps only the shared dispatch cases and defers when to dispatch to the shared rule", () => {
+  const target = installed("ac5");
+  const rule = readFileSync(target.delegation, "utf8");
+  const rows = rule.split(/\r?\n/).filter((line) => /^\| (?!---|派工情況)/.test(line));
+  assert.equal(rows.length, 3, rows.join("\n"));
+  assert.match(rule, /\| [^|]*大量讀取[^|]*\| `agent-workflow-reader` \| haiku/);
+  assert.match(rule, /\| [^|]*平行實作[^|]*\| `agent-workflow-worker` \| sonnet、high/);
   assert.match(rule, /\| 複審 \| `general-purpose` \|[^|]*`model: opus`、`effort: high`/);
-  assert.match(rule, /主對話直接處理：.*單一檔案且 10 行以內的修改/);
-  assert.match(rule, /平行派出多個 subagent：.*多個 reader；.*多個 worker，各 worker 的寫入範圍不重疊/);
+  assert.doesNotMatch(rule, /`Plan`|10 行/);
+  assert.match(rule, /共用入口的「Subagent」段落/);
+  assert.match(readFileSync(join(target.canonical, "AGENTS.md"), "utf8"), /^## Subagent$/m);
 });
 
 test("AC6 repair keeps the user's own Claude rules and does not repeat the imports", () => {
@@ -193,5 +196,24 @@ test("a source without the delegation rule imports only the canonical entrypoint
   ok(target.run("repair"));
   assert.deepEqual(managedLines(target.claudeEntry), ["@~/.agents/AGENTS.md"]);
   assert.equal(existsSync(target.delegation), false);
+  assert.match(target.run("verify").stdout, /"valid":true/);
+});
+
+test("AC4 repair removes a Codex agent definition the source no longer declares", () => {
+  const source = sandboxSource("dropped-agent");
+  const config = join(source, "adapters", "codex", "managed-config.json");
+  const original = readFileSync(config, "utf8");
+  const extended = JSON.parse(original);
+  writeFileSync(join(source, "adapters", "codex", "agents", "retired.md"), "---\nname: retired\ndescription: A role a later source drops.\n---\n\nRetired role.\n");
+  extended.agents.retired = { source: "adapters/codex/agents/retired.md", sandbox_mode: "read-only", instructions_source: "adapters/codex/agents/subagent.md" };
+  writeFileSync(config, JSON.stringify(extended));
+  const target = fixture("dropped-agent", source);
+  ok(target.run("install"));
+  const retired = join(target.codex, "agents", "agent-workflow-retired.toml");
+  assert.ok(existsSync(retired));
+  writeFileSync(config, original);
+  ok(target.run("repair"));
+  assert.equal(existsSync(retired), false);
+  assert.equal(existsSync(join(target.codex, "agents", "agent-workflow-planner.toml")), false);
   assert.match(target.run("verify").stdout, /"valid":true/);
 });

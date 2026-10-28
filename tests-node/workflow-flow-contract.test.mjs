@@ -61,7 +61,7 @@ test("active contract no longer exposes workflow cost artifacts, timing flags, o
   const evidenceSource = read("src/lifecycle/evidence.ts");
   assert.doesNotMatch(evidenceSource, /started_at|duration_ms|startedAt|durationMs/);
   const schema = JSON.parse(read("schemas/task.schema.json"));
-  assert.equal(schema.properties.schema_version.const, 6);
+  assert.equal(schema.properties.schema_version.const, 7);
   const step = schema.$defs.stepEvidence;
   const executionRule = step.allOf.find((rule) => rule.if?.properties?.evidence_kind?.const === "execution");
   assert.deepEqual(executionRule.then.required.sort(), ["command", "cwd", "delivery_fingerprint", "delivery_mode", "delivery_paths", "exit_code", "output_digest"].sort());
@@ -71,6 +71,8 @@ test("active contract no longer exposes workflow cost artifacts, timing flags, o
   // workflow_mode/model_profile/validation_profile were legacy-compatibility or inert fields with
   // no active plan_hash or gate consumer; schema v6 drops them from the active contract.
   for (const field of ["workflow_mode", "model_profile", "validation_profile"]) assert.equal(Object.hasOwn(schema.properties, field), false, field);
+  // execution_platform/codex_delegation served only the retired Codex delegation gate; schema v7 drops them.
+  for (const field of ["execution_platform", "codex_delegation"]) assert.equal(Object.hasOwn(schema.properties, field), false, field);
 });
 
 function readmeWithoutLegacyBenchmark() {
@@ -97,7 +99,7 @@ test("v4 execution evidence migrates to the latest schema once and preserves the
   assert.equal(first.status, 0, first.stderr);
   const firstBody = JSON.parse(first.stdout);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 6);
+  assert.equal(migrated.schema_version, 7);
   assert.equal(migrated.evidence[0].started_at, undefined);
   assert.equal(migrated.evidence[0].duration_ms, undefined);
   assert.ok(existsSync(join(firstBody.backup, "tasks", "project", "tasks", "timed", "task.json")));
@@ -125,8 +127,8 @@ test("lifecycle finalization stays a single authority: only transitions.ts close
 test("native parallel decisions use direct assignments without a required orchestration protocol", () => {
   const workflow = read(".agents/skills/workflow/SKILL.md");
   const orchestration = read(".agents/skills/workflow/orchestration.md");
-  assert.match(workflow, /實作前判斷工作能否獨立完成/);
-  assert.match(workflow, /適合平行時使用平台原生 subagent/);
+  assert.match(workflow, /實作由主 agent 進行/);
+  assert.match(workflow, /入口文件「Subagent」段落[^。]*才使用平台原生 subagent/);
   assert.match(workflow, /由主 agent 整合並驗證結果/);
   assert.doesNotMatch(workflow, /主動評估平行開發|parallel_hint/);
   assert.doesNotMatch(orchestration, /Run Assess|follow Prepare|orchestrate --action|Protocol 3 manages/);

@@ -32,7 +32,7 @@ test("a v2 task carrying retired fields and no transition history migrates into 
   }));
   assert.equal(run(["migrate-state", "--state-root", root]).status, 0);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 6);
+  assert.equal(migrated.schema_version, 7);
   assert.equal(migrated.change_kind, undefined);
   assert.equal(migrated.complexity_hint, undefined);
   assert.equal(migrated.roles_waived, undefined);

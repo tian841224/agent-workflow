@@ -33,9 +33,9 @@ covers:
 
 Antigravity 的派工規則來源是 [`adapters/antigravity/delegation.md`](../../adapters/antigravity/delegation.md)，只在選取 Antigravity 時安裝到 `<Antigravity 根目錄>/agent-workflow/delegation.md`（預設 `~/.gemini/agent-workflow/delegation.md`）。共用規則不複製進 `GEMINI.md`，由引用的 `~/.agents/AGENTS.md` 提供。
 
-Codex 沒有引入語法，全域也只載入 `~/.codex/AGENTS.md` 一個檔案。它的受管區塊第一行是指標，要求 agent 開始工作前先完整讀取 `~/.agents/AGENTS.md` 的絕對路徑並遵守其中的共用規則；之後空一行，接上專用設定所指定的 coordinator 來源。[Codex coordinator 指示](../../adapters/codex/coordinator.md) 是委派、平行條件及當次原生模型選擇的 authority；共用規則的內文只存在 `~/.agents/AGENTS.md`，Codex 入口不含其複本；Claude 與 Antigravity 維持共用入口與專屬規則的引入方式。各入口各自保留區塊外的使用者文字。
+Codex 沒有引入語法，全域也只載入 `~/.codex/AGENTS.md` 一個檔案。它的受管區塊第一行是指標，要求 agent 開始工作前先完整讀取 `~/.agents/AGENTS.md` 的絕對路徑並遵守其中的共用規則；之後空一行，接上專用設定所指定的 coordinator 來源。[Codex coordinator 指示](../../adapters/codex/coordinator.md) 是 Codex 派哪個角色與當次原生模型選擇的 authority，何時派 subagent 由共用入口的「Subagent」段落決定；共用規則的內文只存在 `~/.agents/AGENTS.md`，Codex 入口不含其複本；Claude 與 Antigravity 維持共用入口與專屬規則的引入方式。各入口各自保留區塊外的使用者文字。
 
-Codex 指示透過既有 task runtime 登錄拆分評估與原生狀態快照；此 gate 的紀錄與信任邊界見 [Workflow runtime](workflow-runtime.md#codex-coordinator-gate)。安裝產物與 Verify 不會自行證明一次任務真的平行執行。
+安裝產物與 Verify 只確認派工規則已就位，不證明一次任務實際有沒有派 subagent。
 
 ## Flow
 

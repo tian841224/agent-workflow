@@ -24,7 +24,7 @@ function delegationFixture(t, copySource = false) {
   return { root, source, run, manifestPath: join(source, "adapters", "managed-manifest.json"), codexConfigPath: join(source, "adapters", "codex", "managed-config.json"), claudeConfigPath: join(source, "adapters", "claude", "managed-config.json") };
 }
 
-test("Codex delegation installs three unpinned roles without changing other platform instructions", (t) => {
+test("Codex delegation installs two unpinned roles without changing other platform instructions", (t) => {
   for (const target of ["All", "Codex"]) {
     const { root, run } = delegationFixture(t);
     const entries = [join(root, "home", ".agents", "AGENTS.md"), join(root, "claude", "CLAUDE.md"), join(root, "codex", "AGENTS.md"), join(root, "gemini", "GEMINI.md")];
@@ -42,7 +42,7 @@ test("Codex delegation installs three unpinned roles without changing other plat
       const result = run(action, target);
       assert.equal(result.status, 0, result.stdout + result.stderr);
       const current = new Map();
-      for (const [name, effort, sandbox] of [["reader", "medium", "read-only"], ["worker", "max", "workspace-write"], ["planner", "high", "read-only"]]) {
+      for (const [name, effort, sandbox] of [["reader", "medium", "read-only"], ["worker", "max", "workspace-write"]]) {
         const path = join(root, "codex", "agents", `agent-workflow-${name}.toml`);
         const role = readFileSync(path, "utf8");
         assert.match(role, new RegExp(`^name = "agent-workflow-${name}"$`, "m"));
@@ -87,18 +87,17 @@ test("Codex delegation installs three unpinned roles without changing other plat
   }
 });
 
-test("the installed Codex routing contract delegates work and selects current native model capabilities", (t) => {
+test("the installed Codex routing contract defers when to dispatch to the shared rule and selects current native model capabilities", (t) => {
   const { root, run } = delegationFixture(t);
   const result = run("install", "Codex");
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const body = readFileSync(join(root, "codex", "AGENTS.md"), "utf8");
-  const rows = [...body.matchAll(/\| `agent-workflow-(reader|worker|planner)` \| 最新可用 (Luna|Sol|Astra) \| `(medium|max|high)` \|/g)].map((match) => match.slice(1));
-  assert.deepEqual(rows, [["reader", "Luna", "medium"], ["worker", "Sol", "max"], ["planner", "Astra", "high"]]);
-  assert.match(body, /簡單問答[\s\S]*主對話直接回答[\s\S]*單一工作也指派一個子代理/);
-  assert.match(body, /大型讀取、分析或開發[\s\S]*必須評估拆分[\s\S]*至少兩個獨立子任務[\s\S]*必須平行[\s\S]*先啟動[\s\S]*再等待/);
-  assert.match(body, /共用檔案只指定一個 owner[\s\S]*循序委派/);
-  assert.match(body, /整合與測試指定一個 worker[\s\S]*主對話[\s\S]*驗收/);
-  assert.match(body, /主對話[\s\S]*持有 managed lifecycle、gate、證據登錄[\s\S]*worker 自行讀碼、實作與測試/);
+  const rows = [...body.matchAll(/\| `agent-workflow-(\w+)` \| 最新可用 (\w+) \| `(\w+)` \|/g)].map((match) => match.slice(1));
+  assert.deepEqual(rows, [["reader", "Luna", "medium"], ["worker", "Sol", "max"]]);
+  assert.match(body, /何時派子代理依共用入口的「Subagent」段落/);
+  assert.match(body, /寫入範圍不重疊的平行實作交給 `agent-workflow-worker`[\s\S]*共用檔案只指定一個 worker 作為 owner/);
+  assert.match(body, /平行的部分先一次啟動這批子代理，再等待結果/);
+  assert.doesNotMatch(body, /codex_delegation|list_agents|單一工作也指派|必須平行|agent-workflow-planner/);
   assert.match(body, /獨立程式審查[\s\S]*新的 `agent-workflow-worker`[\s\S]*唯讀審查[\s\S]*Sol／max[\s\S]*Reader 只提供事實/);
   assert.match(body, /當次原生 spawn 工具公開[\s\S]*supported reasoning efforts[\s\S]*版本數字逐段比較/);
   assert.match(body, /先選最新版，再確認[\s\S]*effort[\s\S]*不可[\s\S]*較舊版/);
@@ -133,12 +132,12 @@ test("unsafe or missing native role sources fail before installation writes", (t
   const { root, source, run, codexConfigPath } = delegationFixture(t, true);
   const original = JSON.parse(readFileSync(codexConfigPath, "utf8"));
   const cases = [
-    { change: (config) => { config.agents.planner.source = "adapters/codex/agents/missing.md"; }, error: /agent source for planner is missing/ },
+    { change: (config) => { config.agents.custom = { ...config.agents.reader, source: "adapters/codex/agents/missing.md" }; }, error: /agent source for custom is missing/ },
     { change: (config) => { config.agents.worker.instructions_source = "adapters/codex/agents/missing.md"; }, error: /agent instructions source for worker \(Codex\) is missing/ },
     { change: (config) => { config.coordinator_source = "adapters/codex/missing.md"; }, error: /Codex coordinator source is missing/ },
-    ...["../outside.md", join(root, "outside.md"), "", null].map((source) => ({ change: (config) => { config.agents.planner.source = source; }, error: /invalid agent source for planner/ })),
+    ...["../outside.md", join(root, "outside.md"), "", null].map((source) => ({ change: (config) => { config.agents.custom = { ...config.agents.reader, source }; }, error: /invalid agent source for custom/ })),
     { change: (config) => { config.coordinator_source = ".agents/agents/worker.md"; }, error: /Codex coordinator source: path leaves the Codex adapter/ },
-    { change: (config) => { config.agents.planner.source = ".agents/agents/reader.md"; }, error: /agent source for planner: path leaves the Codex adapter/ },
+    { change: (config) => { config.agents.custom = { ...config.agents.reader, source: ".agents/agents/reader.md" }; }, error: /agent source for custom: path leaves the Codex adapter/ },
     { change: (config) => { config.agents.worker.instructions_source = ".agents/agents/worker.md"; }, error: /agent instructions source for worker \(Codex\): path leaves the Codex adapter/ },
     { change: (config) => { config.agents.reader.model_reasoning_effort = "unsupported"; }, error: /invalid reasoning effort for agent reader \(Codex\)/ }
   ];

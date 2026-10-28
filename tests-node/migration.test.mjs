@@ -13,8 +13,8 @@ test("migration preserves a task backup and marks legacy evidence unverified", (
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).migrated, true);
   const migratedJson = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  // 單次 migrate-state 會把 v1 task.md 一路遷到最新 schema（v1→v2→v3→v4→v5→v6 在同一次呼叫內串接執行）
-  assert.equal(migratedJson.schema_version, 6);
+  // 單次 migrate-state 會把 v1 task.md 一路遷到最新 schema（v1→v2→v3→v4→v5→v6→v7 在同一次呼叫內串接執行）
+  assert.equal(migratedJson.schema_version, 7);
   assert.equal(migratedJson.evidence[0].kind, "legacy-unverified");
   assert.equal(migratedJson.evidence[0].status, "needs_reverification");
   assert.ok(existsSync(join(task, "task.md")));
@@ -36,7 +36,7 @@ test("a schema_version 2 frozen task migrates to the latest schema with intent_a
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).migrated, true);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 6);
+  assert.equal(migrated.schema_version, 7);
   assert.equal(migrated.lifecycle.status, "in_progress");
   assert.equal(migrated.lifecycle.frozen_at, undefined);
   // v3's intent_approval (populated by the v2->v3 step from frozen_at) cannot be safely reinterpreted
@@ -85,7 +85,7 @@ test("schema v4 execution evidence migrates to the latest schema with a backup a
   const output = JSON.parse(result.stdout);
   assert.equal(output.migrated_schema_v5, 1);
   const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
-  assert.equal(migrated.schema_version, 6);
+  assert.equal(migrated.schema_version, 7);
   assert.equal(migrated.evidence[0].started_at, undefined);
   assert.equal(migrated.evidence[0].duration_ms, undefined);
   const backup = join(output.backup, "tasks", "project", "tasks", "timed-task", "task.json");
@@ -97,4 +97,34 @@ test("schema v4 execution evidence migrates to the latest schema with a backup a
   assert.equal(second.status, 0, second.stderr);
   assert.equal(JSON.parse(second.stdout).migrated_schema_v5, 0);
   assert.equal(readFileSync(join(task, "task.json"), "utf8"), once);
+});
+
+test("AC3 schema v6 Codex delegation fields are dropped with a backup and can no longer be written", () => {
+  const root = join(tmpdir(), `agent-workflow-migration-v6-v7-${process.pid}-${Date.now()}`);
+  const task = join(root, "projects", "project", "tasks", "20260101-000000-codex-task"); mkdirSync(task, { recursive: true });
+  writeFileSync(join(task, "task.md"), "# Codex task\n\n## Goal\n\nDrop the retired delegation fields.\n\n## Scope\n\nMigration fixture.\n\n## Completion criteria\n\n- [ ] fixture is migrated\n");
+  const legacy = {
+    schema_version: 6, id: "20260101-000000-codex-task", project_id: "0123456789abcdef", worktree_id: "0123456789abcdef",
+    code_change: false, managed_change: true, risk_flags: [], created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+    state_revision: 1, plan_revision: 1, evidence: [], waivers: [],
+    lifecycle: { status: "in_progress", transitions: [{ at: "2026-01-01T00:00:00.000Z", action: "create", from: "new", to: "in_progress", actor: "test" }] },
+    execution_platform: "Codex", codex_delegation: { assessment: { task_size: "small", mode: "single", subtasks: [] } }
+  };
+  writeFileSync(join(task, "task.json"), JSON.stringify(legacy));
+  const run = (args, input) => spawnSync(process.execPath, ["dist/agent-workflow.mjs", ...args], { cwd: process.cwd(), encoding: "utf8", input });
+  const result = run(["migrate-state", "--state-root", root]);
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.migrated_schema_v7, 1);
+  const migrated = JSON.parse(readFileSync(join(task, "task.json"), "utf8"));
+  assert.equal(migrated.schema_version, 7);
+  assert.equal(Object.hasOwn(migrated, "execution_platform"), false);
+  assert.equal(Object.hasOwn(migrated, "codex_delegation"), false);
+  const backup = join(output.backup, "tasks-v7", "project", "tasks", "20260101-000000-codex-task", "task.json");
+  assert.deepEqual(JSON.parse(readFileSync(backup, "utf8")), legacy);
+  for (const field of ["codex_delegation", "execution_platform"]) {
+    const rejected = run(["task-write", "--task-path", join(task, "task.json")], JSON.stringify({ [field]: field === "execution_platform" ? "Codex" : {} }));
+    assert.notEqual(rejected.status, 0, field);
+    assert.match(rejected.stdout + rejected.stderr, new RegExp(`not writable via task-write: ${field}`));
+  }
 });

@@ -8,7 +8,6 @@ import { after, test } from "node:test";
 // Codex-only instruction sources; each must reach `<Codex root>` alone and never a shared location.
 const CODEX_SOURCES = {
   coordinator: join("adapters", "codex", "coordinator.md"),
-  planner: join("adapters", "codex", "agents", "planner.md"),
   subagent: join("adapters", "codex", "agents", "subagent.md")
 };
 const MIN_LINE = 25;
