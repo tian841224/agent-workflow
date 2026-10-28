@@ -6,7 +6,7 @@
 
 | 派工情況 | Agent | 模型 |
 |---|---|---|
-| 會擠滿主對話的大量讀取、依主題切分的平行讀取 | `agent-workflow-reader` | haiku（定義已固定） |
+| 會擠滿主對話的大量讀取、依主題切分的平行讀取 | `Explore` | 派工時指定 `model: haiku` |
 | 寫入範圍不重疊的平行實作 | `agent-workflow-worker` | sonnet、high（定義已固定） |
 | 複審 | `general-purpose` | 派工時指定 `model: opus`、`effort: high` |
 

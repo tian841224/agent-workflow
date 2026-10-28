@@ -99,14 +99,13 @@ test("AC3 a Codex-only install lays down no Claude delegation rule", () => {
   assert.doesNotMatch(entry, DELEGATION_TRACE);
 });
 
-test("AC4 the Claude worker is pinned to sonnet at high effort and the reader stays on haiku", () => {
+test("AC4 the Claude worker is pinned to sonnet at high effort and Claude installs no reader of its own", () => {
   const target = installed("ac4");
   const worker = readFileSync(join(target.claude, "agents", "agent-workflow-worker.md"), "utf8").split("\n---\n")[0];
   assert.match(worker, /^model: sonnet$/m);
   assert.match(worker, /^effort: high$/m);
-  const reader = readFileSync(join(target.claude, "agents", "agent-workflow-reader.md"), "utf8").split("\n---\n")[0];
-  assert.match(reader, /^model: haiku$/m);
-  assert.doesNotMatch(reader, /^effort:/m);
+  // Large reads go to the built-in Explore agent; a second read-only searcher would only overlap it.
+  assert.equal(existsSync(join(target.claude, "agents", "agent-workflow-reader.md")), false);
 });
 
 test("AC5 the delegation rule maps only the shared dispatch cases and defers when to dispatch to the shared rule", () => {
@@ -114,7 +113,7 @@ test("AC5 the delegation rule maps only the shared dispatch cases and defers whe
   const rule = readFileSync(target.delegation, "utf8");
   const rows = rule.split(/\r?\n/).filter((line) => /^\| (?!---|派工情況)/.test(line));
   assert.equal(rows.length, 3, rows.join("\n"));
-  assert.match(rule, /\| [^|]*大量讀取[^|]*\| `agent-workflow-reader` \| haiku/);
+  assert.match(rule, /\| [^|]*大量讀取[^|]*\| `Explore` \| 派工時指定 `model: haiku`/);
   assert.match(rule, /\| [^|]*平行實作[^|]*\| `agent-workflow-worker` \| sonnet、high/);
   assert.match(rule, /\| 複審 \| `general-purpose` \|[^|]*`model: opus`、`effort: high`/);
   assert.doesNotMatch(rule, /`Plan`|10 行/);

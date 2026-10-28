@@ -163,11 +163,11 @@ Protocol 3 runtime CLI 與 state 是選用介面；原生平行開發不以它�
 
 | 平台 | 入口規則 | skills | hooks | 原生 agent |
 | --- | --- | --- | --- | --- |
-| Claude Code | `~/.claude/CLAUDE.md`（引入 `~/.agents/AGENTS.md` 與 `~/.claude/agent-workflow/delegation.md`） | `~/.claude/skills` | `settings.json`（含 orchestration CLI 使用的 `additionalDirectories`） | `~/.claude/agents/agent-workflow-{worker,reader}.md` |
+| Claude Code | `~/.claude/CLAUDE.md`（引入 `~/.agents/AGENTS.md` 與 `~/.claude/agent-workflow/delegation.md`） | `~/.claude/skills` | `settings.json`（含 orchestration CLI 使用的 `additionalDirectories`） | `~/.claude/agents/agent-workflow-worker.md` |
 | Codex | `~/.codex/AGENTS.md`（指標指向 `~/.agents/AGENTS.md`，另含 Codex coordinator 指示） | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader}.toml` |
 | Antigravity | `~/.gemini/GEMINI.md`（引用 `~/.agents/AGENTS.md` 與 `~/.gemini/agent-workflow/delegation.md`） | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
-各平台的派工規則只決定派哪個 agent 與模型。Claude Code 的派工規則只安裝在 Claude 目錄：大量讀取交給 Haiku 的 reader、平行實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，原生角色設定是 `adapters/claude/managed-config.json`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
+各平台的派工規則只決定派哪個 agent 與模型。Claude Code 的派工規則只安裝在 Claude 目錄：大量讀取交給內建的 Explore（指定 Haiku）、平行實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，原生角色設定是 `adapters/claude/managed-config.json`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
 
 技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份，並移除三個平台設定檔中由 agent-workflow 寫入的 hook；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
 
@@ -219,7 +219,7 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | Agent | 用途 |
 | --- | --- |
 | [worker](.agents/agents/worker.md) | 接受主 agent 直接指派的目標與檔案範圍，完成驗收並回報修改、結果與 blocker |
-| [reader](.agents/agents/reader.md) | 唯讀的程式查詢與彙整，使用最低成本的模型 |
+| [reader](.agents/agents/reader.md) | 唯讀的程式查詢與彙整，只安裝到 Codex；Claude 改用內建的 Explore |
 
 ## 專案架構與主要元件
 

@@ -1,6 +1,5 @@
 {
   "agents": {
-    "worker": {"model": "sonnet", "effort": "high"},
-    "reader": {"tools": "Read, Glob, Grep", "model": "haiku"}
+    "worker": {"model": "sonnet", "effort": "high"}
   }
 }
