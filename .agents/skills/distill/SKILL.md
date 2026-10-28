@@ -72,8 +72,9 @@ note — rejected findings stop counting either way.
 
 ## Drafting a skill
 
-Load [writing-for-agents](../writing-for-agents/SKILL.md) first — a draft is judged as a skill
-document, so trigger wording and progressive disclosure apply from the first version.
+A draft is judged as a skill document from the first version: the description is the trigger
+condition with its trigger word first, every branch's steps stay in the body, and material only some
+branches read moves to a separate file.
 
 ```text
 agent-workflow skill-draft --action Draft --name <slug> --description <trigger sentence> --content <body> --cluster-id <cluster_id> --source-entry <sha>,<sha>

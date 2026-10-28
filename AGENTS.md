@@ -29,7 +29,7 @@ subagent 是主對話的工具呼叫：主對話保有與使用者的對話、�
 
 ## 進入 workflow 前的 pointers
 
-- 修改 `.agents/` 底下 agent 或 skill 文件 → `writing-for-agents`；新增 skill 的 manifest 分類也依該 skill 處理。<!-- repo-only -->
+- 修改 `.agents/` 底下 agent 或 skill 文件 → [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md)；新增 skill 的 manifest 分類也依該 skill 處理。<!-- repo-only -->
 - 使用 Plan mode 時 → 先載入 [implementation-spec](.agents/skills/implementation-spec/SKILL.md)，再依 skill 的適用範圍決定規格深度；短計畫不必擴寫成完整規格。
 - 保存決策、更正或可重用結論時 → 一律依 [learn](.agents/skills/learn/SKILL.md) 分流寫入專案文件或 `~/.agent-workflow` 共用記憶，不寫平台原生記憶；三個平台才讀得到同一份。<!-- skill:learn -->
 - 修改程式行為時 → 依 [project-docs](.agents/skills/project-docs/SKILL.md) 更新涵蓋改動路徑的 `docs/` 文件；專案還沒有任何文件時先建立。<!-- skill:project-docs -->

@@ -72,4 +72,4 @@ A rule that a hook, schema, or lint can enforce belongs there, not in prose. Del
 
 ## 新增專案 skill
 
-新增 skill 時，先詢問使用者要列為必裝或選擇性，再更新 managed manifest。提煉的草稿先放在 `skill-drafts/`；只有使用者在對話中明確同意才執行 Promote，操作依 [distill](../distill/SKILL.md)。
+新增 skill 時，先詢問使用者要列為必裝、選擇性或不安裝，再更新 managed manifest。只在編輯本 repo 時讀取的 skill 列為不安裝：放進 `unmanaged_skills`，由本 repo 的 `AGENTS.md` 以路徑指向；已安裝過的再加進 `retired_skills`，repair 會移除舊的安裝。提煉的草稿先放在 `skill-drafts/`；只有使用者在對話中明確同意才執行 Promote，操作依 [distill](../distill/SKILL.md)。

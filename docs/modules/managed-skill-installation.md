@@ -25,7 +25,7 @@ covers:
 
 ## Entrypoints
 
-`install` 與 `repair` 共用 `src/installer.ts` 的安裝流程。入口檔由 repo 的 `AGENTS.md` 產生：帶 `<!-- repo-only -->` 的行與指向未安裝 skill 的 `<!-- skill:<name> -->` 行不寫入，`.agents/` 連結改寫成 `~/.agents/`，在任何專案都解析得到。`required: true` 的技能自動加入選取清單，不受 `--skills` 省略影響。
+`install` 與 `repair` 共用 `src/installer.ts` 的安裝流程。入口檔由 repo 的 `AGENTS.md` 產生：帶 `<!-- repo-only -->` 的行與指向未安裝 skill 的 `<!-- skill:<name> -->` 行不寫入，`.agents/` 連結改寫成 `~/.agents/`，在任何專案都解析得到。`required: true` 的技能自動加入選取清單，不受 `--skills` 省略影響。Manifest 的 unmanaged_skills 清單列出留在 repo、但不在 catalog 也不安裝的技能，只在編輯本 repo 時讀取；已安裝過的同名技能另列進 retired_skills，repair 時移除。
 
 產生的內容只寫入 `~/.agents/AGENTS.md`，各平台入口檔不複製這份內文。Claude 的 `CLAUDE.md` 支援引入語法，managed 區塊只有兩行：`@~/.agents/AGENTS.md` 引入共用入口，`@agent-workflow/delegation.md` 引入 Claude 專屬派工規則。Antigravity 的 `GEMINI.md` 同樣只有兩行引用：`@../.agents/AGENTS.md` 引入共用入口，`@agent-workflow/delegation.md` 引入 Antigravity 專屬派工規則。Antigravity 以規則檔所在位置解析 `@` 檔名，所以第一行是 installer 依 `GEMINI.md` 所在目錄算出的相對路徑，自訂 Antigravity target 會得到各自的相對路徑。
 

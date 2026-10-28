@@ -201,7 +201,6 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [learn](.agents/skills/learn/SKILL.md) | 分類保存使用者的決策、更正與可重用結論 |
 | [clean-comments](.agents/skills/clean-comments/SKILL.md) | 撰寫多行、公開合約或需要解釋判斷依據的註解 |
 | [localization-tw](.agents/skills/localization-tw/SKILL.md) | 翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 `AGENTS.md` 常駐規則與每次提交訊息時注入的 skill 規則處理 |
-| [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) | 編寫 `.agents/` 角色或 skill 指引，維持清楚的入口與分層揭露 |
 
 ### 依需求選用
 
@@ -213,6 +212,12 @@ Skill 是依情境讀取的工作指引。**必裝代表安裝時一定納入，
 | [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的結論或 review 原因提煉改善；草稿核准後才生效 |
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 使用者明確要求分析單次任務的流程、hooks、skills、時間與重試 |
 | [git-commit](.agents/skills/git-commit/SKILL.md) | 撰寫 commit 訊息、規劃 commit 拆分與發起 PR／MR |
+
+### 不安裝（只在編輯本 repo 時讀取）
+
+| Skill | 何時使用 |
+| --- | --- |
+| [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md) | 編寫 `.agents/` 角色或 skill 指引，維持清楚的入口與分層揭露；由本 repo 的 `AGENTS.md` 以路徑指向 |
 
 ### 原生 agent
 
