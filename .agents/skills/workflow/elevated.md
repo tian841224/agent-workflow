@@ -12,5 +12,5 @@ coordinator writes ordered slices before implementation. Every slice names its g
 acceptance criteria, local verification command, and dependencies. A dependent slice waits until the
 previous slice's local feedback passes. Each slice receives local feedback only; the whole task gets
 one Reviewer after every slice is stable. Keep slices in the coordinator's working plan; they
-are not new task state or ExecutionPacket authority. Native parallel decisions follow [workflow](SKILL.md); dependent work stays ordered. Once all slices are stable,
+are not new task state or ExecutionPacket authority. Subagent decisions follow the entrypoint's `Subagent` section; dependent work stays ordered. Once all slices are stable,
 follow [Finalization](evidence.md#finalization).

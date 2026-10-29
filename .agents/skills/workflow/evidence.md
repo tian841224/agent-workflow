@@ -53,8 +53,8 @@ Runs once, after source and tests are stable:
 ## Scope
 
 Keep analysis proportional to the checklist and the task impact. A direct, well-reproduced fix does not
-need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Native parallel
-decisions follow [workflow](SKILL.md); worker feedback does not replace the parent's final evidence.
+need a speculative diagnosis sequence; an unresolved or repeatedly failing fix does. Subagent
+decisions follow the entrypoint's `Subagent` section; worker feedback does not replace the parent's final evidence.
 
 ## Validation command
 

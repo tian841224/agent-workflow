@@ -203,8 +203,8 @@ test("AC4 repair removes a Codex agent definition the source no longer declares"
   const config = join(source, "adapters", "codex", "managed-config.json");
   const original = readFileSync(config, "utf8");
   const extended = JSON.parse(original);
-  writeFileSync(join(source, "adapters", "codex", "agents", "retired.md"), "---\nname: retired\ndescription: A role a later source drops.\n---\n\nRetired role.\n");
-  extended.agents.retired = { source: "adapters/codex/agents/retired.md", sandbox_mode: "read-only", instructions_source: "adapters/codex/agents/subagent.md" };
+  writeFileSync(join(source, "adapters", "codex", "retired.md"), "---\nname: retired\ndescription: A role a later source drops.\n---\n\nRetired role.\n");
+  extended.agents.retired = { source: "adapters/codex/retired.md", sandbox_mode: "read-only" };
   writeFileSync(config, JSON.stringify(extended));
   const target = fixture("dropped-agent", source);
   ok(target.run("install"));

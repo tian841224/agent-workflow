@@ -35,8 +35,8 @@ Managed development follows the Plan mode and user specification approval proced
 
 `expanded: ordered slice (goal/scope/acceptance/local verification/dependencies) > local feedback > next dependent slice > all slices complete > evidence-run acceptance cases and proofs > task-level Reviewer > close-task (evaluates gate)`
 
-Native parallel decisions follow [workflow](../../.agents/skills/workflow/SKILL.md). The coordinator
-uses available platform subagent tools and assigns goals, file scopes and acceptance directly.
+Subagent decisions follow the `Subagent` section of [AGENTS.md](../../AGENTS.md). When it dispatches,
+the coordinator uses available platform subagent tools and assigns goals, file scopes and acceptance directly.
 Isolation and worker count are task-specific; the normal workflow requires no orchestration CLI or
 packet. After integration, the parent executes all acceptance cases and proofs before the task-level
 Reviewer. Review timing is owned by [workflow review procedure](../../.agents/skills/workflow/review.md).

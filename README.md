@@ -48,7 +48,7 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
 | 獨立 Review | 程式修改一律由獨立的唯讀 Reviewer 審查（局部的純機械性修改除外），強度依風險調整；第二輪起只審上一輪之後有變動的路徑 |
 | 根因追查 | bug 修好或 review 確認問題後，判斷是缺測試、缺文件、缺規範還是 workflow 缺陷，並補上對應的防線 |
 | 記憶與學習 | 使用者的決策、更正與可重用結論依 tags 與路徑分類保存；專案決策寫進專案文件，個人偏好寫進共用記憶 |
-| 單一 agent loop | 主對話自己完成讀取、規劃、實作與驗證；只有互不相依的平行工作、會擠滿主對話的大量讀取與獨立 Review 才派平台原生 subagent，回報由主 agent 核對後採用 |
+| 單一 agent loop | 主對話自己完成讀取、規劃、實作與驗證，互不相依的讀取與指令在同一回合平行送出；只有互不相依且各自要讀寫多個檔案的工作、會擠滿主對話的大量讀取與獨立 Review 才派平台原生 subagent，回報由主 agent 核對後採用 |
 | 平台 hooks | 輸出前注入 localization-tw skill 的規則，以及依任務自動篩選注入的記憶；session 結束時關閉 agent 啟動的背景程序並清除期間新增的暫存檔；Git 操作依入口規則取得使用者授權 |
 
 ### 一個 managed task 如何完成
@@ -76,7 +76,8 @@ agent-workflow 是 **Claude Code、Codex、Antigravity** 共用的 AI 開發工�
         |
         跨模組或涉及契約、資料的開發任務 --> 把規格展開到可直接實作
         |
-        主 agent 自己實作；只有互不相依的工作才平行派給原生 subagent
+        主 agent 自己實作，互不相依的讀取與指令在同一回合平行送出；
+        符合 Subagent 段落的工作才派原生 subagent
         |
         +-- focused  --> 無可獨立工作包時，直接走 `implementation -> focused feedback`
         |
@@ -104,13 +105,13 @@ task.md 的驗收案例寫法：
   - Verify: `npx playwright test e2e/login.spec.ts -g AC1`
 ```
 
-### 原生 subagent 平行開發
+### 派原生 subagent 平行實作
 
-何時派 subagent 只看 [AGENTS.md](AGENTS.md) 的「Subagent」段落；其餘工作由主對話自己完成，避免交接遺失細節。需要平行時，Agent 依任務及平台能力決定工作切分、worker 數量與隔離方式，直接指派目標、責任範圍與驗收條件，不需先執行固定的 orchestration 流程，平行開發的責任分配見 [workflow](.agents/skills/workflow/SKILL.md)。
+何時派 subagent 只看 [AGENTS.md](AGENTS.md) 的「Subagent」段落；其餘工作由主對話自己完成，避免交接遺失細節。需要派 worker 平行實作時，Agent 依任務及平台能力決定工作切分、worker 數量與隔離方式，直接指派目標、責任範圍與驗收條件，不需先執行固定的 orchestration 流程，平行開發的責任分配見 [workflow](.agents/skills/workflow/SKILL.md)。
 
 Worker 只修改指派範圍，保留其他人的修改，回報實際驗證結果與 blocker。主 agent 整合後執行 task 的全部驗收案例與 proofs，再依 plan 完成 Reviewer 與結案；worker 的局部驗證不能取代整體證據。沒有可用原生 subagent 的平台採循序執行。
 
-Protocol 3 runtime CLI 與 state 是選用介面；原生平行開發不以它們為前置條件。
+Protocol 3 runtime CLI 與 state 是選用介面；指派原生 subagent 不以它們為前置條件。
 
 ### 記憶如何累積
 
@@ -167,7 +168,7 @@ Protocol 3 runtime CLI 與 state 是選用介面；原生平行開發不以它�
 | Codex | `~/.codex/AGENTS.md`（指標指向 `~/.agents/AGENTS.md`，另含 Codex coordinator 指示） | `~/.codex/skills` | `hooks.json` | `~/.codex/agents/agent-workflow-{worker,reader}.toml` |
 | Antigravity | `~/.gemini/GEMINI.md`（引用 `~/.agents/AGENTS.md` 與 `~/.gemini/agent-workflow/delegation.md`） | `~/.gemini/config/skills` | `config/hooks.json` | 無原生 worker 定義；agent 依可用工具決定 |
 
-各平台的派工規則只決定派哪個 agent 與模型。Claude Code 的派工規則只安裝在 Claude 目錄：只讀不寫的派工一律用 Haiku（內建的 Explore）、平行實作交給 Sonnet 的 worker、複審交給 Opus。規則來源是 `adapters/claude/delegation.md`，原生角色設定是 `adapters/claude/managed-config.json`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
+三個平台的派工規則與流程相同，都在 [AGENTS.md](AGENTS.md) 的「Subagent」段落；各平台的派工規則是同一張表，列出只讀不寫的派工、平行實作與複審各用哪個 agent 與模型。Claude Code 的派工規則只安裝在 Claude 目錄：只讀不寫的派工一律用 Haiku（內建的 Explore）、平行實作交給 Sonnet 的 worker、複審交給 Opus。Codex 讀取用 Luna 的 reader，實作與複審用 Sol 的 worker；Antigravity 的 reader 與 worker 都繼承主對話的 Flash High。規則來源是 `adapters/claude/delegation.md`，原生角色設定是 `adapters/claude/managed-config.json`，Codex 與 Antigravity 的安裝內容不包含它。Antigravity 的派工規則來源是 `adapters/antigravity/delegation.md`，同樣只安裝在 Antigravity 目錄。
 
 技能實體統一放在 `~/.agents/skills`，平台 skills 目錄內逐技能建立 Junction／symlink；同一技能的修改會由所有適用平台共用。`implementation-spec` 由 Claude Code、Codex 與 Antigravity 共用。Repair 會備份普通副本後改為連結；非 catalog 技能內容衝突時保留原狀並回報。Uninstall 僅移除 managed 連結，保留共用技能實體與備份，並移除三個平台設定檔中由 agent-workflow 寫入的 hook；`.system` 與 plugin cache 仍由原生平台管理。遷移、回復與驗證契約見 [managed skill installation](docs/modules/managed-skill-installation.md)。
 
@@ -294,4 +295,4 @@ Claude Code             Codex              Antigravity
 | v7.1 | 以驗收案例為完成依據 | 開發前寫 Given／When／Then 驗收案例，由 runtime 逐條執行；分析步驟改為 checklist；指令輸出附 `next`；程式修改一律獨立 Review，第二輪起只審變動範圍；`task-init --paths` 帶出相關文件、記憶與歷程；記憶加上 tags 與 paths。 | 從 agent 逐條自述的 evidence 改為可執行的驗收；policy 修改不再讓進行中 task 的驗證失效；移除任務狀態檔的 guard 與三個重複的記錄／診斷指令，減少往返與誤擋。 |
 | v7.2 | 平行開發交給平台原生 subagent | 實作前由 agent 判斷工作能否獨立完成，適合時直接指派目標、責任範圍與驗收條件，主 agent 整合後執行全部驗收；Git 操作改由入口規則要求使用者授權，不再安裝 Git guard hook。 | 平行開發不再需要固定的 orchestration 流程、packet 或獨立 worktree；Protocol 3 CLI 只保留相容性。 |
 | v7.3 | Claude 主對話改為派工與驗證 | Claude 依工作類型把讀取、規劃、實作、複審派給指定模型的 subagent；`CLAUDE.md` 改為引入共用入口與 Claude 專屬派工規則。 | 主對話的 context 不再承載讀檔與實作過程；各平台自己的規則（Claude 派工規則、Codex coordinator 指示、Antigravity 派工規則）只安裝在該平台目錄，不影響其他平台。各平台入口檔 managed 區塊以外的內容各自保留，不會複製到其他平台。 |
-| v7.4 | 主對話改回單一 agent loop | 三平台的主對話自己完成讀取、規劃、實作與驗證，只有互不相依的平行工作、會擠滿主對話的大量讀取與獨立 Review 才派 subagent；判斷規則集中在 `AGENTS.md` 的「Subagent」段落，平台規則只決定 agent 與模型。移除 Codex 的強制委派 gate 與 planner 角色，task schema 升為 v7 並清除執行平台與 Codex 委派紀錄兩個欄位。 | 規劃與執行由同一個 agent 負責，能依中途結果修正；省下交接造成的細節遺失與等待時間。Codex task 不再因為沒有委派紀錄而無法結案。 |
+| v7.4 | 主對話改回單一 agent loop | 三平台的主對話自己完成讀取、規劃、實作與驗證，只有互不相依且各自要讀寫多個檔案的工作、會擠滿主對話的大量讀取與獨立 Review 才派 subagent；判斷規則集中在 `AGENTS.md` 的「Subagent」段落，平台規則只決定 agent 與模型。移除 Codex 的強制委派 gate 與 planner 角色，task schema 升為 v7 並清除執行平台與 Codex 委派紀錄兩個欄位。 | 規劃與執行由同一個 agent 負責，能依中途結果修正；省下交接造成的細節遺失與等待時間。Codex task 不再因為沒有委派紀錄而無法結案。 |

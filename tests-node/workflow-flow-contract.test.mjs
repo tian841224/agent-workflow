@@ -124,7 +124,7 @@ test("lifecycle finalization stays a single authority: only transitions.ts close
 });
 
 
-test("native parallel decisions use direct assignments without a required orchestration protocol", () => {
+test("subagent decisions use direct assignments without a required orchestration protocol", () => {
   const workflow = read(".agents/skills/workflow/SKILL.md");
   const orchestration = read(".agents/skills/workflow/orchestration.md");
   assert.match(workflow, /實作由主 agent 進行/);
@@ -136,7 +136,7 @@ test("native parallel decisions use direct assignments without a required orches
   const worker = read(".agents/agents/worker.md");
   assert.match(worker, /directly in the coordinator's message/);
   assert.match(worker, /Do not revert other contributors' changes/);
-  assert.match(worker, /coordinator selects the workspace and isolation/);
+  assert.match(worker, /do not require a packet, a separate worktree/);
   assert.match(worker, /Packet assignments/);
   for (const file of ["README.md", "docs/architecture.md"]) {
     assert.match(read(file), /平台原生 subagent/);

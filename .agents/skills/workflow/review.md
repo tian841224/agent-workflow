@@ -11,7 +11,7 @@
 ## 每一輪的流程
 
 1. 在 repo root 執行 `agent-workflow pre-review --path <repo> --task-path <task>`。回傳 `workspace_sha256`，以及這一輪的 `review` brief：`round`、`scope`、`paths`、上一輪的 `previous`、`acceptance`、`checklist`、`risk_flags`。從快照到 `review-record` 之間工作樹保持不動，包括 stash/pop。
-2. 派新的 reviewer subagent（Claude 用 `general-purpose`），訊息只帶下列內容：
+2. 依平台派工規則的複審那一列，派新的 reviewer subagent，訊息只帶下列內容：
    - brief 本身：`paths` 與 base、驗收案例、checklist
    - 這次強度要求的推翻假設（見下節）
    - 第 2 輪起加上 `previous` 的 findings

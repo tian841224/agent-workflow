@@ -35,7 +35,7 @@ Task-level Reviewer 的啟動時機由 [workflow review procedure](../.agents/sk
 
 `Reader` 只蒐集與呈現可查證的事實。`Worker` 接受主 agent 直接指派的目標、檔案責任範圍、workspace 與驗收條件；隔離方式由主 agent 決定。Worker 保留其他人的修改，回報實際驗證結果、缺口與 blocker。分類、task lifecycle、整合與最終證據由主 agent 持有。
 
-主對話是單一 agent loop：讀取、規劃、實作與驗證預設由它自己完成，只有 [AGENTS.md](../AGENTS.md) 的「Subagent」段落列出的情況才派平台原生 subagent。這條判斷只有該段落一個 owner；各平台的派工規則（`adapters/claude/delegation.md`、`adapters/antigravity/delegation.md`、`adapters/codex/coordinator.md`）只決定派哪個 agent 與模型，runtime 不記錄也不檢查是否委派。平行開發的責任分配依 [workflow](../.agents/skills/workflow/SKILL.md)，worker 契約依 [worker](../.agents/agents/worker.md)。一般指派不要求 ExecutionPacket、獨立 worktree、worker-exec 或固定結果檔格式。
+主對話是單一 agent loop：讀取、規劃、實作與驗證預設由它自己完成，只有 [AGENTS.md](../AGENTS.md) 的「Subagent」段落列出的情況才派平台原生 subagent。何時派與怎麼派都只有該段落一個 owner，三個平台採用同一套規則與流程；各平台的派工規則（`adapters/claude/delegation.md`、`adapters/antigravity/delegation.md`、`adapters/codex/coordinator.md`）是同一張派工情況表，只有 agent 與模型不同，runtime 不記錄也不檢查是否委派。平行開發的責任分配依 [workflow](../.agents/skills/workflow/SKILL.md)，worker 契約依 [worker](../.agents/agents/worker.md)。一般指派不要求 ExecutionPacket、獨立 worktree、worker-exec 或固定結果檔格式。
 
 `execution-packet` CLI 供明確選用 packet 契約的呼叫端使用。它帶有 task intent、classification、compiled capability／step、procedure pointers、required evidence 與 plan identity；task.md／task.json 是 authority。task-init、task-write 與 ExecutionPacket 共用 procedure resolver，依探索 profile、coordinator role 與 doc_gap 加入指引。`procedure` 是工作指引；`evidence` 是完成步驟的可驗證紀錄，兩者不可互換。
 

@@ -4,13 +4,11 @@
     "worker": {
       "sandbox_mode": "workspace-write",
       "orchestration_writable": true,
-      "model_reasoning_effort": "max",
-      "instructions_source": "adapters/codex/agents/subagent.md"
+      "model_reasoning_effort": "max"
     },
     "reader": {
       "sandbox_mode": "read-only",
-      "model_reasoning_effort": "medium",
-      "instructions_source": "adapters/codex/agents/subagent.md"
+      "model_reasoning_effort": "medium"
     }
   }
 }
