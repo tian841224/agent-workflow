@@ -90,7 +90,7 @@ if balance < bet {
 
 ## 目前契約與歷史脈絡
 
-情境：假設已確認 `submit` 不接受過期 token，而 `refresh` 會取得有效 token。反例說明修改經過或事故背景；正例說明目前呼叫順序的依據。
+情境：假設已確認 `submit` 不接受過期 token，而 `refresh` 會取得有效 token。反例說明修改經過、事故背景或被刪除項目的下場；正例說明目前呼叫順序的依據或目前成立的條件。
 
 ```ts
 // 錯誤：描述修改歷程。
@@ -102,6 +102,14 @@ await api.submit(order, token);
 // #1234 上線後曾因 token 過期導致送單失敗，所以加上 refresh
 const token = await auth.refresh();
 await api.submit(order, token);
+
+// 錯誤：用「已移除」「不再」交代被刪掉的設定，測試與 SQL 註解也一樣。
+// GameFacing.APIKey 已移除；沒有這個設定也要能載入，隨附的設定檔不再含此欄位。
+test('loads config without GameFacing.APIKey', () => { ... });
+
+// 正確：只寫目前成立的條件。
+// 載入設定不需要 GameFacing.APIKey；隨附的設定檔不含此欄位。
+test('loads config without GameFacing.APIKey', () => { ... });
 
 // 正確：描述已確認的契約與目前行為。
 // submit 端不接受過期 token，每次送出前重新取得。
