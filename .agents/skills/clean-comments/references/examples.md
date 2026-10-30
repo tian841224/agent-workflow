@@ -88,13 +88,18 @@ if balance < bet {
 
 既有 RTP 註解已足夠，不必再潤飾。若餘額註解另有程式碼看不出的幣別、精度或比較前提，應保留那些資訊，不能把整段當成語法翻譯刪除。
 
-## 目前契約與修改歷程
+## 目前契約與歷史脈絡
 
-情境：假設已確認 `submit` 不接受過期 token，而 `refresh` 會取得有效 token。反例只說明修改經過；正例說明目前呼叫順序的依據。
+情境：假設已確認 `submit` 不接受過期 token，而 `refresh` 會取得有效 token。反例說明修改經過或事故背景；正例說明目前呼叫順序的依據。
 
 ```ts
 // 錯誤：描述修改歷程。
 // 修正此方法原有的呼叫機制，改成先取 token 再呼叫
+const token = await auth.refresh();
+await api.submit(order, token);
+
+// 錯誤：描述歷史背景與 ticket 編號。
+// #1234 上線後曾因 token 過期導致送單失敗，所以加上 refresh
 const token = await auth.refresh();
 await api.submit(order, token);
 
