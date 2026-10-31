@@ -45,6 +45,7 @@ subagent 是主對話的工具呼叫：主對話保有與使用者的對話、�
 - 修改 agents、skills、hooks 或 workflow contract → 先讀 [docs/architecture.md](docs/architecture.md) 的「架構設計方向」與「Framework 變更政策」；改 hook 另讀「Hook trust boundary」。<!-- repo-only -->
 - 使用者提及先前脈絡、prompt 太短、影響面中途改變或平台沒有 prompt hook → 依 [memory.md](.agents/skills/workflow/memory.md) 明確查詢記憶；其餘情況直接使用 hook 注入的記憶。
 - 查看或分析前端頁面 → 優先讀 DOM，無法解析時才用截圖。
+- 撰寫或修改 UI → Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
 - 撰寫 commit 訊息、規劃 commit 拆分或發起 PR／MR → 先讀 [git-commit](.agents/skills/git-commit/SKILL.md)。<!-- skill:git-commit -->
 
 ## 程式碼註解
