@@ -57,6 +57,7 @@
 
 - 平台以 `git remote -v` 的主機判斷。自架 GitLab 用 `glab`，主機需已登入（`glab auth status --hostname <主機>`）；`glab mr` 系列從目前 repo 的 remote 判斷主機，不接受 `--hostname`。
 - 建立前查目標分支是否已有內容重疊的開啟中 PR／MR（`gh pr list`、`glab mr list`）。有重疊時在內文寫明並告知使用者；除非使用者要求，不關閉或留言於既有的 PR／MR。
+- 分支已有 PR／MR 時，每次 push 前後都對照 `git diff origin/<base>...HEAD` 的最終結果，確認標題與內文是否仍符合；有出入就依上述規範更新（`gh pr edit`、`glab mr update`），沒有出入也告知使用者已確認。
 - 審查者、指派人與標籤會通知他人，使用者要求才設定。
 - 建立後確認 PR／MR 的 commit 列表與預期一致，強制推送改寫歷史後同樣確認：GitHub 用 `gh pr view <編號> --json commits`，GitLab 用 `glab api "projects/<URL 編碼的 namespace/repo>/merge_requests/<編號>/commits"`。
 
