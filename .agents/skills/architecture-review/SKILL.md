@@ -17,6 +17,8 @@ Distinguish:
 - `hypothesis`: a likely risk requiring runtime or test confirmation;
 - `runtime proof`: demonstrated by a command, test, trace, or deployed observation.
 
+The same labels apply to explaining why code reached its current shape. A history backed by `git log -L`, `git blame`, or a decision document is a `static fact` citing that commit or document; otherwise label it `hypothesis`. An inferred sequence of past changes reads like fact and leads later decisions to build on a wrong premise.
+
 Use the repository's vocabulary and existing architecture as the baseline. Do not recommend a framework replacement, directory rewrite, microservices split, or new abstraction merely because an external architecture template uses it.
 
 ## Finding format
