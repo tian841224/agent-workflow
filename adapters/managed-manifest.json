@@ -15,6 +15,7 @@
     "root-cause": {"required": true, "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"},
     "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
     "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
+    "refactor-sweep": {"required": true, "description": "刪除、合併、搬移或改名程式碼時，確認引用、測試替身、文件、註解收尾，並保持 log 與邊界回應等價"},
     "clean-comments": {"required": true, "description": "註解的編輯與 Review 依 AGENTS.md 觸發規則，提供位置、長度與契約一致性規範"},
     "project-docs": {"required": true, "description": "task-init 回報 doc_gap、改動讓文件失準或需要記錄專案決策時載入的文件規範"},
     "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
