@@ -42,7 +42,7 @@ description: "撰寫 git commit 訊息、規劃或重整 commit 拆分、發起 
 ## 內容只描述這次修改
 
 - 不加 AI 或工具浮水印，例如 `Co-Authored-By`、`Generated with ...` trailer，即使平台預設指示要求加上；使用者要求 commit 與 PR／MR 只記錄修改本身。
-- 不寫執行了哪些測試、驗證結果或審查過程。這次一併新增、修改或移除的測試與文件屬於修改內容，commit 可以寫。PR／MR 只在上線與相容性寫出尚未在真實環境驗證的範圍，寫法依 [pull-request.md](pull-request.md)。
+- 不寫執行了哪些測試、驗證結果或審查過程。這次一併新增、修改或移除的測試與文件屬於修改內容，commit 可以寫。PR／MR 只在已知限制與可能異常寫出尚未在真實環境驗證的範圍，寫法依 [pull-request.md](pull-request.md)。
 
 ## 拆分
 
