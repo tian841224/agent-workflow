@@ -1,27 +1,98 @@
 {
   "schema_version": 7,
-  "runtime": ["dist/agent-workflow.mjs", "adapters/", "schemas/"],
-  "canonical": ["templates/"],
-  "unmanaged_skills": ["writing-for-agents"],
-  "retired_skills": ["adhd-comms", "humanizer", "doc-coauthoring", "writing-for-agents"],
+  "runtime": [
+    "dist/agent-workflow.mjs",
+    "adapters/",
+    "schemas/"
+  ],
+  "canonical": [
+    "templates/"
+  ],
+  "unmanaged_skills": [
+    "writing-for-agents"
+  ],
+  "retired_skills": [
+    "adhd-comms",
+    "humanizer",
+    "doc-coauthoring",
+    "writing-for-agents"
+  ],
   "skills": {
-    "workflow": {"required": true, "description": "workflow policy、task gate 與執行規則"},
-    "codebase-design": {"required": true, "description": "模組介面、deep module 與 seam 設計"},
-    "architecture-review": {"required": false, "description": "架構、跨層耦合與遷移風險審查"},
-    "diagnosing-bugs": {"required": false, "description": "原因不明、間歇性或效能型問題的證據導向診斷"},
-    "planning": {"required": true, "description": "高影響方向、技術取捨與真正模糊需求的規劃"},
-    "implementation-spec": {"required": true, "description": "先寫待使用者確認的開發規格（做什麼、動哪裡、怎麼驗），核准後再展開到可直接實作"},
-    "learn": {"required": true, "description": "只保存使用者明確要求或確認的可重複使用結論"},
-    "root-cause": {"required": true, "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"},
-    "grill-me": {"required": true, "description": "針對高風險取捨進行壓力測試"},
-    "tdd": {"required": true, "description": "red → green → refactor 與測試設計"},
-    "refactor-sweep": {"required": true, "description": "刪除、合併、搬移或改名程式碼時，確認引用、測試替身、文件、註解收尾，並保持 log 與邊界回應等價"},
-    "clean-comments": {"required": true, "description": "註解的編輯與 Review 依 AGENTS.md 觸發規則，提供位置、長度與契約一致性規範"},
-    "project-docs": {"required": true, "description": "task-init 回報 doc_gap、改動讓文件失準或需要記錄專案決策時載入的文件規範"},
-    "distill": {"required": false, "description": "記憶提煉與 review 歸因改善"},
-    "task-retrospective": {"required": false, "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"},
-    "localization-tw": {"required": true, "description": "翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 AGENTS.md 常駐規則與每次提交訊息時注入的 skill 規則處理"},
-    "operational-verification": {"required": false, "description": "安裝、部署與外部整合的證據驗證"},
-    "git-commit": {"required": false, "description": "commit 訊息格式（類型(模組): 標題）、單一功能拆分規則與 PR／MR 標題內文"}
+    "workflow": {
+      "required": true,
+      "description": "workflow policy、task gate 與執行規則"
+    },
+    "codebase-design": {
+      "required": true,
+      "description": "模組介面、deep module 與 seam 設計"
+    },
+    "architecture-review": {
+      "required": false,
+      "description": "架構、跨層耦合與遷移風險審查"
+    },
+    "diagnosing-bugs": {
+      "required": false,
+      "description": "原因不明、間歇性或效能型問題的證據導向診斷"
+    },
+    "planning": {
+      "required": true,
+      "description": "高影響方向、技術取捨與真正模糊需求的規劃"
+    },
+    "implementation-spec": {
+      "required": true,
+      "description": "先寫待使用者確認的開發規格（做什麼、動哪裡、怎麼驗），核准後再展開到可直接實作"
+    },
+    "learn": {
+      "required": true,
+      "description": "只保存使用者明確要求或確認的可重複使用結論"
+    },
+    "root-cause": {
+      "required": true,
+      "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"
+    },
+    "grill-me": {
+      "required": true,
+      "description": "針對高風險取捨進行壓力測試"
+    },
+    "tdd": {
+      "required": true,
+      "description": "red → green → refactor 與測試設計"
+    },
+    "refactor-sweep": {
+      "required": true,
+      "description": "刪除、合併、搬移或改名程式碼時，確認引用、測試替身、文件、註解收尾，並保持 log 與邊界回應等價"
+    },
+    "clean-comments": {
+      "required": true,
+      "description": "註解的編輯與 Review 依 AGENTS.md 觸發規則，提供位置、長度與契約一致性規範"
+    },
+    "project-docs": {
+      "required": true,
+      "description": "task-init 回報 doc_gap、改動讓文件失準或需要記錄專案決策時載入的文件規範"
+    },
+    "distill": {
+      "required": false,
+      "description": "記憶提煉與 review 歸因改善"
+    },
+    "task-retrospective": {
+      "required": false,
+      "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"
+    },
+    "localization-tw": {
+      "required": true,
+      "description": "翻譯、長篇在地化與臺灣用語疑義；一般中文回覆由 AGENTS.md 常駐規則與每次提交訊息時注入的 skill 規則處理"
+    },
+    "operational-verification": {
+      "required": false,
+      "description": "安裝、部署與外部整合的證據驗證"
+    },
+    "git-commit": {
+      "required": false,
+      "description": "commit 訊息格式（類型(模組): 標題）、單一功能拆分規則與 PR／MR 標題內文"
+    },
+    "project-bootstrap": {
+      "required": true,
+      "description": "分析專案架構與既有慣例，無阻擋性決策時直接建立一致的開發規範"
+    }
   }
 }
