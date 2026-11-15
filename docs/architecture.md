@@ -113,3 +113,9 @@ Repo 內技能的必裝與平台範圍契約見 [managed skill installation](mod
 
 - [Platform hooks](modules/platform-hooks.md)：context hook templates、managed hook 清理與平台授權邊界。
 - [Workflow runtime](modules/workflow-runtime.md)：lifecycle、evidence 與 Codex 拆分／原生觀察 gate。
+
+## 使用文件索引
+
+- [使用指南](usage.md)：任務流程、驗收案例、subagent 與記憶。
+- [安裝與維護](installation.md)：環境需求、安裝選項與本機資料位置。
+- [版本演進](history.md)：完整歷史與各階段的改變。
