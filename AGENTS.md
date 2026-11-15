@@ -48,6 +48,8 @@ subagent 是主對話的工具呼叫：主對話保有與使用者的對話、�
 - 撰寫或修改 UI → Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
 - 撰寫 commit 訊息、規劃 commit 拆分或發起 PR／MR → 先讀 [git-commit](.agents/skills/git-commit/SKILL.md)。<!-- skill:git-commit -->
 
+- 初始化或補齊專案開發規範時 → [project-bootstrap](.agents/skills/project-bootstrap/SKILL.md)；先分析與提出必要調整，無阻擋性決策就直接建立文件。 <!-- skill:project-bootstrap -->
+
 ## 程式碼註解
 
 註解補充程式碼無法清楚表達的原因、契約與限制。新增或修改契約、假設、單位／邊界、高風險判斷依據的註解，或整理大量註解時，先讀 [clean-comments](.agents/skills/clean-comments/SKILL.md)；以內容判斷，不以行數判斷。<!-- skill:clean-comments -->
