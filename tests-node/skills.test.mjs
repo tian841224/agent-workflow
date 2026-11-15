@@ -72,3 +72,18 @@ test("managed-manifest catalog and .agents/skills stay a parity set in both dire
     assert.ok(onDisk.includes(name), `unmanaged_skills lists ${name} but no such skill directory exists`);
   }
 });
+
+
+test("project-bootstrap is required and its references resolve", () => {
+  const root = process.cwd();
+  const manifest = JSON.parse(readFileSync(join(root, "adapters", "managed-manifest.json"), "utf8"));
+  assert.equal(manifest.skills["project-bootstrap"]?.required, true);
+  const skill = readFileSync(join(root, ".agents", "skills", "project-bootstrap", "SKILL.md"), "utf8");
+  assert.match(skill, /name: project-bootstrap/);
+  assert.match(skill, /blocking/);
+  for (const name of ["architecture-review", "project-docs", "codebase-design", "learn"]) {
+    assert.ok(existsSync(join(root, ".agents", "skills", name, "SKILL.md")));
+  }
+  assert.ok(existsSync(join(root, ".agents", "skills", "project-bootstrap", "references", "bootstrap-policy.md")));
+  assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /skill:project-bootstrap/);
+});
