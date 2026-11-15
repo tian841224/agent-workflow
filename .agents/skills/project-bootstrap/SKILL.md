@@ -1,0 +1,41 @@
+---
+name: project-bootstrap
+description: "初始化新專案或補齊既有專案的開發規範時使用；先分析架構與慣例，有阻擋性決策才詢問，否則直接建立與驗證文件。"
+---
+
+# Project Bootstrap
+
+在使用者要求初始化、建立或補齊專案開發規範時執行。這是按需使用的 Skill，不在每個 session 或一般開發任務自動掃描專案。
+
+## 1. 探索與審查（先唯讀）
+
+- 先讀目標 repo 的入口規則、README、目錄、建置設定、現有 docs、Formatter／Linter／CI；以有代表性的入口、模組及測試判斷既有慣例。已讀過且未改變的資料不重讀。
+- 有現有架構時，依 [architecture-review](../architecture-review/SKILL.md) 區分靜態事實、假設與實際驗證；不要因為偏好某種架構就要求改寫。需要比較模組邊界時才讀 [codebase-design](../codebase-design/SKILL.md)。
+- 空白專案只根據已確認的語言、框架、需求與部署條件提出可支持的規範；無證據的細節列為未確認，不虛構既有實作。
+- 檢查是否已有相同用途的規則；保留合理的原有慣例，避免新增第二份 authority。
+
+## 2. 決策閘門
+
+將發現分類為：
+- **blocking**：互相衝突的核心契約、無法判定的正式架構，或缺少會直接決定規範內容的必要選擇。提出檔案／symbol 證據、影響、最小建議與替代方案，等待使用者決定受影響部分。
+- **improvement**：有證據的非阻擋性改善；記錄建議，直接沿用現有合理慣例建立文件。
+- **informational**：可選偏好；不阻擋初始化。
+
+不把尚未全面檢查、單純缺少文件、或與個人偏好不同視為 blocking。沒有 blocking 時直接進入文件建立，不要求額外核准。
+
+## 3. 建立或補齊契約
+
+- 使用 [project-docs](../project-docs/SKILL.md) 的單一文件來源及 [doc-types](../project-docs/references/doc-types.md) 的既有 docs 佈局、frontmatter、covers 與索引；優先建立或補齊 `docs/architecture.md`、`docs/structure.md`。
+- 依已確認事實按需補充模組、流程、API、decision 文件；不要批次建立空白範本。Decision 文件僅在符合 doc-types 的三項條件時建立。
+- 專案根目錄已有 `AGENTS.md` 時只增補必要的精簡 pointer；沒有時建立精簡入口，指向適用的專案文件及可執行檢查，不複製全域 agent-workflow 規則。
+- 命名、錯誤處理、分層與測試慣例應引用實際程式或明確核准的決策；無足夠證據的項目標記 `Unverified`。
+- 現有文件仍正確時不改寫；已存在但互相衝突的文件先依決策閘門處理。
+- 不修改業務程式碼；不為建立文件而新增抽象層、範例 CRUD 或無依據的 Pattern。
+- 只在使用者要求且現有專案確有對應工具時，補上適當 Formatter、Linter 或 CI；任何可能改變 verification integrity 的設定修改都遵守全域 `AGENTS.md` 的 managed_change 入口與規格確認流程。
+
+## 4. 驗證與交付
+
+- 驗證文件連結、doc_type／covers、重複權威來源與文件所述架構是否與已查證程式相符；可用時執行 `agent-workflow project-doc --action Check --doc <path>`。
+- 規範文件需能由既有 `project-doc Lookup`／`task-init --paths` 依路徑找到；不得另外建立 context discovery、task state、memory 或 review 機制。
+- 重跑時先比對現有文件，只新增缺口或修正失準內容；保留使用者修改。已確認的長期決策依 [learn](../learn/SKILL.md) 的分流保存，不另造記憶庫。
+- 回報掃描範圍、blocking／improvement、建立或更新的檔案、實際執行的驗證與未驗證部分；沒有變更時明確回報 no-op。
