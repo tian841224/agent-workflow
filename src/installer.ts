@@ -66,9 +66,9 @@ function installUpstreamIntegration(name: string, source: string, selected: Plat
         const command = [executable, ...args].join(" ");
         if (options.dryRun) { results.push({ platform, command, status: "planned" }); continue; }
         const cwd = clone ? checkout : undefined;
-        // npx is npx.cmd on Windows, which spawnSync cannot start without a shell; the arguments are manifest constants and the clone path.
+        // On Windows, npm-installed CLIs (npx, claude, codex, agy) are .cmd shims that spawnSync cannot start without a shell; the arguments are manifest constants and the clone path.
         const shellCommand = [executable, ...args.map((value) => /\s/.test(value) ? `"${value}"` : value)].join(" ");
-        const result = process.platform === "win32" && executable === "npx" ? spawnSync(shellCommand, { encoding: "utf8", shell: true, cwd }) : spawnSync(executable, args, { encoding: "utf8", cwd });
+        const result = process.platform === "win32" ? spawnSync(shellCommand, { encoding: "utf8", shell: true, cwd }) : spawnSync(executable, args, { encoding: "utf8", cwd });
         results.push({ platform, command, status: result.status === 0 ? "installed" : "failed", exit_code: result.status ?? 1, output: `${result.stdout || ""}${result.stderr || ""}`.trim() });
         if (result.status !== 0) return summary();
       }
