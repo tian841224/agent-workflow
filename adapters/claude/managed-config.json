@@ -1,5 +1,3 @@
 {
-  "agents": {
-    "worker": {"model": "sonnet", "effort": "high"}
-  }
+  "agents": {}
 }
