@@ -40,26 +40,27 @@ agent-workflow verify --target-agent Codex
 
 | Skill | 用途 |
 | --- | --- |
-| [workflow](.agents/skills/workflow/SKILL.md) | 判斷任務是否需要 managed workflow，安排目標、範圍、驗收、執行與結案步驟。 |
-| [planning](.agents/skills/planning/SKILL.md) | 在架構方向、技術取捨或需求不明確時釐清問題，形成可執行的方向。 |
-| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | 為 managed 開發任務撰寫待確認規格，說清楚要做什麼、修改範圍與驗收方式。 |
-| [grill-me](.agents/skills/grill-me/SKILL.md) | 透過有針對性的提問檢查計畫假設，尤其是高風險或有多種分支的決策。 |
-| [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組責任、介面與依賴邊界，避免功能散落或形成重複流程。 |
 | [architecture-review](.agents/skills/architecture-review/SKILL.md) | 檢查跨層耦合、模組責任失衡、契約不一致及遷移風險。 |
-| [tdd](.agents/skills/tdd/SKILL.md) | 依 red／green／refactor 循環推動行為修改，先用失敗案例明確定義需求。 |
-| [root-cause](.agents/skills/root-cause/SKILL.md) | 修正 bug 或確認 review 問題後，追查成因並補上測試、文件或流程防線。 |
-| [refactor-sweep](.agents/skills/refactor-sweep/SKILL.md) | 搬移、改名或合併程式碼時，追查引用與測試替身，確認相關文件和行為同步收斂。 |
-| [diagnosing-bugs](.agents/skills/diagnosing-bugs/SKILL.md) | 針對成因不明、難以重現、間歇性或效能問題，建立證據並縮小問題範圍。 |
-| [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、同步、遷移或部署後，從目標環境讀回狀態並驗證實際入口。 |
-| [project-docs](.agents/skills/project-docs/SKILL.md) | 依模組責任與文件類型維護專案文件索引，讓文件反映目前程式與流程。 |
 | [clean-comments](.agents/skills/clean-comments/SKILL.md) | 精簡或補充註解，確保契約、假設、邊界及高風險判斷都有準確說明。 |
-| [localization-tw](.agents/skills/localization-tw/SKILL.md) | 處理翻譯或臺灣用語疑義，統一使用自然的臺灣繁體中文。 |
-| [git-commit](.agents/skills/git-commit/SKILL.md) | 整理提交訊息與 commit 拆分，或撰寫 PR／MR 說明，清楚描述問題、改變與驗證。 |
-| [learn](.agents/skills/learn/SKILL.md) | 分類保存使用者明確確認的決策、更正與可重複使用的經驗。 |
+| [codebase-design](.agents/skills/codebase-design/SKILL.md) | 設計模組責任、介面與依賴邊界，避免功能散落或形成重複流程。 |
+| [diagnosing-bugs](.agents/skills/diagnosing-bugs/SKILL.md) | 針對成因不明、難以重現、間歇性或效能問題，建立證據並縮小問題範圍。 |
 | [distill](.agents/skills/distill/SKILL.md) | 從反覆出現的更正或 review 問題提煉規則草稿，供審閱後再採用。 |
+| [git-commit](.agents/skills/git-commit/SKILL.md) | 整理提交訊息與 commit 拆分，或撰寫 PR／MR 說明，清楚描述問題、改變與驗證。 |
+| [grill-me](.agents/skills/grill-me/SKILL.md) | 透過有針對性的提問檢查計畫假設，尤其是高風險或有多種分支的決策。 |
+| [implementation-spec](.agents/skills/implementation-spec/SKILL.md) | 為 managed 開發任務撰寫待確認規格，說清楚要做什麼、修改範圍與驗收方式。 |
+| [learn](.agents/skills/learn/SKILL.md) | 分類保存使用者明確確認的決策、更正與可重複使用的經驗。 |
+| [localization-tw](.agents/skills/localization-tw/SKILL.md) | 處理翻譯或臺灣用語疑義，統一使用自然的臺灣繁體中文。 |
+| [operational-verification](.agents/skills/operational-verification/SKILL.md) | 安裝、同步、遷移或部署後，從目標環境讀回狀態並驗證實際入口。 |
+| [planning](.agents/skills/planning/SKILL.md) | 在架構方向、技術取捨或需求不明確時釐清問題，形成可執行的方向。 |
+| [project-bootstrap](.agents/skills/project-bootstrap/SKILL.md) | 分析專案架構與既有慣例，並在沒有阻擋性決策時建立一致的開發規範。 |
+| [project-docs](.agents/skills/project-docs/SKILL.md) | 依模組責任與文件類型維護專案文件索引，讓文件反映目前程式與流程。 |
+| [refactor-sweep](.agents/skills/refactor-sweep/SKILL.md) | 搬移、改名或合併程式碼時，追查引用與測試替身，確認相關文件和行為同步收斂。 |
+| [root-cause](.agents/skills/root-cause/SKILL.md) | 修正 bug 或確認 review 問題後，追查成因並補上測試、文件或流程防線。 |
+| [tdd](.agents/skills/tdd/SKILL.md) | 依 red／green／refactor 循環推動行為修改，先用失敗案例明確定義需求。 |
 | [task-retrospective](.agents/skills/task-retrospective/SKILL.md) | 回顧單次任務實際發生的流程、工具使用、耗時與重試，找出可改善之處。 |
+| [workflow](.agents/skills/workflow/SKILL.md) | 判斷任務是否需要 managed workflow，安排目標、範圍、驗收、執行與結案步驟。 |
 
-維護本 repo 時另有 [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md)，用於撰寫 agent 與 skill 指引。
+維護本 repo 時另有未納入安裝清單的 [writing-for-agents](.agents/skills/writing-for-agents/SKILL.md)，用於撰寫 agent 與 skill 指引。
 
 ## 專案架構
 
