@@ -49,4 +49,4 @@ Reviewer 結果只透過 `review-record` 寫入；summary 保留 blocker、path�
 
 Review 指出未列入的呼叫端、入口或共用狀態時，先補進 evidence map，重新評估是否要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
 
-確認的 finding 依 [root-cause](../root-cause/SKILL.md) 追查起因。要立即留下歸因時，可在失敗回報附上：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。分類定義見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。
+確認的 finding 依 [root-cause](../root-cause/SKILL.md) 歸因，修正驗證後確認防線；其範圍與停止條件由該 skill 管理。要立即留下歸因時，可在失敗回報附上：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。分類定義見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。

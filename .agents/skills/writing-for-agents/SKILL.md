@@ -70,6 +70,10 @@ Only-adding-never-removing is the default fate: adding feels safe, removing feel
 
 A rule that a hook, schema, or lint can enforce belongs there, not in prose. Deleting is a hypothesis: grep the repo for the exact text first (contract lint and tests may match it), and if behavior regresses, re-add it in its minimal form.
 
+## Behavior validation
+
+修改 skill 的觸發條件、流程選擇或重要判斷時，依 [behavior-validation.md](behavior-validation.md) 按需比較實際行為；一般措辭與格式調整維持文件檢查。
+
 ## 新增專案 skill
 
 新增 skill 時，先詢問使用者要列為必裝、選擇性或不安裝，再更新 managed manifest。只在編輯本 repo 時讀取的 skill 列為不安裝：放進 `unmanaged_skills`，由本 repo 的 `AGENTS.md` 以路徑指向；已安裝過的再加進 `retired_skills`，repair 會移除舊的安裝。提煉的草稿先放在 `skill-drafts/`；只有使用者在對話中明確同意才執行 Promote，操作依 [distill](../distill/SKILL.md)。

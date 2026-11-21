@@ -54,6 +54,8 @@ receipts and integration actions apply only when explicitly using that interface
 
 `task.json + task.md > task-report > disposable Markdown view`
 
+`task-report` renders execution command, cwd, exit code, observed result and evidence validity from a single gate evaluation with optional per-receipt assessments. The report shares that evaluation's intent, plan and lazy delivery snapshot; ordinary gate calls do not evaluate extra historical receipts. Receipt validity includes schema shape, intent, applicable plan identity and delivery freshness. A newer observation supersedes an older receipt for the same requirement. Attested analysis is `NOT EXECUTED`; legacy records or invalid exit codes are `UNVERIFIED`, with original status and notes retained. A valid receipt is not a claim that the whole task can close: waivers, required coverage and other task-level checks remain in the Gate section. Fingerprints are supporting details rather than validity labels. Markdown table values escape pipes, HTML and line breaks so command text stays inside its cell.
+
 Runtime execution evidence is recorded only after the command exits. It keeps the command, cwd,
 exit code, output digest, and delivery freshness; `evidence.at` is the record timestamp, not an
 execution-time measurement. The pre-spawn snapshot and the in-lock post-command snapshot must agree

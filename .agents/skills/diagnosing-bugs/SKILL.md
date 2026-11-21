@@ -31,9 +31,9 @@ When the cause is obvious from direct evidence, skip unnecessary diagnostic cere
 
 A successful repro/regression result remains valid while the tested behavior, test command, relevant environment, and inputs have not changed. Do not rerun the same check solely because a later reporting step asks for it. Rerun when executable behavior changed after the result, the environment changed, the test scope changed, or a new finding invalidates the earlier evidence.
 
-## After the fix
+## Prevention handoff
 
-Once the fix is confirmed, load [root-cause](../root-cause/SKILL.md) to trace why the defect was possible and add the missing guard.
+Once a defect is confirmed, use [root-cause](../root-cause/SKILL.md) for prevention analysis; return after verifying the fix to check whether the guard is sufficient. That skill owns its scope and stopping conditions.
 
 ## Useful references
 

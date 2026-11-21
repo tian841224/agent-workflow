@@ -4,7 +4,7 @@ import { JsonObject, output, projectIdentity } from "../core.js";
 import { acceptanceCases, acceptanceErrors, acceptanceRequired, AcceptanceCase, intentHash } from "../intent.js";
 import { uncoveredPaths, unsettledDocs } from "../project-doc.js";
 import { compilePlanForTaskPath, CompiledWorkflowPlan } from "../workflow-policy.js";
-import { deliverySnapshot, evidenceSatisfied, executionFreshnessErrors, latestEvidence, roleFreshnessErrors } from "./evidence.js";
+import { DeliveryObservation, deliverySnapshot, evidenceValidityErrors, latestEvidence } from "./evidence.js";
 import { NextAction, nextActions } from "./next.js";
 import { ownershipErrors } from "./ownership.js";
 import { freezeRequired, schemaErrors } from "./task-schema.js";
@@ -21,14 +21,17 @@ export type GateMissing =
   | { kind: "project_doc"; path: string }
   | { kind: "doc_gap"; path: string }
   | { kind: "role"; id: string };
-export type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[]; missing: GateMissing[]; plan?: CompiledWorkflowPlan; acceptance: AcceptanceCase[] };
+export type EvidenceAssessment = { item: JsonObject; key: string; latest: boolean; errors: string[] };
+export type GateResult = { valid: boolean; status: string; compiled: JsonObject; errors: string[]; missing: GateMissing[]; plan?: CompiledWorkflowPlan; acceptance: AcceptanceCase[]; intentMarkdown: string; intentHash?: string; evidence: EvidenceAssessment[] };
 
 export function acceptanceKey(id: string): string { return `acceptance.${id}`; }
 
-export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string): GateResult {
+export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue: string, options: { includeEvidence?: boolean } = {}): GateResult {
   const life = lifecycleOf(state);
   const evidence = (Array.isArray(state.evidence) ? state.evidence : []).filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object");
-  const errors: string[] = [...schemaErrors(state)];
+  const schemaIssues = schemaErrors(state);
+  const errors: string[] = [...schemaIssues];
+  let assessments: EvidenceAssessment[] = [];
   const missing: GateMissing[] = [];
   if (!RUNNING_STATUSES.includes(String(life.status))) errors.push(`task is ${String(life.status)}, not in_progress; only a running task can be closed`);
   const taskMd = join(dirname(path), "task.md");
@@ -64,20 +67,20 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
     const repoRoot = projectIdentity(repoRootValue || dirname(path)).root;
     let liveDelivery: ReturnType<typeof deliverySnapshot> | undefined;
     let liveDeliveryError: string | undefined;
-    const ensureLiveDelivery = (): ReturnType<typeof deliverySnapshot> | undefined => {
+    const ensureLiveDelivery = (): DeliveryObservation => {
       if (!liveDelivery && !liveDeliveryError) {
         try { liveDelivery = deliverySnapshot(repoRoot, state); }
         catch (error) { liveDeliveryError = String((error as Error).message || error); }
       }
-      return liveDelivery;
+      return { snapshot: liveDelivery, error: liveDeliveryError };
     };
     // plan_hash alone can repeat after a classification round-trip; plan_revision never does, so a
     // waiver has to match both to still apply.
     const waived = new Set(waivers.filter((item) => item.confirmed_by_user && String(item.plan_hash || "") === plan!.plan_hash && Number(item.plan_revision || 0) === Number(state.plan_revision || 0) && String(item.intent_hash || "") === liveIntentHash).map((item) => String(item.requirement_id || "")));
-    const ownershipSnapshot = Array.isArray(state.file_ownership) && state.file_ownership.length ? ensureLiveDelivery() : undefined;
+    const ownershipSnapshot = Array.isArray(state.file_ownership) && state.file_ownership.length ? ensureLiveDelivery().snapshot : undefined;
     errors.push(...ownershipErrors(state, repoRoot, evidence, ownershipSnapshot?.paths));
     // Only a code task has a base_commit, so only its delivery is scoped to this task's own changes.
-    const delivered = state.code_change === true ? ensureLiveDelivery() : undefined;
+    const delivered = state.code_change === true ? ensureLiveDelivery().snapshot : undefined;
     if (delivered) for (const doc of unsettledDocs(repoRoot, delivered.paths, state.project_docs as JsonObject | undefined)) {
       errors.push(`project doc covers delivered paths but is neither updated nor recorded in project_docs.unchanged: ${doc}`);
       missing.push({ kind: "project_doc", path: doc });
@@ -92,25 +95,32 @@ export function evaluateTaskGate(state: JsonObject, path: string, repoRootValue:
       else if (key.startsWith("role.")) missing.push({ kind: "role", id: key });
       else { const step = proofSteps.get(key); missing.push({ kind: "proof", id: key, title: step?.title || "", ...(step?.undecided_by ? { undecided_by: step.undecided_by } : {}) }); }
     };
-    const fail = (key: string, message: string): void => { errors.push(message); pending(key); };
     // Acceptance runs prove behavior against the task's intent, not against a capability plan, so a
     // reclassification leaves them valid; only a changed intent or delivery makes them stale.
     const keys = [...acceptance.map((item) => acceptanceKey(item.id)), ...plan.required_evidence];
+    const validityByItem = new Map<JsonObject, string[]>();
+    const validityFor = (item: JsonObject | undefined, key: string): string[] => {
+      if (item && validityByItem.has(item)) return validityByItem.get(item)!;
+      const validity = evidenceValidityErrors(item, key, plan!, liveIntentHash, repoRoot, state, ensureLiveDelivery);
+      if (item) {
+        validityByItem.set(item, validity);
+      }
+      return validity;
+    };
     for (const key of keys) {
       if (waived.has(key)) continue;
-      const isAcceptance = key.startsWith("acceptance.");
       const item = latestEvidence(evidence, key);
-      if (!item || !evidenceSatisfied(item, !key.startsWith("role."))) { fail(key, `required evidence is not recorded/passed${isAcceptance ? "" : " or waived"}: ${key}`); continue; }
-      if (!isAcceptance && String(item.plan_hash || "") !== plan.plan_hash) { fail(key, `evidence was recorded against a different plan, re-verification required: ${key}`); continue; }
-      if (!isAcceptance && Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) { fail(key, `evidence predates the current plan revision, re-verification required: ${key}`); continue; }
-      if (String(item.intent_hash || "") !== liveIntentHash) { fail(key, `evidence was recorded against a different intent (task.md Goal/Scope/Completion criteria changed), re-verification required: ${key}`); continue; }
-      const freshness = key.startsWith("role.")
-        ? roleFreshnessErrors(item, key, repoRoot, state, ensureLiveDelivery())
-        : (ensureLiveDelivery(), liveDeliveryError ? [`execution evidence freshness cannot be recomputed for ${key}: ${liveDeliveryError}`] : executionFreshnessErrors(item, key, repoRoot, state, liveDelivery));
-      if (freshness.length) { errors.push(...freshness); pending(key); }
+      const validity = validityFor(item, key);
+      if (validity.length) { errors.push(...validity); pending(key); }
     }
+    if (options.includeEvidence) assessments = evidence.map((item) => {
+      const key = String(item.id || item.kind || "");
+      const prefix = `task.json/evidence/${(state.evidence as JsonObject[]).indexOf(item)}`;
+      const shapeErrors = schemaIssues.filter((issue) => issue.startsWith(`${prefix} `) || issue.startsWith(`${prefix}/`));
+      return { item, key, latest: latestEvidence(evidence, key) === item, errors: [...shapeErrors, ...validityFor(item, key)] };
+    });
   } catch (error) { errors.push(`workflow-plan compile failed: ${String((error as Error).message || error)}`); }
-  return { valid: errors.length === 0, status: String(life.status), compiled, errors, missing, plan, acceptance };
+  return { valid: errors.length === 0, status: String(life.status), compiled, errors, missing, plan, acceptance, intentMarkdown: markdown, intentHash: liveIntentHash, evidence: assessments };
 }
 
 // Every writer returns its `next` from the state it just wrote; a gate that cannot be evaluated only

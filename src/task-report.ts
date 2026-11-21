@@ -1,22 +1,27 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { JsonObject, output, readJson } from "./core.js";
-import { intentHash, sections } from "./intent.js";
-import { evaluateTaskGate } from "./lifecycle/task-gate.js";
+import { sections } from "./intent.js";
+import { EvidenceAssessment, evaluateTaskGate } from "./lifecycle/task-gate.js";
 import { taskPath } from "./lifecycle/task-store.js";
-import { compilePlanForTaskPath } from "./workflow-policy.js";
 
 function markdown(value: unknown): string {
   return String(value ?? "").trim() || "(none)";
 }
 
-function evidenceRows(state: JsonObject): string[] {
-  const evidence = Array.isArray(state.evidence) ? state.evidence.filter((item): item is JsonObject => !!item && !Array.isArray(item) && typeof item === "object") : [];
-  return evidence.map((item) => {
-    const id = String(item.id || item.kind || "");
-    const result = item.kind === "role" ? String(item.result || "") : String(item.status || "");
-    const freshness = item.evidence_kind === "execution" ? String(item.delivery_fingerprint || "missing delivery fingerprint") : "analysis/attested";
-    return `| ${id} | ${result} | ${String(item.at || "")} | ${freshness} | ${markdown(item.summary)} |`;
+function tableCell(value: unknown): string {
+  return markdown(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\|/g, "&#124;").replace(/\r\n|\r|\n/g, "<br>");
+}
+
+function evidenceRows(evidence: EvidenceAssessment[]): string[] {
+  return evidence.map(({ item, key, latest, errors }) => {
+    let result = "UNVERIFIED";
+    if (item.kind === "role" && (item.result === "pass" || item.result === "fail")) result = String(item.result).toUpperCase();
+    else if (item.evidence_kind === "execution" && typeof item.exit_code === "number" && Number.isInteger(item.exit_code)) result = item.exit_code === 0 ? "PASS" : "FAIL";
+    else if (item.evidence_kind === "analysis") result = "NOT EXECUTED";
+    const status = !latest ? "SUPERSEDED" : errors.length ? "INVALID" : "VALID";
+    const reason = !latest ? "A newer observation takes precedence." : errors.join("; ") || "Matches the current intent, plan (where required), and delivery.";
+    const details = [reason, item.delivery_fingerprint ? `delivery fingerprint: ${String(item.delivery_fingerprint)}` : "", item.status ? `recorded status: ${String(item.status)}` : "", item.note, item.summary].filter(Boolean).join("\n");
+    return `| ${[key, item.command, item.cwd, item.exit_code, result, status, item.at, details].map(tableCell).join(" | ")} |`;
   });
 }
 
@@ -27,11 +32,13 @@ export function taskReport(value: string, repoRoot = process.cwd()): number {
   if (!existsSync(path)) { output({ valid: false, errors: [`task state is missing: ${path}`] }); return 1; }
   try {
     const state = readJson(path);
-    const taskMdPath = join(dirname(path), "task.md");
-    if (!existsSync(taskMdPath)) throw new Error("sibling task.md is missing");
-    const intent = sections(readFileSync(taskMdPath, "utf8"));
-    const plan = compilePlanForTaskPath(state, path);
-    const gate = evaluateTaskGate(state, path, repoRoot);
+    const gate = evaluateTaskGate(state, path, repoRoot, { includeEvidence: true });
+    if (!gate.intentMarkdown) throw new Error("sibling task.md is missing or empty");
+    if (!gate.intentHash) throw new Error("sibling task.md has no valid intent");
+    if (!gate.plan) throw new Error(gate.errors.join("; "));
+    const intent = sections(gate.intentMarkdown);
+    const plan = gate.plan;
+    const rows = evidenceRows(gate.evidence);
     const lines = [
       `# ${String(state.id || "Task")}`,
       "",
@@ -69,9 +76,9 @@ export function taskReport(value: string, repoRoot = process.cwd()): number {
       "",
       "## Evidence",
       "",
-      "| Requirement | Result | Recorded at | Freshness | Summary |",
-      "|---|---|---|---|---|",
-      ...(evidenceRows(state).length ? evidenceRows(state) : ["| (none) | | | | |"]),
+      "| Requirement | Command | Cwd | Exit code | Result | Validity | Recorded at | Details |",
+      "|---|---|---|---|---|---|---|---|",
+      ...(rows.length ? rows : ["| (none) | | | | | | | |"]),
       "",
       "## Gate",
       "",
@@ -79,7 +86,7 @@ export function taskReport(value: string, repoRoot = process.cwd()): number {
       `- valid: ${gate.valid ? "PASS" : "BLOCKED"}`,
       ...(gate.errors.length ? ["- errors:", ...gate.errors.map((error) => `  - ${error}`)] : ["- errors: none"]),
       "",
-      `- intent hash: ${intentHash(readFileSync(taskMdPath, "utf8"))}`,
+      `- intent hash: ${gate.intentHash}`,
       ""
     ];
     process.stdout.write(`${lines.join("\n")}\n`);

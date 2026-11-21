@@ -39,7 +39,7 @@
         |
         v
       獨立 Reviewer --> 有問題：修正 --> 重跑驗收 --> 只審變動範圍
-        |               確認的問題做 root-cause，補上測試／文件／規範
+        |               確認的問題依 root-cause 歸因，修正驗證後確認防線
         v
       close-task 檢查完成條件並結案；過程中的決策與更正交給 learn
 ```
@@ -55,6 +55,14 @@ task.md 的驗收案例寫法：
   - Then 系統回傳有效的 JWT 並導向首頁
   - Verify: `npx playwright test e2e/login.spec.ts -g AC1`
 ```
+
+### 閱讀證據與驗證 skill 修改
+
+閱讀任務證據時，執行 `agent-workflow task-report --task-path <task>`。報告列出驗收／proof 的執行指令、工作目錄、exit code、觀察結果與有效性：`VALID` 表示符合目前證據條件，`INVALID` 附上失效原因，`SUPERSEDED` 表示同一需求有較新的觀察。單次 `PASS` 仍可能因交付或 intent 改變而失效；整體是否能結案以 Gate 區塊為準。報告只讀取 task，不修改狀態。
+
+舊的自述分析顯示 `NOT EXECUTED`，匯入的未驗證紀錄或無效 exit code 顯示 `UNVERIFIED`，並保留原始狀態與附註；這些都不代表實際執行失敗。
+
+修改 skill 的觸發或重要判斷時，維護者可依 [skill 行為驗證](../.agents/skills/writing-for-agents/behavior-validation.md) 比較修改前後的實際結果；這是修改時的按需實驗，不是每個任務的固定步驟。
 
 ### 派原生 subagent 平行實作
 

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { changedPaths, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, runCommand, sha256, stateRoot, workspaceFingerprint } from "../core.js";
 import { acceptanceCases, intentHash } from "../intent.js";
-import { compilePlanForTaskPath } from "../workflow-policy.js";
+import { compilePlanForTaskPath, CompiledWorkflowPlan } from "../workflow-policy.js";
 import { recordReviewCause, ReviewCauseInput, roundIsValid } from "../records.js";
 import { covers } from "./ownership.js";
 import { nextForState } from "./task-gate.js";
@@ -29,11 +29,11 @@ export function latestEvidence(evidence: JsonObject[], key: string): JsonObject 
   return matches.length ? matches.reduce((best, entry) => instant(entry) >= instant(best) ? entry : best) : undefined;
 }
 export type DeliverySnapshot = { mode: "base" | "workspace"; base?: string; paths: string[]; fingerprint: string };
+export type DeliveryObservation = { snapshot?: DeliverySnapshot; error?: string };
 
 // Role evidence goes stale only when the diff it actually reviewed changes, or when the task's
 // classification moved under it — not when some unrelated file elsewhere in the repo is touched.
-export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
-  if (Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) return [`role evidence predates the current plan revision, re-review required: ${key}`];
+export function roleFreshnessErrors(item: JsonObject, key: string, repoRoot: string, liveSnapshot?: DeliverySnapshot): string[] {
   const paths = Array.isArray(item.reviewed_paths) ? item.reviewed_paths.map(String) : [];
   const base = String(item.reviewed_base || "");
   try {
@@ -80,7 +80,7 @@ function gitHead(repoRoot: string): string | undefined {
   } catch { return undefined; }
 }
 
-function deliveryEvidenceErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
+export function executionFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
   if (item.evidence_kind !== "execution" && item.trust_level !== "runtime") return [];
   const recorded = String(item.delivery_fingerprint || "");
   const mode = String(item.delivery_mode || "");
@@ -97,9 +97,6 @@ function deliveryEvidenceErrors(item: JsonObject, key: string, repoRoot: string,
   return [];
 }
 
-export function executionFreshnessErrors(item: JsonObject, key: string, repoRoot: string, state: JsonObject, liveSnapshot?: DeliverySnapshot): string[] {
-  return deliveryEvidenceErrors(item, key, repoRoot, state, liveSnapshot);
-}
 export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): boolean {
   if (item.kind === "step") {
     if (item.status !== "recorded") return false;
@@ -107,11 +104,22 @@ export function evidenceSatisfied(item: JsonObject, runtimeRequired = false): bo
     // counts when evidence-run observed the process itself.
     if (runtimeRequired && item.trust_level !== "runtime") return false;
     // A recorded execution that exited non-zero is a failure that was written down, not a pass.
-    if (item.evidence_kind === "execution" && Number(item.exit_code) !== 0) return false;
+    if (item.evidence_kind === "execution" && item.exit_code !== 0) return false;
     return true;
   }
   if (item.kind === "role") return item.result === "pass";
   return false;
+}
+
+export function evidenceValidityErrors(item: JsonObject | undefined, key: string, plan: CompiledWorkflowPlan, liveIntentHash: string | undefined, repoRoot: string, state: JsonObject, readDelivery: () => DeliveryObservation): string[] {
+  const isAcceptance = key.startsWith("acceptance.");
+  if (!item || !evidenceSatisfied(item, !key.startsWith("role."))) return [`required evidence is not recorded/passed${isAcceptance ? "" : " or waived"}: ${key}`];
+  if (!isAcceptance && String(item.plan_hash || "") !== plan.plan_hash) return [`evidence was recorded against a different plan, re-verification required: ${key}`];
+  if (!isAcceptance && Number(item.plan_revision || 0) !== Number(state.plan_revision || 0)) return [`evidence predates the current plan revision, re-verification required: ${key}`];
+  if (String(item.intent_hash || "") !== liveIntentHash) return [`evidence was recorded against a different intent (task.md Goal/Scope/Completion criteria changed), re-verification required: ${key}`];
+  const delivery = readDelivery();
+  if (key.startsWith("role.")) return roleFreshnessErrors(item, key, repoRoot, delivery.snapshot);
+  return delivery.error ? [`execution evidence freshness cannot be recomputed for ${key}: ${delivery.error}`] : executionFreshnessErrors(item, key, repoRoot, state, delivery.snapshot);
 }
 
 export type ExecutionProof = { command: string; cwd: string; exitCode: number; outputDigest: string };
