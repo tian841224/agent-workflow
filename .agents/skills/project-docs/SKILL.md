@@ -7,7 +7,7 @@ description: "task-init 回報 doc_gap、變更會使專案文件失準，或需
 
 目標 repo 的 `docs/` 回答「這塊 code 是什麼、流程怎麼走、為什麼這樣決定」。跨 task、跨 repo 的框架級教訓走 knowledge／review-cause，不走這裡。
 
-開發前的文件讀取已經由 `task-init --paths` 的 `context.docs` 完成（同一套 Lookup）。本 skill 在三種情況載入：`context` 回報 `doc_gap`、這次改動讓既有文件不再正確，或需要記錄專案決策。
+開發前的文件讀取已經由 `task-init --paths` 的 `context.docs` 完成（同一套 Lookup）。
 
 ## 1. 動手前：讀取與補缺口
 

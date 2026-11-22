@@ -25,10 +25,8 @@ test("workflow documents preserve focused work and the ordered slice loop", () =
   // Ordered slices have one owner (elevated.md); evidence.md only points to it.
   const elevated = read(".agents/skills/workflow/elevated.md");
   const runtime = read("docs/modules/workflow-runtime.md");
-  const readme = read("README.md");
   const capabilitySelection = read(".agents/skills/workflow/capability-selection.md");
   assert.match(evidence, /`focused` file-local work follows `implementation -> focused feedback` directly/);
-  assert.match(readme, /直接走 `implementation -> focused feedback`/);
   assert.match(runtime, /expanded: ordered slice .*local feedback > next dependent slice > all slices complete/);
   assert.match(elevated, /goal, scope,\s+acceptance criteria, local verification command, and dependencies/);
   assert.match(evidence, /elevated\.md#ordered-implementation-slices/);

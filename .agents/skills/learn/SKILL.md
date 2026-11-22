@@ -1,15 +1,16 @@
 ---
 name: learn
-description: "需要保存使用者明確要求記錄的長期記憶、更正、決策或已確認的可重用修正時使用；只記錄未來任務仍適用的結論。"
+description: "使用者要求記住某件事、否決或更正了你的做法或結論，或做出會影響後續任務的決定時使用；把未來任務仍適用的結論存到專案文件或共用記憶。"
 ---
 
 # learn
 
-Use this skill when a memory should affect a later task. Capture only a conclusion that is reusable across turns or projects.
+Capture only a conclusion that is reusable across turns or projects.
 
 ## When to capture
 
 - Capture immediately when the user explicitly says remember, save, or learn.
+- When the same kind of correction appears a second time, write it as a project document or rule (see [remedies](../root-cause/remedies.md)) instead of another memory entry.
 - Capture a correction, settled decision, confirmed fix, or durable preference when it changes future work.
 - Leave out one-off choices, transient context and unconfirmed guesses. Secrets, credentials and personal data are never written.
 
@@ -35,6 +36,6 @@ agent-workflow learn --action Capture --cwd <cwd> --state-root <state-root> --sc
 
 ## Shared memory
 
-The canonical writable store is `~/.agent-workflow` (override with `AGENT_WORKFLOW_STATE_ROOT`). The installer embeds that same absolute state root in Claude, Codex, and Antigravity hooks, so `learn` writes are readable by every platform. `memory-context` also reads native platform memory directories as read-only leads marked `needs_verification`; verify those claims against the current project before relying on them.
+The writable store is `~/.agent-workflow` (override with `AGENT_WORKFLOW_STATE_ROOT`). An entry needs no verification step: on Claude and Codex the prompt hook injects it when a later prompt matches it, and Antigravity shows a bounded sample of topics at session start, so look an entry up there with an explicit query. Each platform's native memory is loaded only by that platform; the hook does not inject it.
 
 Read the [memory procedure](../workflow/memory.md) when searching existing entries before a capture, writing to Global scope (evidence and approval requirements), or capturing a pitfall from a review blocker.

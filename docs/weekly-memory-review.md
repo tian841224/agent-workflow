@@ -47,6 +47,29 @@ user decides: doc / existing skill / new skill / task rule / reject
 only after approval: create Draft, update doc, Promote, or Reject
 ```
 
+## Acting on a decision
+
+Each command records a decision the user made in the conversation; the flags never substitute for that approval.
+
+```text
+agent-workflow skill-draft --action Draft --name <slug> --description <trigger sentence> --content <body> --cluster-id <cluster_id> --source-entry <sha>,<sha>
+agent-workflow skill-draft --action Promote --name <slug> --approved-by-user
+agent-workflow skill-draft --action Reject --name <slug> --note <why>
+```
+
+- Pass the cluster's `source_entries` to Draft so the draft records which entries it came from.
+- Draft writes `<state>/skill-drafts/<name>/SKILL.md`; Promote writes `<state>/skills/<name>/SKILL.md`. Neither location is a platform skill directory, so a promoted skill still has to be added to `.agents/skills/` and the managed manifest to be installed.
+- Reject marks the draft `rejected` and stores the note. Scan does not read that record, so a rejected cluster is listed again on the next scan.
+
+Review causes recorded with `review-record --cause` are read and closed the same way:
+
+```text
+agent-workflow review-cause --action Escalate --min-occurrences <n>
+agent-workflow review-cause --action Resolve --id <id>,<id> --status <applied|rejected>
+```
+
+Escalate groups open findings by `cause` and reports the `remedy_kind` that cause maps to (`project_doc`, `task_spec`, `skill`, `framework_change`); `logic_error` never appears. Resolve with `applied` once the remedy is in place, or `rejected` when it is not worth doing; resolved findings stop counting. Resolve stores no reason, so state it in the report.
+
 The report must distinguish independent occurrences from duplicated records in one rollout. Project-specific facts belong in the relevant project document; a new skill is appropriate only when the procedure remains useful outside the named repository.
 
 ## When it runs

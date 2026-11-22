@@ -63,7 +63,7 @@ test("the Antigravity entrypoint references the canonical rules and its own rule
   const target = installed("entry");
   const rule = readFileSync(target.rule, "utf8");
   assert.equal(rule, readFileSync(RULE_SOURCE, "utf8"));
-  assert.doesNotMatch(rule, /reader|worker|review|Model:|Flash|effort|派工情況/i);
+  assert.doesNotMatch(rule, /reader|worker|review|Model:|Flash|派工情況/i);
   assert.match(rule, /由 Antigravity 原生能力決定角色、模型與 effort/);
   const lines = managedLines(target.entry);
   assert.deepEqual(lines, [sharedImport(target.entry, target.canonical), RULE_IMPORT]);

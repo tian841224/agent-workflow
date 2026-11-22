@@ -710,7 +710,6 @@
         [
           {
             "task_type": [
-              "feature",
               "refactor",
               "schema",
               "migration"
@@ -756,14 +755,6 @@
         [
           {
             "task_type": [
-              "fix"
-            ]
-          }
-        ],
-        [
-          {
-            "task_type": [
-              "fix",
               "investigation"
             ]
           }
@@ -794,6 +785,26 @@
         ]
       ],
       "suggest_reason": "任務涉及 bug、debug、效能異常或需要建立可重現的 feedback loop",
+      "steps": []
+    },
+    {
+      "name": "refactor_sweep",
+      "kind": "evidence",
+      "section": "Refactor sweep",
+      "order_after": [
+        "impact_discovery"
+      ],
+      "suggest_when": [
+        [
+          {
+            "task_type": [
+              "refactor",
+              "mechanical"
+            ]
+          }
+        ]
+      ],
+      "suggest_reason": "刪除、合併、搬移或改名既有識別字時，需要確認引用收尾與 log、邊界回應等價",
       "steps": []
     },
     {
@@ -841,6 +852,7 @@
         "codebase_design",
         "bug_diagnosis",
         "tdd",
+        "refactor_sweep",
         "schema_compatibility",
         "migration_safety",
         "data_impact",

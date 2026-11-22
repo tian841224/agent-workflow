@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { changedPaths, diffFingerprint, JsonObject, mutateJsonState, now, output, projectIdentity, runCommand, sha256, stateRoot, workspaceFingerprint } from "../core.js";
 import { acceptanceCases, intentHash } from "../intent.js";
 import { compilePlanForTaskPath, CompiledWorkflowPlan } from "../workflow-policy.js";
+import { skillHints } from "../execution/execution-packet.js";
 import { recordReviewCause, ReviewCauseInput, roundIsValid } from "../records.js";
 import { covers } from "./ownership.js";
 import { nextForState } from "./task-gate.js";
@@ -263,7 +264,7 @@ export function reviewRecord(value: string, roleId: string, result: string, summ
     });
     const recorded = (state.evidence as JsonObject[]).at(-1) as JsonObject;
     const reviewCause = cause ? recordReviewCause({ ...cause, root: stateRootValue, taskPath: path }) : undefined;
-    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision, ...(reviewCause ? { review_cause: reviewCause } : {}), next: nextForState(state, path, repoRoot) });
+    output({ valid: true, task: path, id: roleKey, result, reviewed_base: recorded.reviewed_base, reviewed_paths: recorded.reviewed_paths, delivery_hash: recorded.delivery_hash, state_revision: state.state_revision, ...(reviewCause ? { review_cause: reviewCause } : {}), ...(result === "fail" ? skillHints("root-cause", "a review round failed; once its findings are fixed, trace why they could be written and were not caught") : {}), next: nextForState(state, path, repoRoot) });
     return 0;
   } catch (error) { output({ valid: false, errors: [String((error as Error).message || error)] }); return 1; }
 }

@@ -10,7 +10,7 @@
 - **`proofs`**：selected capability 中必須由 runtime 實際執行的 step，每一條都要有 `evidence-run` 紀錄。
 - **`checklist`**：selected capability 中其餘的分析 step，是實作與 Reviewer 要涵蓋的項目，不在 gate 裡。`workflow_facts` 沒宣告而判斷不了的 step 不會被略過：分析 step 留在 checklist，runtime step 仍列在 `proofs`。這類 step 會附上 `undecided_by`，用 `task-write` 宣告其中的 fact 後，就能確定它是否適用。
 - **`required_evidence`**：gate 驗收的 id，也就是 `proofs` 加上角色（`role.reviewer`）。驗收案例 `acceptance.<ID>` 由 task.md 決定，gate 另外檢查。
-- `suggested` 是依分類產生的候選建議，不進 gate。
+- `suggested` 是依分類產生的候選建議，不進 gate；每一項的 `skill` 是開始對應工作前要讀的文件。
 
 `plan_hash` 只涵蓋 selected capability、`required_evidence` 與 exploration profile。policy 或分類改了，但這三者沒變時，既有 evidence 仍然有效。
 

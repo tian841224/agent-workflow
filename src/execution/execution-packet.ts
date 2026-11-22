@@ -15,6 +15,7 @@ export const PROCEDURE_POINTERS: Record<string, string> = {
   codebase_design: ".agents/skills/codebase-design/SKILL.md",
   bug_diagnosis: ".agents/skills/diagnosing-bugs/SKILL.md",
   tdd: ".agents/skills/tdd/SKILL.md",
+  refactor_sweep: ".agents/skills/refactor-sweep/SKILL.md",
   operational_verification: ".agents/skills/operational-verification/SKILL.md",
   reviewer: ".agents/skills/workflow/review.md"
 };
@@ -31,6 +32,27 @@ let packageCheckout: boolean | undefined;
 function procedureLocation(pointer: string): string {
   packageCheckout ??= existsSync(join(dirname(fileURLToPath(import.meta.url)), "..", ".agents", "skills"));
   return packageCheckout ? pointer : join(homedir(), pointer);
+}
+// An optional skill may not be installed; naming a document that is not there sends the agent to a missing file.
+function skillInstalled(pointer: string): boolean {
+  const location = procedureLocation(pointer);
+  return existsSync(packageCheckout ? join(dirname(fileURLToPath(import.meta.url)), "..", location) : location);
+}
+
+// A suggestion never enters the gate, so the only thing that makes it actionable is the document
+// it names. tdd is dropped from the output of a call that adopts an existing diff: the
+// implementation it would have driven is already written. The adoption is not recorded on the task,
+// so a later call without the flag lists tdd again.
+export function suggestedSkills(suggested: JsonObject[], adoptedDiff = false): JsonObject[] {
+  return suggested.filter((entry) => !(adoptedDiff && entry.name === "tdd"))
+    .map((entry) => { const pointer = PROCEDURE_POINTERS[String(entry.name)]; return pointer && skillInstalled(pointer) ? { ...entry, skill: procedureLocation(pointer) } : entry; });
+}
+
+// Skills a command names when a recorded condition holds, alongside (never inside) the gate's next
+// actions. Empty when the skill is not installed.
+export function skillHints(name: string, why: string): JsonObject {
+  const pointer = `.agents/skills/${name}/SKILL.md`;
+  return skillInstalled(pointer) ? { skills: [{ skill: procedureLocation(pointer), why }] } : {};
 }
 
 type ExecutionCapability = { name: string; kind: string; steps: { id: string; title: string }[] };

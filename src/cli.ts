@@ -32,7 +32,6 @@ export const commandOptions: Record<string, string[]> = {
   "review-record": [...TASK_TARGET_OPTIONS, "role", "result", "summary", "repo-root", "state-root", "expected-workspace-sha256", "cause", "cause-evidence", "cause-round", "cause-paths", "cause-miss-category", "cause-introduced-by", "cause-proposed-change"],
   learn: ["action", "state-root", "scope", "project-id", "cwd", "kind", "topic", "content", "source-event", "supersedes", "forget", "id", "reason", "approved-by-user", "tags", "paths"],
   knowledge: ["action", "state-root", "scope", "project-id", "cwd", "query", "limit", "topic", "content", "approved-by-user"],
-  "knowledge-verify": ["state-root", "scope", "project-id", "cwd", "id", "source-path", "approved-by-user"],
   "skill-draft": ["action", "state-root", "name", "status", "project-id", "cwd", "min-occurrences", "description", "content", "cluster-id", "source-entry", "note", "approved-by-user"],
   "memory-review": ["action", "state-root", "decision"],
   "review-cause": ["action", "state-root", "cause", "status", "id", "task-path", "evidence", "round", "paths", "min-occurrences", "miss-category", "introduced-by", "proposed-change"],
@@ -160,7 +159,6 @@ async function main(): Promise<void> {
     );
   }
   else if (command === "knowledge") process.exitCode = (await import("./knowledge.js")).knowledge(option(parsed.values, "action", "Search"), parsed.values);
-  else if (command === "knowledge-verify") process.exitCode = (await import("./knowledge.js")).knowledgeVerify(parsed.values);
   else if (command === "orchestrate") process.exitCode = (await import("./orchestration/protocol.js")).orchestrate(parsed.values);
   else if (command === "worker-check") process.exitCode = (await import("./orchestration/protocol.js")).workerCheck(parsed.values);
   else if (command === "worker-exec") process.exitCode = (await import("./orchestration/protocol.js")).workerExec(parsed.values, trailing);

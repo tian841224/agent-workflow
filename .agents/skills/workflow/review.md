@@ -1,6 +1,6 @@
 # Reviewer
 
-只有 `reviewer` 進入 `selected` 時才讀本檔。`code_change: true` 的 task 都會選入 Reviewer。`task_type: mechanical` 只免除這條規則；影響面到 `multi_module` 以上、`impact_effect` 為 shared_behavior／data／contract／destructive，或帶有高風險 flag 時仍會選入。沒選入時，由主對話對照 acceptance 與 checklist 自我檢查。
+`code_change: true` 的 task 都會選入 Reviewer。`task_type: mechanical` 只免除這條規則；影響面到 `multi_module` 以上、`impact_effect` 為 shared_behavior／data／contract／destructive，或帶有高風險 flag 時仍會選入。沒選入時，由主對話對照 acceptance 與 checklist 自我檢查。
 
 `reviewer` 是獨立的唯讀複審角色，派成 subagent：只讀 diff 與相關程式碼並回報結論，不改動任何檔案。主對話是 coordinator，負責修正、整合複審結果，並做最後一次合理性核對；這一趟屬於整合工作，不算第二位 reviewer。Runtime contract 只認得 `role.reviewer` 一種身份，所以高風險情境的對抗式要求要寫進同一位 reviewer 的指令。
 
@@ -11,19 +11,20 @@
 ## 每一輪的流程
 
 1. 在 repo root 執行 `agent-workflow pre-review --path <repo> --task-path <task>`。回傳 `workspace_sha256`，以及這一輪的 `review` brief：`round`、`scope`、`paths`、上一輪的 `previous`、`acceptance`、`checklist`、`risk_flags`。從快照到 `review-record` 之間工作樹保持不動，包括 stash/pop。
-2. 依平台派工規則的複審那一列，派新的 reviewer subagent，訊息只帶下列內容：
+2. 依平台派工規則對複審的設定，派新的 reviewer subagent，訊息只帶下列內容：
    - brief 本身：`paths` 與 base、驗收案例、checklist
    - 這次強度要求的檢查與推翻假設（見下節）
    - 第 2 輪起加上 `previous` 的 findings
 
    完整背景與已確認的 PASS 不重複貼上。
 3. reviewer 回報 finding、blocker、FAIL 或未驗證限制，每項附依據、影響與可重現位置（repo-relative path、symbol、diff hunk）；全部通過時回傳單行 `PASS`。
-4. 主對話用 `review-record --expected-workspace-sha256 <sha>` 記錄結果。runtime 會自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與每個路徑的 digest；工作樹在快照後有變動，就拒絕這筆紀錄。
-5. 有 blocker：主對話修正 → 重跑受影響的 `evidence-run` → 回到第 1 步。下一輪的 `scope` 是 `delta`，`paths` 只包含上一輪之後內容有變動的路徑。
+4. 主對話依第 5 步核對 finding 後，用 `review-record --expected-workspace-sha256 <sha>` 記錄結果。runtime 會自行計算 `reviewed_base`、`reviewed_paths`、`reviewed_diff_sha256` 與每個路徑的 digest；工作樹在快照後有變動，就拒絕這筆紀錄。
+5. 主對話先核對每個 finding。有確認要修正的 finding 時，這一輪以 `--result fail` 記錄，修正後的下一輪才記 pass；同一輪修好不改記 pass，否則 finding 不會留下紀錄。查證後不成立或決定不修的 finding 不算，全部屬於這一類時記 pass，並在 summary 寫明各項不修的理由。確認要修正：主對話修正 → 重跑受影響的 `evidence-run` → 回到第 1 步。下一輪的 `scope` 是 `delta`，`paths` 只包含上一輪之後內容有變動的路徑。
 
 ## 強度依 brief 調整
 
 - diff 的註解符合 入口文件的「程式碼註解」觸發規則，或程式改動可能使既有註解失準時，讀 [clean-comments](../clean-comments/SKILL.md) 核對註解與實作；後者包含未修改但受影響的註解。提出重寫要求前，指出具體的事實錯誤、重要資訊缺漏、位置不當、過時內容或冗餘；意思相同的換句話說不是缺陷。其餘 Review 不固定載入。
+- diff 移除、合併、搬移或改名既有識別字（含參數與欄位）時，讀 [refactor-sweep](../refactor-sweep/SKILL.md)，檢查被移除的識別字是否仍有引用，以及 log 與邊界回應是否等價。
 - diff 路徑有專案文件涵蓋時（`agent-workflow project-doc --action Lookup --repo-root <repo> --paths <brief 的 paths>` 回傳的 `docs`），核對文件記錄的入口、流程、契約與不變量是否仍符合實作；列在 `project_docs.unchanged` 但內容已失準的文件，列為 finding。
 - 所有輪次：核對既有測試與驗收案例是否足以支撐結論；只有測試範圍、新修改或 finding 使既有結果失效時，才實際重跑。數值、邊界與併發行為若沒有測試涵蓋，列為測試缺口並指出應補的具體案例。對改動的欄位與資料流，往上下游追到 repository 與 entity。
 - `impact_scope: file`、brief 的 `risk_flags` 為空的修改：只看 diff、驗收案例與 checklist；diff 碰到共用 helper 時另依下一條。
@@ -49,4 +50,4 @@ Reviewer 結果只透過 `review-record` 寫入；summary 保留 blocker、path�
 
 Review 指出未列入的呼叫端、入口或共用狀態時，先補進 evidence map，重新評估是否要一併修改或補測試，再重評 `risk_flags`。確認影響跨出原範圍時補 `cross_feature`，並依 freeze 規則更新 intent 後重新 `approve-intent`，或 supersede 舊 task 另建新 task。
 
-確認的 finding 依 [root-cause](../root-cause/SKILL.md) 歸因，修正驗證後確認防線；其範圍與停止條件由該 skill 管理。要立即留下歸因時，可在失敗回報附上：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。分類定義見 `schemas/review-cause.schema.json` 與 [distill skill](../distill/SKILL.md)。
+確認的 finding 依 [root-cause](../root-cause/SKILL.md) 追查起因。要立即留下歸因時，可在失敗回報附上：`review-record --result fail --cause-round <n> --cause <cause> --cause-evidence <當初缺的是什麼> --cause-paths <本次改動路徑>`。分類定義見 `schemas/review-cause.schema.json`。

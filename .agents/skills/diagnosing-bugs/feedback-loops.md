@@ -1,6 +1,6 @@
 # Techniques for Building a Feedback Loop
 
-Use this list when the straightforward repro path can't produce a signal that turns red. Techniques are roughly ordered "try this first" — you don't need to work through all of them every time:
+Techniques are roughly ordered "try this first" — you don't need to work through all of them every time:
 
 1. **Failing test**: write it at whichever seam actually touches this bug — unit, integration, or e2e are all fine.
 2. **Curl/HTTP script**: hit a running dev server directly.
@@ -15,7 +15,7 @@ Use this list when the straightforward repro path can't produce a signal that tu
 
 ## Tightening the Loop
 
-Once you have a loop, treat it like a product and keep tightening it: can it run faster (cache setup, skip irrelevant init, narrow test scope)? Can the signal be more precise (assert the exact symptom instead of "didn't crash")? Can it be more deterministic (fixed clock, seeded randomness, isolated filesystem, frozen network)? A 30-second flaky loop is barely better than no loop; a 2-second deterministic loop is a genuine debugging superpower.
+Once you have a loop, treat it like a product and keep tightening it: can it run faster (cache setup, skip irrelevant init, narrow test scope)? Can the signal be more precise (assert the exact symptom instead of "didn't crash")? Can it be more deterministic (fixed clock, seeded randomness, isolated filesystem, frozen network)?
 
 ## Non-Deterministic Bugs
 

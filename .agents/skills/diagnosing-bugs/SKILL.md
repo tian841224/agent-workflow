@@ -1,11 +1,11 @@
 ---
 name: diagnosing-bugs
-description: "遇到原因尚未確定、難以重現、間歇性或效能異常時使用；用最短的診斷路徑建立可重現證據、隔離原因並確認症狀已消失。"
+description: "實際行為與預期不符、而原因尚未有證據確認時使用；用最短的診斷路徑建立可重現證據、隔離原因並確認症狀已消失。"
 ---
 
 # Debugging Discipline
 
-Choose the shortest diagnostic path that can establish the cause with evidence. The goal is to turn an uncertain failure into a reproducible signal, isolate the cause, fix it, and prove the original symptom is gone.
+Choose the shortest diagnostic path that can establish the cause with evidence.
 
 ## Required outcomes
 

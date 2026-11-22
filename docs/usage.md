@@ -87,7 +87,7 @@ Protocol 3 runtime CLI 與 state 是選用介面；指派原生 subagent 不以�
 下一次修改相關路徑：task-init --paths <----------------+
                     帶出相關文件、記憶與已結案 task 的歷程
 
-反覆出現的更正 --> distill --> 待審 skill／規則草稿 --> 使用者核准後才生效
+同一類更正第二次出現 --> learn --> 寫成專案文件或規則
 ```
 
 ### 原生 agent

@@ -36,9 +36,9 @@ const SCANNED = [".agents", "templates", "adapters", "docs", "README.md", "AGENT
 // skills carry their own schemas and their own identifiers, and holding them to this contract would
 // report their fields as drift.
 const FRAMEWORK_OWNED = [
-  ".agents/agents/", ".agents/skills/workflow/", ".agents/skills/distill/", ".agents/skills/learn/",
+  ".agents/agents/", ".agents/skills/workflow/", ".agents/skills/learn/",
   ".agents/skills/project-docs/", ".agents/skills/codebase-design/", ".agents/skills/tdd/",
-  ".agents/skills/diagnosing-bugs/", ".agents/skills/operational-verification/",
+  ".agents/skills/diagnosing-bugs/", ".agents/skills/operational-verification/", ".agents/skills/refactor-sweep/",
   "templates/", "adapters/", "docs/", "README.md", "AGENTS.md"
 ];
 // Dated history and review records describe the contract as it was when they were written.

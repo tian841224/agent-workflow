@@ -1,13 +1,11 @@
 ---
 name: codebase-design
-description: "workflow 計畫或其他 review skill 指向本技能時使用；設計 deep module、介面、模組接縫與 adapter 邊界。"
+description: "變更會新增或改變模組的公開介面、依賴方向或模組邊界時使用；設計 deep module、介面、模組接縫與 adapter 邊界。"
 ---
 
 # Codebase Design
 
-Design **deep modules**: a small interface hiding a lot of behavior, sitting on a clean seam, testable through that interface. Use this vocabulary consistently whenever designing or refactoring code — the terms only work if they stay consistent.
-
-This file is a shared reference, loaded on the pointers listed in the description. Its purpose is cross-pass consistency: the main conversation's design pass and its later Review pass load this file from separate context, so `seam`, `depth`, and `adapter` have to mean the same thing in each of their reports.
+Design **deep modules**: a small interface hiding a lot of behavior, sitting on a clean seam, testable through that interface.
 
 ## Glossary
 

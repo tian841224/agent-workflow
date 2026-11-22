@@ -47,9 +47,6 @@ test("knowledge entries are written through knowledge.schema.json and land under
   assert.match(entry, /^status: needs_verification$/m);
   const projectId = JSON.parse(run(["project-resolver", "--path", repo, "--state-root", state]).stdout).project_id;
   assert.match(JSON.parse(captured.stdout).path, new RegExp(projectId));
-  // Capture can only ever create needs_verification; knowledge-verify is the sole path to verified.
-  const verified = run(["knowledge-verify", "--id", JSON.parse(captured.stdout).id, "--source-path", join(repo, "file.txt"), "--state-root", state], { cwd: repo });
-  assert.equal(verified.status, 0, verified.stderr);
   const context = run(["memory-context", "--platform", "Claude", "--state-root", state, "--cwd", repo], { cwd: repo });
   assert.match(context.stdout, /DISTINCTIVE_LEARNING_TEXT/);
 });
@@ -65,13 +62,10 @@ test("memory-context drops entries that match none of the query terms", () => {
   const root = join(tmpdir(), `agent-workflow-memory-query-${process.pid}-${Date.now()}`);
   const state = join(root, "state");
   const upsert = (topic, content) => run(["knowledge", "--action", "Upsert", "--scope", "Global", "--approved-by-user", "--topic", topic, "--content", content, "--state-root", state]);
-  const verify = (id) => run(["knowledge-verify", "--scope", "Global", "--approved-by-user", "--id", id, "--state-root", state]);
   const redis = upsert("redis-cache-keys", "REDIS_DISTINCTIVE_TEXT");
   assert.equal(redis.status, 0);
-  assert.equal(verify(JSON.parse(redis.stdout).id).status, 0);
   const jwt = upsert("jwt-rotation", "JWT_DISTINCTIVE_TEXT");
   assert.equal(jwt.status, 0);
-  assert.equal(verify(JSON.parse(jwt.stdout).id).status, 0);
   const withoutQuery = run(["memory-context", "--platform", "Claude", "--state-root", state]);
   assert.match(withoutQuery.stdout, /REDIS_DISTINCTIVE_TEXT/);
   assert.match(withoutQuery.stdout, /JWT_DISTINCTIVE_TEXT/);

@@ -1,11 +1,11 @@
 ---
 name: tdd
-description: "compiled workflow plan 選用 tdd 時使用；以紅燈、綠燈、重構推動行為變更，並明確測試邊界與驗證證據。"
+description: "新增或修改可透過公開介面觀察的行為、且實作尚未開始時使用；以紅燈、綠燈、重構推動行為變更，並明確測試邊界與驗證證據。"
 ---
 
 # Test-Driven Development
 
-Load this skill only when the compiled workflow plan selects `tdd`. Whether a change enters the managed workflow, and how weakened or deleted tests are handled, is decided by the [workflow skill](../workflow/SKILL.md). Follow the project's existing domain vocabulary, public interfaces, and test conventions.
+Whether a change enters the managed workflow, and how weakened or deleted tests are handled, is decided by the [workflow skill](../workflow/SKILL.md). Follow the project's existing domain vocabulary, public interfaces, and test conventions.
 
 ## Test boundary (Seam)
 

@@ -5,11 +5,11 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
 
 # agent-workflow
 
-本檔只負責流程與指向 procedure。欄位與選取規則以 `schemas/task.schema.json`、`schemas/workflow-policy.json` 與 runtime compiled plan 為準。
+欄位與選取規則以 `schemas/task.schema.json`、`schemas/workflow-policy.json` 與 runtime compiled plan 為準。
 
 1. `managed_change: false` 直接處理。
 2. **Managed 開發任務先載入 [implementation-spec](../implementation-spec/SKILL.md)，再進入平台原生 Plan mode。**
-   - 需求不明確時，先依 [planning](../planning/SKILL.md) 與使用者釐清；高風險或分支未明時再用 [grill-me](../grill-me/SKILL.md)，直到目標與驗收標準明確。需求明確時直接撰寫規格。
+   - 需求不足以定義完成條件，或有兩個以上可行方向而選擇會影響契約、資料或結構時，先依 [planning](../planning/SKILL.md) 與使用者釐清，直到目標與驗收標準明確；規格含不可逆操作、資料遷移或權限變更，或建立在尚未驗證的假設上時，交付確認前依同一份的 Pressure-testing 段落驗證。其餘情況直接撰寫規格。
    - Plan 階段只做唯讀探索與平台允許的規格撰寫，不修改交付程式、測試、設定，也不執行部署或資料變更。
    - 平台無法由 agent 切換模式或沒有原生 Plan mode 時，明確告知限制，仍先交付規格並等待使用者確認，不宣稱已切換模式。
    - 單一檔案、局部行為、影響明確且不帶 [risk-flags.md](risk-flags.md) 任何 flag 的修改，可以不切換 Plan mode，直接在對話提出 Goal、Scope 與驗收案例請使用者確認；確認的要求與第 3 步相同。
@@ -20,7 +20,8 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
    - 其餘 managed 任務維持目標、範圍與完成條件流程。
    - 樣板是 `~/.agents/templates/task.md`，必要的二級標題為 `## Goal`／`## Scope`／`## Completion criteria`。`code_change: true` 時，在 Completion criteria 下寫 `### Acceptance cases`，每條包含 Given／When／Then 與一行 Verify 指令（放在 code span 內）。UI 行為的驗證方式見 [evidence.md](evidence.md#validation-command)。
 4. 用 `task-init --paths <這次會碰到的路徑>` 建立 task。回傳內容：
-   - plan、`readiness`、`next`
+   - plan（含 `suggested`）、`procedures`、`readiness`、`next`
+   - `suggested` 的項目不進 gate；開始它涵蓋的工作前，先讀該項的 `skill`
    - `context`：相關的專案文件、記憶，以及改過同一批路徑的已結案 task
 
    Managed 開發任務在建立 task 時一併記錄剛取得的規格確認，參數與適用條件依 [risk-flags.md](risk-flags.md#意圖確認)。
@@ -31,8 +32,8 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
 
    有 `doc_gap` 時，依 [project-docs](../project-docs/SKILL.md) 為這次碰到的模組補一份文件。分類補充（含 `task_type: mechanical` 的適用條件）見 [capability-selection.md](capability-selection.md#task_type-mechanical)。
 5. 實作由主 agent 進行；符合入口文件「Subagent」段落的工作才使用平台原生 subagent，明確分配責任範圍，由主 agent 整合並驗證結果；worker 數量與隔離方式由 agent 依任務及平台能力決定。複審依 [review.md](review.md)。plan 的 `checklist` 是實作與 review 都要涵蓋的分析項目；`proofs` 和驗收案例一樣，要用 `evidence-run` 實際執行。註解依入口文件的「程式碼註解」觸發規則；worker 的指派範圍符合條件時，訊息附上 [clean-comments](../clean-comments/SKILL.md) 路徑。安裝、同步、部署、migration、provisioning 或外部整合時，另讀 [operational-verification](../operational-verification/SKILL.md)。
-6. 之後照每個指令輸出的 `next` 補上 gate 缺口；驗證、Reviewer 與結案順序依 [Finalization](evidence.md#finalization)，證據有效性依同檔的 freshness 說明。
-7. 確認缺陷或錯誤做法時，依 [root-cause](../root-cause/SKILL.md) 歸因，修正驗證後確認防線是否足夠；適用範圍與停止條件由該 skill 管理。使用者做的決策、更正與可重用結論，依 [learn](../learn/SKILL.md) 記錄。
+6. 之後照每個指令輸出的 `next` 補上 gate 缺口，輸出附上 `skills` 時先讀所列的 skill；驗證、Reviewer 與結案順序依 [Finalization](evidence.md#finalization)，證據有效性依同檔的 freshness 說明。
+7. bug 修好或 review 確認問題後，依 [root-cause](../root-cause/SKILL.md) 補上防止再發生的測試、文件、規範或 workflow 修正。使用者做的決策、更正與可重用結論，依 [learn](../learn/SKILL.md) 記錄。
 
 ## 指令卡
 

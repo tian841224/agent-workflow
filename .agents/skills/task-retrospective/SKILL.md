@@ -1,11 +1,11 @@
 ---
 name: task-retrospective
-description: "使用者要求分析任務實際執行過程時才使用；檢視 workflow、hook、skill、耗時、錯誤、重試或操作阻礙。"
+description: "同一任務的 review 失敗達兩輪，或使用者要求分析執行過程時使用；檢視 workflow、hook、skill、耗時、錯誤、重試或操作阻礙。"
 ---
 
 # Task Retrospective
 
-這是一個 opt-in 診斷 skill。只有使用者明確要求記錄或分析某個任務的實際執行情況時才啟用；一般任務完全不增加追蹤、文件、gate、驗證或 hook 成本。
+`close-task` 的輸出附上本 skill，或使用者要求記錄、分析某個任務的實際執行情況時啟用；由 `close-task` 帶出時用 Analyze-only mode。其餘任務不增加追蹤、文件、gate、驗證或 hook 成本。
 
 ## 啟用模式
 
@@ -91,7 +91,7 @@ owner 使用 `workflow | runtime | hook | skill | adapter | agent | project | en
 
 提出修改前確認問題確實由 workflow/runtime/hook/skill 擁有、不是任務本質成本，且改善不降低 correctness、safety 或 verification。優先修改最接近 root cause 的 owner，不用全域規則解決單一 project 的局部問題。
 
-本 skill 只分析與提出 candidate，不在 retrospective 階段順手修改 workflow。若 finding 需要成為長期規則，累積獨立證據後再交給既有 learn／distill 流程。
+本 skill 只分析與提出 candidate，不在 retrospective 階段順手修改 workflow。若 finding 需要成為長期規則，累積獨立證據後再依 [learn](../learn/SKILL.md) 處理。
 
 ## Finalize
 

@@ -3,7 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { JsonObject, mutateJsonState, now, output, projectIdentity, readJson, stateRoot, withFileLock, writeJson } from "../core.js";
 import { intentHash, intentValidationErrors } from "../intent.js";
 import { compilePlanForTaskPath, planOutput } from "../workflow-policy.js";
-import { resolveProcedures } from "../execution/execution-packet.js";
+import { resolveProcedures, skillHints, suggestedSkills } from "../execution/execution-packet.js";
 import { taskContext } from "../task-context.js";
 import { nextActions } from "./next.js";
 import { evaluateTaskGate, nextForState } from "./task-gate.js";
@@ -68,9 +68,8 @@ const TASK_INIT_WRITABLE_FIELDS = new Set([
   "independence", "subtask_role", "parent_task_id", "file_ownership",
   "delivery_status", "integration_status"
 ]);
-// A freeze-required task used to need a separate `approve-intent --confirmed-by agent` call that
-// added no trust, only the hash. The runtime now records the same agent attestation as soon as the
-// task is (or becomes) freeze-required. An existing approval is never refreshed here: a stale hash is
+// The runtime records an agent attestation as soon as a task is (or becomes) freeze-required; it
+// adds no trust, only the hash. An existing approval is never refreshed here: a stale hash is
 // exactly what the gate must keep catching, and re-approval stays an explicit approve-intent.
 function attestIntentIfFrozen(state: JsonObject, path: string): void {
   if (state.intent_approval || !(Array.isArray(state.risk_flags) ? state.risk_flags : []).some((flag) => freezeRequired.has(String(flag)))) return;
@@ -146,7 +145,7 @@ export function taskInit(value: string, patch: JsonObject, actor = "cli", stateR
         const repoRoot = identity.root;
         const context = contextPaths.length ? taskContext(repoRoot, root, identity.projectId, contextPaths, taskId, path) : undefined;
         output({
-          valid: true, task: path, plan: planOutput(plan), procedures: resolveProcedures(plan, created, Boolean(context?.doc_gap)),
+          valid: true, task: path, plan: { ...planOutput(plan), suggested: suggestedSkills(plan.suggested, adoptCurrentDiff) }, procedures: resolveProcedures(plan, created, Boolean(context?.doc_gap)),
           readiness: readinessSummary(readinessChecks(path, repoRootValue, stateRootValue, created)),
           ...(context ? { context } : {}),
           ...(confirmation?.confirmedBy ? { intent_approval: created.intent_approval ?? null } : {}),
@@ -250,7 +249,7 @@ export function taskWrite(value: string, patch: JsonObject, stateRootValue?: str
       const next = nextForState(state, path, repoRootValue);
       if (classificationTouched) {
         const plan = postPatchPlan || compilePlanForTaskPath(state, path);
-        output({ valid: true, task: path, state_revision: state.state_revision, plan: planOutput(plan), plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state), next });
+        output({ valid: true, task: path, state_revision: state.state_revision, plan: { ...planOutput(plan), suggested: suggestedSkills(plan.suggested, adoptCurrentDiff) }, plan_revision: state.plan_revision, procedures: resolveProcedures(plan, state), next });
       } else output({ valid: true, task: path, state_revision: state.state_revision, next });
     }
     return 0;
@@ -273,7 +272,9 @@ export function closeTask(value: string, actor: string, confirmation: string, st
     applyTransition(state, path, "close", actor, confirmation, "");
     state.state_revision = Number(state.state_revision || 0) + 1;
     writeJson(path, state);
-    return { code: 0, body: { valid: true, closed: path } as JsonObject };
+    // Two failed review records are the recorded sign that the task ran into friction worth examining.
+    const failedReviews = (Array.isArray(state.evidence) ? state.evidence as JsonObject[] : []).filter((entry) => entry.kind === "role" && entry.result === "fail").length;
+    return { code: 0, body: { valid: true, closed: path, ...(failedReviews >= 2 ? skillHints("task-retrospective", `${failedReviews} failed review records; analyze this task from its existing records`) : {}) } as JsonObject };
   });
   output(outcome.body);
   return outcome.code;

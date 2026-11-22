@@ -44,7 +44,7 @@ Reviewer. Review timing is owned by [workflow review procedure](../../.agents/sk
 The Protocol 3 runtime and packet interface are opt-in. Their snapshots, detached worktrees,
 receipts and integration actions apply only when explicitly using that interface.
 
-`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；在本 repo checkout 執行時回傳 `.agents/skills/...` 相對路徑，已安裝的 runtime 回傳 home 目錄下 `.agents/skills/...` 的絕對路徑，讓其他專案也解析得到；只有已宣告 coordinator role 的 task 加入相容的 coordinator 指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
+`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；在本 repo checkout 執行時回傳 `.agents/skills/...` 相對路徑，已安裝的 runtime 回傳 home 目錄下 `.agents/skills/...` 的絕對路徑，讓其他專案也解析得到；只有已宣告 coordinator role 的 task 加入相容的 coordinator 指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 
 `pre-review > reviewer > review-record`：`pre-review` 一次回傳 `git diff --check` 結果與該工作樹的 `workspace_sha256`；帶 `--task-path` 時另外回傳這一輪的 review brief（第一輪是完整 delivery，之後只有上一輪之後內容有變動的路徑，並附上一輪的結論、驗收案例與 checklist）。`review-record` 可接受這個 transient `--expected-workspace-sha256`；若工作樹已變更就拒絕寫入，review 欄位與每個路徑的 digest 仍由 runtime 依目前 diff 計算。
 
@@ -69,7 +69,8 @@ on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint ever
 ## Invariants and gotchas
 
 - A code task's minimal runtime proof is its acceptance cases; `baseline_validation.BV2` is a gate proof only for a managed task without code, which has no acceptance cases of its own.
-- Capabilities backed by a skill (`tdd`, `bug_diagnosis`, `codebase_design`) list no steps in the policy; selecting one adds its skill to `procedures`.
+- Capabilities backed by a skill (`tdd`, `bug_diagnosis`, `codebase_design`, `refactor_sweep`) list no steps in the policy; selecting one adds its skill to `procedures`. A suggested one is not selected, so `task-init`/`task-write` attach its document as `skill` on the `suggested` entry instead; the entry carries `skill` only when that skill is installed, and `tdd` is left out of the output of a call that passes `--adopt-current-diff` (the adoption is not recorded, so a later call lists it again).
+- `review-record --result fail` and a `close-task` after two failed review rounds add a `skills` array naming `root-cause` and `task-retrospective` when those skills are installed; like suggestions, these never enter the gate.
 - Every acceptance case of a code-change managed task needs its own runtime receipt; the receipt binds `intent_hash` and the delivery fingerprint, not the plan, so reclassification leaves it valid.
 - Only `runtime_execution` steps (the plan's `proofs`) and roles are gate items; analysis steps are the plan's `checklist`, an undecided `workflow_facts` condition keeps an analysis step on it, while an undecided runtime step stays a proof marked `undecided_by` until the fact is declared.
 - Runtime evidence without a delivery fingerprint is stale and cannot satisfy a gate.

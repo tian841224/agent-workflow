@@ -1,21 +1,18 @@
 ---
 name: root-cause
-description: "確認 bug、review finding 或影響正確性的錯誤做法時使用；先依證據歸因，修正驗證後確認防線是否足夠。"
+description: "缺陷已修正或 review finding 已確認，或同一類錯誤再次出現時使用；追查缺陷為何可能發生及未被攔截，並補上合適的測試、共用機制、專案文件或規則。"
 ---
 
 # root-cause
 
-本 skill 回答：**這個錯為什麼寫得出來、為什麼沒被擋下**。缺陷或錯誤做法已確認即可開始歸因；修正並驗證原始症狀消失後，再判斷防線是否足夠。成因尚不明確時依 [diagnosing-bugs](../diagnosing-bugs/SKILL.md) 建立證據。
-
-使用者指出影響正確性、契約或反覆發生的錯誤做法，也依本流程處理。一般表達偏好交給 [learn](../learn/SKILL.md) 判斷是否保存；外部服務暫時失敗、重工或 retry 本身不構成缺陷證據。
+錯誤本身已經找到並修好（找錯誤依 [diagnosing-bugs](../diagnosing-bugs/SKILL.md)）。先判斷起因；起因指向缺文件、缺規範或缺共用機制時，才依 [remedies.md](remedies.md) 把缺口補在目標專案裡。
 
 ## 1. 列出問題
 
-整理本次已確認的 bug、review finding 或錯誤做法。每項寫一行：症狀、依據、受影響位置、修正狀態。
+從目前對話整理出已確認的錯誤：修好的 bug、review finding、被使用者糾正的做法、重工或 retry。每項寫一行：症狀、修正位置、修正內容。
 
 - 同一個起因造成的多個症狀合併成一項。
-- 成因尚未確認的項目標 `unresolved`，列出下一個診斷動作，不把猜測寫成歸因。
-- 成因已確認但尚未修正或驗證的項目，可以記錄成因與預計補救；狀態標為待修正或待驗證，不宣稱防線已完成。
+- 還沒確認成因或還沒修好的項目標 `unresolved`，只列出，不補救。
 
 ## 2. 判斷起因
 
@@ -33,8 +30,7 @@ description: "確認 bug、review finding 或影響正確性的錯誤做法時�
 
 ## 3. 決定是否往下
 
-- **等待修正驗證**：尚未確認原始症狀已消失時，先完成修正與原始重現案例的驗證；其餘停止條件在驗證後判斷。
-- **到此結束**：起因是 `logic_error` 或 `regression`、已有能擋住它的測試且修正後驗證通過，而且同類錯誤沒有在多處重複出現。每項回報一行：症狀、起因、對應的測試；`regression` 加上 `miss_category`。
+- **到此結束**：起因是 `logic_error` 或 `regression`、修正時已補上能擋住它的測試，而且同類錯誤沒有在多處重複出現。每項回報一行：症狀、起因、對應的測試；`regression` 加上 `miss_category`。
 - **繼續補救**：其餘情況。每項先回報一行起因與證據，再讀 [remedies.md](remedies.md) 選補救、寫入並回報。
 
-在 managed task 的 review 中發現的問題，另外依 [review.md](../workflow/review.md#結果回填與-freshness) 記錄 review cause，讓 distill 能計算同類問題的次數。
+在 managed task 的 review 中，第 2 輪起仍未通過的問題（`regression` 不限輪次），另外依 [review.md](../workflow/review.md#結果回填與-freshness) 記錄 review cause。

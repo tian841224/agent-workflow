@@ -27,7 +27,7 @@ covers:
 
 `.agents/` 擁有給 agent 讀取的 procedure；`src/hooks.ts` 定義 `CanonicalHookEvent` 與 `HookDecision`；`adapters/` 只保留平台 payload／輸出格式的轉接與 hook template。Adapter 不重新解釋 workflow 語意，也不複製 schema 規則。
 
-Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `engines.node: ">=20"`）。`src/` 是 TypeScript source，`dist/` 有兩個可部署 ESM bundle：`agent-workflow.mjs` 是完整 CLI，`agent-workflow-hook.mjs` 只含 hook 所需的 `hooks.ts`、`locale-hooks.ts` 與 `core.ts`。
+Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `engines.node: ">=20"`）。`src/` 是 TypeScript source，`dist/` 有兩個可部署 ESM bundle：`agent-workflow.mjs` 是完整 CLI，`agent-workflow-hook.mjs` 只含 hook 所需的程式：`hooks.ts`、`locale-hooks.ts`、`session-cleanup.ts`、`work-reminders.ts`、`core.ts` 與 `lifecycle/task-store.ts` 的常數。
 
 完整 CLI 在確認 command 與 options 後才動態載入該 subsystem；esbuild 仍輸出單一 CLI bundle，延後的是 module initialization，不需要部署額外 chunks。locale hook 與手動 git-guard 執行後者，`memory-context` 等其餘指令執行前者，避免 locale hook 載入不相關的 CLI subsystem。
 
@@ -51,7 +51,7 @@ Task-level Reviewer 的啟動時機由 [workflow review procedure](../.agents/sk
 
 主對話是單一 agent loop：讀取、規劃、實作與驗證預設由它自己完成，只有 [AGENTS.md](../AGENTS.md) 的「Subagent」段落列出的情況才派平台原生 subagent。
 
-何時派與怎麼派都只有該段落一個 owner，三個平台採用同一套規則與流程；各平台的派工規則（`adapters/claude/delegation.md`、`adapters/antigravity/delegation.md`、`adapters/codex/coordinator.md`）是同一張派工情況表，只有 agent 與模型不同，runtime 不記錄也不檢查是否委派。
+何時派與怎麼派都只有該段落一個 owner，三個平台採用同一套規則與流程；各平台的派工規則（`adapters/claude/delegation.md`、`adapters/antigravity/delegation.md`、`adapters/codex/coordinator.md`）各自說明派工情況對應的 agent 與模型：Codex 逐項列出，Claude 與 Antigravity 交由平台原生能力決定；runtime 不記錄也不檢查是否委派。
 
 平行開發的責任分配依 [workflow](../.agents/skills/workflow/SKILL.md)，worker 契約依 [worker](../.agents/agents/worker.md)。一般指派不要求 ExecutionPacket、獨立 worktree、worker-exec 或固定結果檔格式。
 
@@ -105,7 +105,7 @@ Waiver 必須包含明確使用者確認及 transition history，且同時綁定
 
 原生指派直接使用平台工具，整合後回到 [Finalization](../.agents/skills/workflow/evidence.md#finalization)：主 agent 執行整體驗收與 proofs，再做 task-level Reviewer 與 close-task。
 
-Installer 依各平台 adapter 設定列出的角色，從 `.agents/agents/*.md` 產生原生 agent 定義：Claude 只有 Worker，大量讀取用平台內建的 Explore；Codex 有 Reader 與 Worker，可追加專用交接指示。
+Installer 依各平台 adapter 設定列出的角色，從 `.agents/agents/*.md` 產生原生 agent 定義：Claude 不產生原生 agent 定義，由平台原生能力決定角色；Codex 有 Reader 與 Worker，可追加專用交接指示。
 
 Claude 的設定由 [Claude adapter](../adapters/claude/managed-config.json) 擁有，Codex 的設定與來源由 [Codex adapter](../adapters/codex/managed-config.json) 擁有，各自只在選取該平台時讀取。
 
@@ -118,17 +118,17 @@ orchestration writable root 與 Claude additionalDirectories 只供 orchestratio
 兩件事本框架明確不保證，設計上以 attestation 而非 proof 處理：
 
 - **初始分類由 AI 負責。** Runtime 無法分辨「這次真的沒有 authorization 風險」與「AI 漏判了 authorization 風險」，除非另建 static analysis 或分類驗證器。Runtime 的職責是保證**已宣告**的高風險不能被靜默繞過：`required` 不能靠少填 `workflow_request` 移除，移除 risk flag 或把 `managed_change` 改回 `false` 都必須走 `reclassify`。
-- **使用者確認是 attestation。** `task-init`／`approve-intent` 的 `--as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。`approve-intent` 預設由 agent 自行執行、不加 `--as-user`（`source: cli-attestation`）；這不取代 managed 開發任務依 [workflow](../.agents/skills/workflow/SKILL.md) 在 Plan mode 交付規格並取得使用者確認的 procedure。`intent_hash` 仍負責偵測核准後 Goal／Scope／Completion criteria 被改動。
+- **使用者確認是 attestation。** `task-init`／`approve-intent` 的 `--as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。不加 `--as-user` 的 `approve-intent` 只記錄 agent attestation（`source: cli-attestation`）；gate 回報 intent 需要確認時，`next` 指示先取得使用者確認再以 `--as-user` 記錄。agent attestation 不取代 managed 開發任務依 [workflow](../.agents/skills/workflow/SKILL.md) 在 Plan mode 交付規格並取得使用者確認的 procedure。`intent_hash` 仍負責偵測核准後 Goal／Scope／Completion criteria 被改動。
 
 ## Hook trust boundary
 
-自動 hook 只提供 locale 與 memory context，以及 session 結束時的資源清理；平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
+自動 hook 提供 locale 與 memory context、session 結束時的資源清理，以及 Claude 的兩個一次性提醒（未結案 task、未開 task 卻累計修改多個檔案）；這些都只注入 context，不阻擋操作。平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
 
-手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 對受限 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。
+手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 對受限 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。Claude 則由 installer 把 `git commit`、`git push`、`git rebase`、`git merge`（Bash 與 PowerShell）寫進 `permissions.ask`，讓平台自己跳出確認。
 
 Session 清理 hook 與 context 注入分開：Claude／Codex 的 `SessionStart` 只記錄 session 起點，`SessionEnd` 關閉 agent 程序的存活子孫並刪除 `os.tmpdir()` 第一層、建立時間落在本 session 單獨執行期間的項目；Antigravity 沒有 session 事件，改在 `Stop` 只清暫存檔、不關閉程序。
 
-它只處理這個 session 自己產生的一次性資源，失敗一律放行（exit 0）並寫入 `<state-root>/logs/session-cleanup.jsonl`，不判定 task 結案，也不影響 task runtime 的 authority。`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有 PostToolUse guard。
+它只處理這個 session 自己產生的一次性資源，失敗一律放行（exit 0）並寫入 `<state-root>/logs/session-cleanup.jsonl`，不判定 task 結案，也不影響 task runtime 的 authority。`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有會阻擋操作的 PostToolUse guard（Claude 的 PostToolUse 只有 `edit-reminder`，它只注入提醒）。
 
 三平台共用同一組 context hook 功能：輸出前注入的 localization-tw skill 規則，以及依任務自動篩選的 memory hook。
 
@@ -179,9 +179,9 @@ managed state 記錄 package version、runtime hash、Node 路徑、platform tar
 
 ## Memory 的有界選取
 
-`~/.agent-workflow` 是跨平台共用的可寫 curated store；安裝時把同一個絕對 state root 寫入三平台 hooks。自動路徑（Claude／Codex 的 `UserPromptSubmit`、Antigravity 首次 `PreInvocation` 的主題導航）只掃 curated verified 記憶，有 6 筆／800 字元上限與專案隔離；prompt 只作資料，不放進 shell。
+`~/.agent-workflow` 是跨平台共用的可寫 curated store；安裝時把同一個絕對 state root 寫入三平台 hooks。自動路徑（Claude／Codex 的 `UserPromptSubmit`、Antigravity 首次 `PreInvocation` 的主題導航）只掃共用記憶（排除已標記為被取代，或綁定的來源檔內容已改變的項目），有 6 筆／800 字元上限與專案隔離；prompt 只作資料，不放進 shell。
 
-同一 session 已注入的紀錄以 `os.tmpdir()` 的暫存標記跳過，不重複注入。只有 explicit query 才額外唯讀掃描平台原生記憶，候選標成 `needs_verification`，只能作線索。何時明確查詢、query 語意與寫入規則以 [memory.md](../.agents/skills/workflow/memory.md) 為準；詞彙匹配不宣稱語意搜尋，也沒有 persistent index。
+同一 session 已注入的紀錄以 `os.tmpdir()` 的暫存標記跳過，不重複注入。平台原生記憶由各平台自己載入，自動路徑不注入；只有 explicit query 才額外唯讀掃描三個平台的原生記憶，作為線索。何時明確查詢、query 語意與寫入規則以 [memory.md](../.agents/skills/workflow/memory.md) 為準；詞彙匹配不宣稱語意搜尋，也沒有 persistent index。
 
 ## 模組文件索引
 

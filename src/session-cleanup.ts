@@ -233,7 +233,7 @@ export function runSessionCleanup(payload: JsonObject, root: string, platformNam
       // Antigravity's conversation goes on after Stop, so only the real end removes the bookkeeping.
       if (platform !== "antigravity" && sessionId) {
         const hash = sha256(sessionId).slice(0, 16);
-        for (const file of [ownFile, join(tmpdir(), `agent-workflow-locale-${hash}`), join(tmpdir(), `agent-workflow-memory-${hash}.json`)]) try { rmSync(file, { force: true }); } catch { /* clutter only */ }
+        for (const file of [ownFile, join(tmpdir(), `agent-workflow-locale-${hash}`), join(tmpdir(), `agent-workflow-memory-${hash}.json`), join(tmpdir(), `agent-workflow-reminder-${hash}.json`)]) try { rmSync(file, { force: true }); } catch { /* clutter only */ }
       }
     }
   } catch (error) { notes.push(`cleanup failed: ${(error as Error).message}`); }
