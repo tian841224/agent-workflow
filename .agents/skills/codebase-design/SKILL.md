@@ -1,6 +1,6 @@
 ---
 name: codebase-design
-description: "workflow 計畫或其他 review skill 指向本技能時使用；設計 deep module、介面、模組接縫與 adapter 邊界。"
+description: "變更會新增或改變模組的公開介面、依賴方向或模組邊界時使用；設計 deep module、介面、模組接縫與 adapter 邊界。"
 ---
 
 # Codebase Design

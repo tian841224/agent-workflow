@@ -1,6 +1,6 @@
 ---
 name: architecture-review
-description: "需要檢視既有系統架構時使用；找出跨層耦合、過大的模組、契約漂移與遷移風險，並提供有證據的分析。"
+description: "要判斷既有架構是否違反分層、能否承載新需求或何處應拆分時使用；以原始碼為證據找出跨層耦合、過大的模組、契約漂移與遷移風險。"
 ---
 
 # Architecture review

@@ -1009,11 +1009,11 @@ test("removing a source-deleted canonical file stops at the first directory that
 });
 
 test("a canonical skill that is not rewritten in this run keeps its source-deleted file and record", () => {
-  const { run, stale, recorded, removeFromSource } = staleCanonicalFixture("not-rewritten", { skillName: "distill", target: "Claude", installArgs: ["--skills", "all"] });
+  const { run, stale, recorded, removeFromSource } = staleCanonicalFixture("not-rewritten", { skillName: "architecture-review", target: "Claude", installArgs: ["--skills", "all"] });
   removeFromSource();
   const installed = run("install", ["--skills", "workflow"], "Codex");
   assert.equal(installed.status, 0, installed.stdout + installed.stderr);
-  assert.equal(JSON.parse(installed.stdout).selected_skills.includes("distill"), false);
+  assert.equal(JSON.parse(installed.stdout).selected_skills.includes("architecture-review"), false);
   assert.ok(existsSync(stale));
   assert.equal(recorded(), true);
   assert.equal(run("verify").status, 0);

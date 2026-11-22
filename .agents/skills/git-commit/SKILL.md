@@ -5,7 +5,9 @@ description: "撰寫 git commit 訊息、規劃或重整 commit 拆分、發起 
 
 # Git commit 規範
 
-本 skill 只規範訊息格式與拆分方式；commit 的執行授權依入口文件的硬護欄。撰寫、發起 PR／MR，或 push 已有 PR／MR 的分支時，另讀 [pull-request.md](pull-request.md)。
+本 skill 規範訊息格式與拆分方式；commit 的執行授權依入口文件的硬護欄。撰寫、發起 PR／MR，或 push 已有 PR／MR 的分支時，另讀 [pull-request.md](pull-request.md)。
+
+commit 前確認本次對話中使用者的更正與決定都已記錄；有尚未記錄的，先依 [learn](../learn/SKILL.md) 處理。
 
 ## 格式
 

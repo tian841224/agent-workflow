@@ -1,6 +1,6 @@
 ---
 name: root-cause
-description: "修正 bug 或確認 review 問題後使用；追查缺陷為何可能發生及未被攔截，並補上合適的測試、共用機制、專案文件或規則。"
+description: "缺陷已修正或 review finding 已確認，或同一類錯誤再次出現時使用；追查缺陷為何可能發生及未被攔截，並補上合適的測試、共用機制、專案文件或規則。"
 ---
 
 # root-cause

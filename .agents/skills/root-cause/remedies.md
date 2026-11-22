@@ -18,7 +18,7 @@
 | 起因 | 寫到目標專案的位置 |
 |---|---|
 | `doc_gap` | 依 [project-docs](../project-docs/SKILL.md) 建立或更新 `docs/` 下對應 doc_type 的文件，記錄流程、契約、不變量或決策理由 |
-| `convention_gap` | 所有任務都要遵守的短規則寫進專案 `AGENTS.md`；需要背景說明的寫成 `docs/decisions/`；跨專案通用的一套做法寫成 skill 草稿（依 [distill](../distill/SKILL.md#drafting-a-skill)） |
+| `convention_gap` | 所有任務都要遵守的短規則寫進專案 `AGENTS.md`；需要背景說明的寫成 `docs/decisions/`；跨專案通用的一套做法，向使用者提出新增 skill 的建議 |
 | `context_miss` | 修改原本指向該文件的那一行 pointer，讓觸發條件更明確：觸發詞放在句首，同一個情境只用一個觸發詞，pointer 只寫觸發條件、細節留在文件本身；內容本身已存在，不複製 |
 | `prompt_gap` | 提案修改專案的任務模板或 `AGENTS.md`，讓下次需求一開始就講明這一點 |
 | `logic_error` | 只做強度 1、2，不寫文件 |
@@ -29,8 +29,8 @@
 ## 依分級寫入
 
 - **直接寫**：`doc_gap` 的專案文件，以及修正 `context_miss` 的 pointer。這些是專案事實，查證後即可寫入。
-- **使用者同意後才寫**：`AGENTS.md` 規則、任務模板、skill 草稿，以及強度 1、2 的程式修改。先列出提案內容，取得對話中的明確同意。
-- **記進記憶**：證據只有一次、還不確定是否為通則的做法，交給 learn。累積到門檻後由 distill 升級。
+- **使用者同意後才寫**：`AGENTS.md` 規則、任務模板、新增 skill 的建議，以及強度 1、2 的程式修改。先列出提案內容，取得對話中的明確同意。
+- **記進記憶**：證據只有一次、還不確定是否為通則的做法，交給 learn；同一類更正第二次出現時，改寫成上表的文件或規則。
 
 ## 回報
 

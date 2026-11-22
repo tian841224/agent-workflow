@@ -155,6 +155,7 @@
         "delivery_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "state_revision": { "type": "integer" },
         "review_cause": { "type": "object" },
+        "skills": { "type": "array", "items": { "type": "object", "required": ["skill", "why"], "properties": { "skill": { "type": "string" }, "why": { "type": "string" } } } },
         "next": { "$ref": "#/$defs/nextActions" },
         "errors": { "type": "array", "items": { "type": "string" } }
       },
@@ -456,6 +457,7 @@
       "properties": {
         "valid": { "type": "boolean" },
         "closed": { "type": "string" },
+        "skills": { "type": "array", "items": { "type": "object", "required": ["skill", "why"], "properties": { "skill": { "type": "string" }, "why": { "type": "string" } } } },
         "task": { "type": "string" },
         "status": { "type": "string" },
         "compiled": { "type": "object" },

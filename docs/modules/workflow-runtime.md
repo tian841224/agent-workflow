@@ -67,7 +67,8 @@ on plan hash, intent hash, and delivery fingerprint. Code tasks fingerprint ever
 ## Invariants and gotchas
 
 - A code task's minimal runtime proof is its acceptance cases; `baseline_validation.BV2` is a gate proof only for a managed task without code, which has no acceptance cases of its own.
-- Capabilities backed by a skill (`tdd`, `bug_diagnosis`, `codebase_design`) list no steps in the policy; selecting one adds its skill to `procedures`.
+- Capabilities backed by a skill (`tdd`, `bug_diagnosis`, `codebase_design`, `refactor_sweep`) list no steps in the policy; selecting one adds its skill to `procedures`. A suggested one is not selected, so `task-init`/`task-write` attach its document as `skill` on the `suggested` entry instead; the entry carries `skill` only when that skill is installed, and `tdd` is left out of the output of a call that passes `--adopt-current-diff` (the adoption is not recorded, so a later call lists it again).
+- `review-record --result fail` and a `close-task` after two failed review rounds add a `skills` array naming `root-cause` and `task-retrospective` when those skills are installed; like suggestions, these never enter the gate.
 - Every acceptance case of a code-change managed task needs its own runtime receipt; the receipt binds `intent_hash` and the delivery fingerprint, not the plan, so reclassification leaves it valid.
 - Only `runtime_execution` steps (the plan's `proofs`) and roles are gate items; analysis steps are the plan's `checklist`, an undecided `workflow_facts` condition keeps an analysis step on it, while an undecided runtime step stays a proof marked `undecided_by` until the fact is declared.
 - Runtime evidence without a delivery fingerprint is stale and cannot satisfy a gate.

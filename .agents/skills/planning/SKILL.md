@@ -1,11 +1,11 @@
 ---
 name: planning
-description: "需要選擇架構方向、功能方案、重構策略或技術取捨，或需求確實尚未釐清時使用；目標與完成條件已明確的工作直接執行。"
+description: "有兩個以上可行方向而選擇會影響契約、資料或結構、需求不足以定義完成條件，或計畫含不可逆操作、資料遷移或權限變更時使用；釐清方向並質疑高風險假設，直到決策站得住。"
 ---
 
 # Simple Planning Skill
 
-Work whose goal, constraints, and completion criteria are already clear proceeds without a planning pass.
+Work whose goal, constraints, and completion criteria are already clear proceeds without a planning pass, unless [Pressure-testing](#pressure-testing) applies.
 
 ## Required outcomes
 
@@ -26,7 +26,11 @@ When clarification is necessary, ask the smallest set of questions that unlocks 
 
 Compare alternatives only when there is a real trade-off. If one approach is clearly simpler and satisfies the known constraints, recommend it rather than manufacturing options. Apply YAGNI: do not add abstractions, extension points, or flexibility for requirements that do not exist.
 
-If a settled direction still contains a high-risk unresolved assumption or irreversible branch, use `grill-me` to pressure-test that specific uncertainty.
+## Pressure-testing
+
+When the plan contains an irreversible operation, a data migration or an authorization change, or rests on an unverified assumption, pressure-test it before presenting it for confirmation; do the same whenever the user asks to have a plan challenged.
+
+Start from the highest-risk unresolved branch. Ask exactly one question at a time, and give your recommended answer and its reason with each question. When the codebase or docs can answer it, inspect them instead of asking. Prefer questions about constraints, ownership, failure modes, rollout, verification, and reversibility, and stop once the main trade-offs, dependencies, risks, and success criteria are resolved well enough to act.
 
 ## Planning artifacts
 

@@ -15,7 +15,9 @@
     "adhd-comms",
     "humanizer",
     "doc-coauthoring",
-    "writing-for-agents"
+    "writing-for-agents",
+    "distill",
+    "grill-me"
   ],
   "skills": {
     "workflow": {
@@ -32,11 +34,11 @@
     },
     "diagnosing-bugs": {
       "required": false,
-      "description": "原因不明、間歇性或效能型問題的證據導向診斷"
+      "description": "實際行為與預期不符、原因尚未確認時的證據導向診斷"
     },
     "planning": {
       "required": true,
-      "description": "高影響方向、技術取捨與真正模糊需求的規劃"
+      "description": "多個可行方向、需求不足以定義完成條件，或含不可逆操作的計畫：釐清方向並質疑高風險假設"
     },
     "implementation-spec": {
       "required": true,
@@ -44,15 +46,11 @@
     },
     "learn": {
       "required": true,
-      "description": "只保存使用者明確要求或確認的可重複使用結論"
+      "description": "使用者要求記住、更正做法或做出會影響後續任務的決定時，保存仍適用的結論"
     },
     "root-cause": {
       "required": true,
       "description": "bug 修正或 review finding 後追查起因，補上測試、共用機制、專案文件或規則"
-    },
-    "grill-me": {
-      "required": true,
-      "description": "針對高風險取捨進行壓力測試"
     },
     "tdd": {
       "required": true,
@@ -60,7 +58,7 @@
     },
     "refactor-sweep": {
       "required": true,
-      "description": "刪除、合併、搬移或改名程式碼時，確認引用、測試替身、文件、註解收尾，並保持 log 與邊界回應等價"
+      "description": "移除、合併、搬移或改名既有識別字時，確認引用、測試替身、文件、註解收尾，並保持 log 與邊界回應等價"
     },
     "clean-comments": {
       "required": true,
@@ -70,13 +68,9 @@
       "required": true,
       "description": "task-init 回報 doc_gap、改動讓文件失準或需要記錄專案決策時載入的文件規範"
     },
-    "distill": {
-      "required": false,
-      "description": "記憶提煉與 review 歸因改善"
-    },
     "task-retrospective": {
       "required": false,
-      "description": "僅在使用者明確要求時，記錄或分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"
+      "description": "review 失敗達兩輪或使用者要求時，分析單次任務的 workflow 執行、hooks/skills、時間、錯誤、retry 與改善候選"
     },
     "localization-tw": {
       "required": true,
