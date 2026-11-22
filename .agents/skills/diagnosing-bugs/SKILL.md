@@ -5,7 +5,7 @@ description: "遇到原因尚未確定、難以重現、間歇性或效能異常
 
 # Debugging Discipline
 
-Choose the shortest diagnostic path that can establish the cause with evidence. The goal is to turn an uncertain failure into a reproducible signal, isolate the cause, fix it, and prove the original symptom is gone.
+Choose the shortest diagnostic path that can establish the cause with evidence.
 
 ## Required outcomes
 

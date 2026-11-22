@@ -44,7 +44,7 @@ Reviewer. Review timing is owned by [workflow review procedure](../../.agents/sk
 The Protocol 3 runtime and packet interface are opt-in. Their snapshots, detached worktrees,
 receipts and integration actions apply only when explicitly using that interface.
 
-`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；在本 repo checkout 執行時回傳 `.agents/skills/...` 相對路徑，已安裝的 runtime 回傳 home 目錄下 `.agents/skills/...` 的絕對路徑，讓其他專案也解析得到；只有已宣告 coordinator role 的 task 加入相容的 coordinator 指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator／worker task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
+`task-init`、`task-write` 與 `execution-packet` 共用 procedure resolver；在本 repo checkout 執行時回傳 `.agents/skills/...` 相對路徑，已安裝的 runtime 回傳 home 目錄下 `.agents/skills/...` 的絕對路徑，讓其他專案也解析得到；只有已宣告 coordinator role 的 task 加入相容的 coordinator 指引。focused task 另取得 selected capability 的文件，expanded 或 coordinator task 才加入對應的探索與角色文件。一次 `task-gate` evaluation 對同一個 repository snapshot 只建立一份 delivery snapshot，所有 execution evidence 共用它做 freshness 檢查。
 
 `pre-review > reviewer > review-record`：`pre-review` 一次回傳 `git diff --check` 結果與該工作樹的 `workspace_sha256`；帶 `--task-path` 時另外回傳這一輪的 review brief（第一輪是完整 delivery，之後只有上一輪之後內容有變動的路徑，並附上一輪的結論、驗收案例與 checklist）。`review-record` 可接受這個 transient `--expected-workspace-sha256`；若工作樹已變更就拒絕寫入，review 欄位與每個路徑的 digest 仍由 runtime 依目前 diff 計算。
 

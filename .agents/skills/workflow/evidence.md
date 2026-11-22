@@ -1,6 +1,6 @@
 # Evidence procedure
 
-Read this when the procedures returned by task-init include it. The gate items are already decided:
+The gate items are already decided:
 every acceptance case in task.md, the plan's `proofs`, and the selected roles. Each command's `next`
 lists the ones still missing, with the exact command. Command syntax is in the workflow skill's
 command card.

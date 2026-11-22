@@ -5,7 +5,7 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
 
 # agent-workflow
 
-本檔只負責流程與指向 procedure。欄位與選取規則以 `schemas/task.schema.json`、`schemas/workflow-policy.json` 與 runtime compiled plan 為準。
+欄位與選取規則以 `schemas/task.schema.json`、`schemas/workflow-policy.json` 與 runtime compiled plan 為準。
 
 1. `managed_change: false` 直接處理。
 2. **Managed 開發任務先載入 [implementation-spec](../implementation-spec/SKILL.md)，再進入平台原生 Plan mode。**
@@ -20,7 +20,7 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
    - 其餘 managed 任務維持目標、範圍與完成條件流程。
    - 樣板是 `~/.agents/templates/task.md`，必要的二級標題為 `## Goal`／`## Scope`／`## Completion criteria`。`code_change: true` 時，在 Completion criteria 下寫 `### Acceptance cases`，每條包含 Given／When／Then 與一行 Verify 指令（放在 code span 內）。UI 行為的驗證方式見 [evidence.md](evidence.md#validation-command)。
 4. 用 `task-init --paths <這次會碰到的路徑>` 建立 task。回傳內容：
-   - plan、`readiness`、`next`
+   - plan（含 `suggested`）、`procedures`、`readiness`、`next`
    - `context`：相關的專案文件、記憶，以及改過同一批路徑的已結案 task
 
    Managed 開發任務在建立 task 時一併記錄剛取得的規格確認，參數與適用條件依 [risk-flags.md](risk-flags.md#意圖確認)。

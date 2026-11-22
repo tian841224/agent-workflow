@@ -5,7 +5,7 @@ description: "需要保存使用者明確要求記錄的長期記憶、更正、
 
 # learn
 
-Use this skill when a memory should affect a later task. Capture only a conclusion that is reusable across turns or projects.
+Capture only a conclusion that is reusable across turns or projects.
 
 ## When to capture
 
@@ -35,6 +35,6 @@ agent-workflow learn --action Capture --cwd <cwd> --state-root <state-root> --sc
 
 ## Shared memory
 
-The canonical writable store is `~/.agent-workflow` (override with `AGENT_WORKFLOW_STATE_ROOT`). The installer embeds that same absolute state root in Claude, Codex, and Antigravity hooks, so `learn` writes are readable by every platform. `memory-context` also reads native platform memory directories as read-only leads marked `needs_verification`; verify those claims against the current project before relying on them.
+The writable store is `~/.agent-workflow` (override with `AGENT_WORKFLOW_STATE_ROOT`). An entry needs no verification step: on Claude and Codex the prompt hook injects it when a later prompt matches it, and Antigravity shows a bounded sample of topics at session start, so look an entry up there with an explicit query. Each platform's native memory is loaded only by that platform; the hook does not inject it.
 
 Read the [memory procedure](../workflow/memory.md) when searching existing entries before a capture, writing to Global scope (evidence and approval requirements), or capturing a pitfall from a review blocker.

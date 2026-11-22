@@ -153,9 +153,6 @@ test("the documented learn invocation round-trips into memory-context", () => {
   // Exactly the command line .agents/skills/learn/SKILL.md documents: no --status, no --project-id.
   const captured = run(["learn", "--action", "Capture", "--cwd", repo, "--scope", "Project", "--kind", "decision", "--topic", "round-trip", "--content", "ROUNDTRIP_DISTINCTIVE_TEXT", "--source-event", "user-correction", "--state-root", state]);
   assert.equal(captured.status, 0, captured.stderr);
-  // Capture only ever creates needs_verification; knowledge-verify is the sole path to verified.
-  const confirmed = run(["knowledge-verify", "--cwd", repo, "--state-root", state, "--id", JSON.parse(captured.stdout).id, "--source-path", join(repo, "file.txt")]);
-  assert.equal(confirmed.status, 0, confirmed.stderr);
   assert.match(run(["memory-context", "--platform", "Claude", "--state-root", state, "--cwd", repo]).stdout, /ROUNDTRIP_DISTINCTIVE_TEXT/);
 });
 

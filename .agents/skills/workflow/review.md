@@ -1,6 +1,6 @@
 # Reviewer
 
-只有 `reviewer` 進入 `selected` 時才讀本檔。`code_change: true` 的 task 都會選入 Reviewer。`task_type: mechanical` 只免除這條規則；影響面到 `multi_module` 以上、`impact_effect` 為 shared_behavior／data／contract／destructive，或帶有高風險 flag 時仍會選入。沒選入時，由主對話對照 acceptance 與 checklist 自我檢查。
+`code_change: true` 的 task 都會選入 Reviewer。`task_type: mechanical` 只免除這條規則；影響面到 `multi_module` 以上、`impact_effect` 為 shared_behavior／data／contract／destructive，或帶有高風險 flag 時仍會選入。沒選入時，由主對話對照 acceptance 與 checklist 自我檢查。
 
 `reviewer` 是獨立的唯讀複審角色，派成 subagent：只讀 diff 與相關程式碼並回報結論，不改動任何檔案。主對話是 coordinator，負責修正、整合複審結果，並做最後一次合理性核對；這一趟屬於整合工作，不算第二位 reviewer。Runtime contract 只認得 `role.reviewer` 一種身份，所以高風險情境的對抗式要求要寫進同一位 reviewer 的指令。
 
@@ -11,7 +11,7 @@
 ## 每一輪的流程
 
 1. 在 repo root 執行 `agent-workflow pre-review --path <repo> --task-path <task>`。回傳 `workspace_sha256`，以及這一輪的 `review` brief：`round`、`scope`、`paths`、上一輪的 `previous`、`acceptance`、`checklist`、`risk_flags`。從快照到 `review-record` 之間工作樹保持不動，包括 stash/pop。
-2. 依平台派工規則的複審那一列，派新的 reviewer subagent，訊息只帶下列內容：
+2. 依平台派工規則對複審的設定，派新的 reviewer subagent，訊息只帶下列內容：
    - brief 本身：`paths` 與 base、驗收案例、checklist
    - 這次強度要求的檢查與推翻假設（見下節）
    - 第 2 輪起加上 `previous` 的 findings

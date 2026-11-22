@@ -1,7 +1,5 @@
 # zh-TW Translation
 
-Use this file for EN／JA ↔ zh-TW translation, long-form localization, UI copy localization, or terminology-sensitive Traditional Chinese documents.
-
 ## Target outcome
 
 A good translation preserves meaning, facts, placeholders, technical identifiers, and the source's level of formality while reading naturally to a Taiwan audience. Match the user's requested tone and domain rather than forcing one universal writing style.

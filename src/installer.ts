@@ -425,15 +425,6 @@ function mergeHookEvents(current: JsonObject, replaced: JsonObject): JsonObject 
   }
   return merged;
 }
-// The adapter's hook prompt embeds a skill's enforcement rules by reference ({{POLICY:<skill>}})
-// so the rules stay single-sourced in the skill file instead of duplicated into the hook JSON.
-function policyBlock(source: string, skill: string): string {
-  const path = join(source, ".agents", "skills", skill, "SKILL.md");
-  if (!existsSync(path)) throw new Error(`policy source missing for {{POLICY:${skill}}}: ${path}`);
-  const match = readFileSync(path, "utf8").match(/<!-- enforcement:start -->([\s\S]*?)<!-- enforcement:end -->/);
-  if (!match) throw new Error(`${skill}/SKILL.md has no <!-- enforcement:start/end --> block for {{POLICY:${skill}}}`);
-  return match[1].trim();
-}
 let cachedNodeOnPath: boolean | undefined;
 function isNodeOnPath(): boolean {
   if (cachedNodeOnPath !== undefined) return cachedNodeOnPath;
@@ -472,13 +463,10 @@ function normalizeHookCommands(value: Json, platform: Platform, node: string): J
   return result;
 }
 
-function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, platform: Platform, source: string): void {
-  let templated = JSON.stringify(fragment)
+function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, platform: Platform): void {
+  const templated = JSON.stringify(fragment)
     .replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\"))
     .replaceAll("{{STATE_ROOT}}", state.replaceAll("\\", "\\\\"));
-  // JSON.stringify on the extracted block yields a quoted, escaped string; stripping its outer
-  // quotes gives exactly the escaped form the surrounding JSON string literal needs.
-  templated = templated.replace(/\{\{POLICY:([a-z0-9-]+)\}\}/g, (_match, skill: string) => JSON.stringify(policyBlock(source, skill)).slice(1, -1));
   const replaced = JSON.parse(templated) as JsonObject;
   const normalizedReplaced = normalizeHookCommands(replaced, platform, node) as JsonObject;
   let current: JsonObject = {};
@@ -845,7 +833,7 @@ export async function install(options: InstallOptions): Promise<number> {
   for (const platform of selected) {
     const root = targetRoots[platform];
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
-    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform, source);
+    mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform);
     installAgents(agents[platform], platform, root, state, records, options.dryRun);
     if (platform === "Claude") ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
   }

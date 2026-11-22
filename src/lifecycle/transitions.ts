@@ -68,9 +68,8 @@ const TASK_INIT_WRITABLE_FIELDS = new Set([
   "independence", "subtask_role", "parent_task_id", "file_ownership",
   "delivery_status", "integration_status"
 ]);
-// A freeze-required task used to need a separate `approve-intent --confirmed-by agent` call that
-// added no trust, only the hash. The runtime now records the same agent attestation as soon as the
-// task is (or becomes) freeze-required. An existing approval is never refreshed here: a stale hash is
+// The runtime records an agent attestation as soon as a task is (or becomes) freeze-required; it
+// adds no trust, only the hash. An existing approval is never refreshed here: a stale hash is
 // exactly what the gate must keep catching, and re-approval stays an explicit approve-intent.
 function attestIntentIfFrozen(state: JsonObject, path: string): void {
   if (state.intent_approval || !(Array.isArray(state.risk_flags) ? state.risk_flags : []).some((flag) => freezeRequired.has(String(flag)))) return;

@@ -29,7 +29,7 @@ export function nextActions(taskJsonPath: string, repoRoot: string, gate: Pick<G
   const undecided = of("proof").filter((item) => item.undecided_by?.length);
   const facts = [...new Set(undecided.flatMap((item) => item.undecided_by || []))].filter((field) => !fields.includes(field));
   if (facts.length) actions.push({ command: `echo '${declareJson(facts)}' | agent-workflow task-write --task-path ${task}`, why: `declaring ${facts.join(", ")} settles whether ${undecided.map((item) => item.id).join(", ")} must run; skip if the proof applies anyway` });
-  if (of("approval").length) actions.push({ command: `agent-workflow approve-intent --task-path ${task} --confirmed-by agent`, why: "freeze-required intent must be attested against the current task.md" });
+  if (of("approval").length) actions.push({ command: `agent-workflow approve-intent --task-path ${task} --confirmed-by <source> --as-user`, why: "freeze-required intent needs the user's confirmation of the current task.md; ask for it before running this" });
   // A doc edit changes the delivery and stales every run, so docs are settled before the runs below.
   const docs = of("project_doc").map((item) => item.path);
   if (docs.length) actions.push({ command: `echo '${JSON.stringify({ project_docs: { unchanged: docs } })}' | agent-workflow task-write --task-path ${task}`, why: `these docs cover delivered paths: update any whose recorded facts changed (project-docs skill), then record only the still-accurate ones as unchanged: ${docs.join(", ")}` });

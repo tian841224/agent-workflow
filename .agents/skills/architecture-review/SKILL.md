@@ -5,7 +5,7 @@ description: "需要檢視既有系統架構時使用；找出跨層耦合、過
 
 # Architecture review
 
-Produce an evidence-based review of the current codebase. This skill is diagnostic and planning-oriented; it does not authorize implementation unless the user separately requests a change.
+This skill is diagnostic and planning-oriented; it does not authorize implementation unless the user separately requests a change.
 
 ## Review posture
 

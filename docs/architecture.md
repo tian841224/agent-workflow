@@ -51,7 +51,7 @@ Task-level Reviewer 的啟動時機由 [workflow review procedure](../.agents/sk
 
 主對話是單一 agent loop：讀取、規劃、實作與驗證預設由它自己完成，只有 [AGENTS.md](../AGENTS.md) 的「Subagent」段落列出的情況才派平台原生 subagent。
 
-何時派與怎麼派都只有該段落一個 owner，三個平台採用同一套規則與流程；各平台的派工規則（`adapters/claude/delegation.md`、`adapters/antigravity/delegation.md`、`adapters/codex/coordinator.md`）是同一張派工情況表，只有 agent 與模型不同，runtime 不記錄也不檢查是否委派。
+何時派與怎麼派都只有該段落一個 owner，三個平台採用同一套規則與流程；各平台的派工規則（`adapters/claude/delegation.md`、`adapters/antigravity/delegation.md`、`adapters/codex/coordinator.md`）各自說明派工情況對應的 agent 與模型：Codex 逐項列出，Claude 與 Antigravity 交由平台原生能力決定；runtime 不記錄也不檢查是否委派。
 
 平行開發的責任分配依 [workflow](../.agents/skills/workflow/SKILL.md)，worker 契約依 [worker](../.agents/agents/worker.md)。一般指派不要求 ExecutionPacket、獨立 worktree、worker-exec 或固定結果檔格式。
 
@@ -105,7 +105,7 @@ Waiver 必須包含明確使用者確認及 transition history，且同時綁定
 
 原生指派直接使用平台工具，整合後回到 [Finalization](../.agents/skills/workflow/evidence.md#finalization)：主 agent 執行整體驗收與 proofs，再做 task-level Reviewer 與 close-task。
 
-Installer 依各平台 adapter 設定列出的角色，從 `.agents/agents/*.md` 產生原生 agent 定義：Claude 只有 Worker，大量讀取用平台內建的 Explore；Codex 有 Reader 與 Worker，可追加專用交接指示。
+Installer 依各平台 adapter 設定列出的角色，從 `.agents/agents/*.md` 產生原生 agent 定義：Claude 不產生原生 agent 定義，由平台原生能力決定角色；Codex 有 Reader 與 Worker，可追加專用交接指示。
 
 Claude 的設定由 [Claude adapter](../adapters/claude/managed-config.json) 擁有，Codex 的設定與來源由 [Codex adapter](../adapters/codex/managed-config.json) 擁有，各自只在選取該平台時讀取。
 
@@ -118,7 +118,7 @@ orchestration writable root 與 Claude additionalDirectories 只供 orchestratio
 兩件事本框架明確不保證，設計上以 attestation 而非 proof 處理：
 
 - **初始分類由 AI 負責。** Runtime 無法分辨「這次真的沒有 authorization 風險」與「AI 漏判了 authorization 風險」，除非另建 static analysis 或分類驗證器。Runtime 的職責是保證**已宣告**的高風險不能被靜默繞過：`required` 不能靠少填 `workflow_request` 移除，移除 risk flag 或把 `managed_change` 改回 `false` 都必須走 `reclassify`。
-- **使用者確認是 attestation。** `task-init`／`approve-intent` 的 `--as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。`approve-intent` 預設由 agent 自行執行、不加 `--as-user`（`source: cli-attestation`）；這不取代 managed 開發任務依 [workflow](../.agents/skills/workflow/SKILL.md) 在 Plan mode 交付規格並取得使用者確認的 procedure。`intent_hash` 仍負責偵測核准後 Goal／Scope／Completion criteria 被改動。
+- **使用者確認是 attestation。** `task-init`／`approve-intent` 的 `--as-user` 與 `reclassify --confirmed-by-user` 都由 agent 提交，runtime 沒有 platform event bridge 可以密碼學地證明使用者真的按過確認。記錄的是「誰在什麼時間宣稱使用者確認了什麼」，不是使用者行為本身的證明。不加 `--as-user` 的 `approve-intent` 只記錄 agent attestation（`source: cli-attestation`）；gate 回報 intent 需要確認時，`next` 指示先取得使用者確認再以 `--as-user` 記錄。agent attestation 不取代 managed 開發任務依 [workflow](../.agents/skills/workflow/SKILL.md) 在 Plan mode 交付規格並取得使用者確認的 procedure。`intent_hash` 仍負責偵測核准後 Goal／Scope／Completion criteria 被改動。
 
 ## Hook trust boundary
 
@@ -179,9 +179,9 @@ managed state 記錄 package version、runtime hash、Node 路徑、platform tar
 
 ## Memory 的有界選取
 
-`~/.agent-workflow` 是跨平台共用的可寫 curated store；安裝時把同一個絕對 state root 寫入三平台 hooks。自動路徑（Claude／Codex 的 `UserPromptSubmit`、Antigravity 首次 `PreInvocation` 的主題導航）只掃 curated verified 記憶，有 6 筆／800 字元上限與專案隔離；prompt 只作資料，不放進 shell。
+`~/.agent-workflow` 是跨平台共用的可寫 curated store；安裝時把同一個絕對 state root 寫入三平台 hooks。自動路徑（Claude／Codex 的 `UserPromptSubmit`、Antigravity 首次 `PreInvocation` 的主題導航）只掃共用記憶（排除已標記為被取代，或綁定的來源檔內容已改變的項目），有 6 筆／800 字元上限與專案隔離；prompt 只作資料，不放進 shell。
 
-同一 session 已注入的紀錄以 `os.tmpdir()` 的暫存標記跳過，不重複注入。只有 explicit query 才額外唯讀掃描平台原生記憶，候選標成 `needs_verification`，只能作線索。何時明確查詢、query 語意與寫入規則以 [memory.md](../.agents/skills/workflow/memory.md) 為準；詞彙匹配不宣稱語意搜尋，也沒有 persistent index。
+同一 session 已注入的紀錄以 `os.tmpdir()` 的暫存標記跳過，不重複注入。平台原生記憶由各平台自己載入，自動路徑不注入；只有 explicit query 才額外唯讀掃描三個平台的原生記憶，作為線索。何時明確查詢、query 語意與寫入規則以 [memory.md](../.agents/skills/workflow/memory.md) 為準；詞彙匹配不宣稱語意搜尋，也沒有 persistent index。
 
 ## 模組文件索引
 

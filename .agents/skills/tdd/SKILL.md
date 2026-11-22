@@ -5,7 +5,7 @@ description: "compiled workflow plan 選用 tdd 時使用；以紅燈、綠燈�
 
 # Test-Driven Development
 
-Load this skill only when the compiled workflow plan selects `tdd`. Whether a change enters the managed workflow, and how weakened or deleted tests are handled, is decided by the [workflow skill](../workflow/SKILL.md). Follow the project's existing domain vocabulary, public interfaces, and test conventions.
+Whether a change enters the managed workflow, and how weakened or deleted tests are handled, is decided by the [workflow skill](../workflow/SKILL.md). Follow the project's existing domain vocabulary, public interfaces, and test conventions.
 
 ## Test boundary (Seam)
 

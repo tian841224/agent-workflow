@@ -5,7 +5,7 @@ description: "需要選擇架構方向、功能方案、重構策略或技術取
 
 # Simple Planning Skill
 
-Use planning to reach a defensible direction with the least discussion needed for the decision. Work whose goal, constraints, and completion criteria are already clear proceeds without a planning pass.
+Work whose goal, constraints, and completion criteria are already clear proceeds without a planning pass.
 
 ## Required outcomes
 
@@ -37,7 +37,7 @@ Create a planning document only when the user requests one or the task explicitl
 
 Use an existing repository convention or nearby document location when one is clear. Ask for a path only when multiple plausible locations carry different ownership or semantic meaning. Prefer updating an existing owner document over creating a parallel source of truth.
 
-Keep artifacts aligned with repository reality. Do not duplicate detailed rules already owned elsewhere.
+Do not duplicate detailed rules already owned elsewhere.
 
 ## Lightweight self-review
 

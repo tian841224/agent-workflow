@@ -1,7 +1,5 @@
 # Retrospective report
 
-只在 task 結束或使用者要求輸出分析時讀本檔。
-
 ## Full report
 
 ```markdown

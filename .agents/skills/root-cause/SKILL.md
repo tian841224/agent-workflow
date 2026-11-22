@@ -5,7 +5,7 @@ description: "修正 bug 或確認 review 問題後使用；追查缺陷為何�
 
 # root-cause
 
-錯誤本身已經找到並修好（找錯誤依 [diagnosing-bugs](../diagnosing-bugs/SKILL.md)）。本 skill 回答下一個問題：**這個錯為什麼寫得出來、為什麼沒被擋下**。先判斷起因；起因指向缺文件、缺規範或缺共用機制時，才依 [remedies.md](remedies.md) 把缺口補在目標專案裡。
+錯誤本身已經找到並修好（找錯誤依 [diagnosing-bugs](../diagnosing-bugs/SKILL.md)）。先判斷起因；起因指向缺文件、缺規範或缺共用機制時，才依 [remedies.md](remedies.md) 把缺口補在目標專案裡。
 
 ## 1. 列出問題
 
@@ -33,4 +33,4 @@ description: "修正 bug 或確認 review 問題後使用；追查缺陷為何�
 - **到此結束**：起因是 `logic_error` 或 `regression`、修正時已補上能擋住它的測試，而且同類錯誤沒有在多處重複出現。每項回報一行：症狀、起因、對應的測試；`regression` 加上 `miss_category`。
 - **繼續補救**：其餘情況。每項先回報一行起因與證據，再讀 [remedies.md](remedies.md) 選補救、寫入並回報。
 
-在 managed task 的 review 中發現的問題，另外依 [review.md](../workflow/review.md#結果回填與-freshness) 記錄 review cause，讓 distill 能計算同類問題的次數。
+在 managed task 的 review 中，第 2 輪起仍未通過的問題（`regression` 不限輪次），另外依 [review.md](../workflow/review.md#結果回填與-freshness) 記錄 review cause。

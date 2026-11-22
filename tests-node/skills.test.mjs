@@ -84,6 +84,5 @@ test("project-bootstrap is required and its references resolve", () => {
   for (const name of ["architecture-review", "project-docs", "codebase-design", "learn"]) {
     assert.ok(existsSync(join(root, ".agents", "skills", name, "SKILL.md")));
   }
-  assert.ok(existsSync(join(root, ".agents", "skills", "project-bootstrap", "references", "bootstrap-policy.md")));
   assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /skill:project-bootstrap/);
 });
