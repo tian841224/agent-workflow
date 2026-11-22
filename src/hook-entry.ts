@@ -1,14 +1,16 @@
 // Hook-only entrypoint. locale-context runs with every submitted prompt, and bundling it with the
 // rest of the CLI made each run pay for loading installer, lifecycle, knowledge and policy code it
-// never calls. session-start and session-cleanup run once per session. git-guard is reachable here
-// for manual use; no platform template registers it.
+// never calls. session-start and session-cleanup run once per session; task-reminder and
+// edit-reminder add one-shot reminders. git-guard is reachable here for manual use; no platform
+// template registers it.
 import { option, parseArgs, stateRoot, stdinJson } from "./core.js";
 import { runGuard } from "./hooks.js";
 import { runLocaleContext } from "./locale-hooks.js";
 import { runSessionCleanup, runSessionStart } from "./session-cleanup.js";
+import { runEditReminder, runTaskReminder } from "./work-reminders.js";
 
 const [command, ...rest] = process.argv.slice(2);
-const HOOK_COMMANDS = new Set(["git-guard", "locale-context", "session-start", "session-cleanup"]);
+const HOOK_COMMANDS = new Set(["git-guard", "locale-context", "session-start", "session-cleanup", "task-reminder", "edit-reminder"]);
 if (!HOOK_COMMANDS.has(command)) {
   process.stderr.write(`Unknown command: ${command}\n`);
   process.exitCode = 2;
@@ -27,6 +29,8 @@ if (!HOOK_COMMANDS.has(command)) {
     if (command === "locale-context") runLocaleContext(payload, root, option(parsed.values, "platform", "Claude"));
     else if (command === "session-start") runSessionStart(payload, root, option(parsed.values, "platform", "Claude"));
     else if (command === "session-cleanup") runSessionCleanup(payload, root, option(parsed.values, "platform", "Claude"));
+    else if (command === "task-reminder") runTaskReminder(payload, root);
+    else if (command === "edit-reminder") runEditReminder(payload, root);
     else runGuard(option(parsed.values, "platform", "Codex"), option(parsed.values, "event", "PreToolUse"), payload);
   }
 }

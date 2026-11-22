@@ -4,6 +4,7 @@ covers:
   - adapters/claude/
   - adapters/codex/
   - adapters/antigravity/
+  - src/work-reminders.ts
   - tests-node/adapters/
 ---
 
@@ -11,11 +12,13 @@ covers:
 
 ## Responsibility
 
-平台 hook templates 提供語言規則與相關記憶的注入，以及 session 結束時的一次性資源清理（`src/session-cleanup.ts`）。Git 操作的使用者授權要求由 [AGENTS.md](../../AGENTS.md) 管理，安裝器不註冊自動 Git guard。
+平台 hook templates 提供語言規則與相關記憶的注入，以及 session 結束時的一次性資源清理（`src/session-cleanup.ts`）。Git 操作的使用者授權要求由 [AGENTS.md](../../AGENTS.md) 管理，安裝器不註冊自動 Git guard；Claude 另由 `permissions.ask` 讓平台在 commit、push、rebase、merge 前跳出確認。Claude 還有兩個一次性提醒（`src/work-reminders.ts`），避免 agent 在 session 中離開 managed workflow。
 
 ## Entrypoints
 
 Claude／Codex 的 `UserPromptSubmit` 執行 `locale-context` 與 `memory-context`；Antigravity 的首次 `PreInvocation` 提供語言規則與記憶導航。`src/installer.ts` 的 `mergeHook` 將 templates 寫入平台設定。
+
+Claude 的 `UserPromptSubmit` 另執行 `task-reminder`：目前 worktree 有 `in_progress`、`paused` 或 `blocked` 的 task 時，每個 session 提醒一次，列出 task 路徑與 `close-task`／`resume`／`supersede`。Claude 的 `PostToolUse`（matcher `Edit|Write|MultiEdit`）執行 `edit-reminder`：session 工作目錄內累計修改 5 個不同的非文件檔案（`.md`、`.mdx`、`.txt`、`.rst`、`.adoc` 不算）、而且沒有未結案 task 時，提醒一次依 AGENTS.md 重新判斷 `managed_change`。兩者只注入 context，失敗一律靜默結束；沒有 session id 時不提醒。
 
 Session 清理：Claude／Codex 的 `SessionStart` 執行 `session-start`、`SessionEnd` 執行 `session-cleanup`；Antigravity 的首次 `PreInvocation` 執行 `session-start`、`Stop` 執行 `session-cleanup`。三者都走輕量的 `agent-workflow-hook.mjs`。
 
@@ -25,9 +28,11 @@ Session 清理：Claude／Codex 的 `SessionStart` 執行 `session-start`、`Ses
 
 `removeOwnHooks` 依 managed runtime 路徑或 managed marker 辨識自有 hook；Antigravity 另以 `agent-workflow-` key 辨識。移除自有 handler 後保留同群組的使用者 handler，因此模板沒有 Git guard 時，repair 會清除舊 managed guard。
 
+`install / repair > ensureClaudeAskRules > settings.json permissions.ask`：把 `adapters/claude/settings.permissions.json` 的規則補進 Claude 設定，已存在的不重複，使用者自己的規則保留；新增的規則記在 `managed-runtime.json` 的 `claude_permissions.ask`。使用者手動刪掉其中一條後，下一次 repair 會補回；模板縮減時舊規則留到 uninstall 才移除。
+
 `uninstall > removeOwnHooks > write settings`（對每個平台，先於刪除 runtime）
 
-Uninstall 以同一個 `removeOwnHooks` 清除 `managed-runtime.json` 記錄的 Claude、Codex、Antigravity hook 檔，使用者自己的 hook 與設定保留；沒有自有 hook 時不寫檔。清除後 Claude／Codex 留下 `{"hooks": {"UserPromptSubmit": []}}` 加上使用者內容，Antigravity 移除 `agent-workflow-` 開頭的頂層 key。hook template 只從安裝來源讀取，不存在於共用 runtime。
+Uninstall 也只移除 `claude_permissions.ask` 記錄的規則。Uninstall 以同一個 `removeOwnHooks` 清除 `managed-runtime.json` 記錄的 Claude、Codex、Antigravity hook 檔，使用者自己的 hook 與設定保留；沒有自有 hook 時不寫檔。清除後 Claude／Codex 留下各事件的空陣列（例如 `"UserPromptSubmit": []`）加上使用者內容，Antigravity 移除 `agent-workflow-` 開頭的頂層 key。hook template 只從安裝來源讀取，不存在於共用 runtime。
 
 `session-start > write <state-root>/sessions/<platform>-<hash>.json（起點、transcript、scratchpad）`
 
@@ -44,6 +49,8 @@ Uninstall 以同一個 `removeOwnHooks` 清除 `managed-runtime.json` 記錄的 
 
 ## Invariants and gotchas
 
+- `edit-reminder` 在每次 Edit／Write 都會啟動一個 node 程序，但門檻之前只讀寫 `os.tmpdir()` 的計數檔，不解析專案、不掃描 task；兩個提醒的 session 狀態都放在同一類暫存標記，由 session 清理一併處理。
+- `permissions.ask` 以規則字串比對指令：`git -C <dir> commit`、經 wrapper 或變數組出的指令不保證被比對到，bypassPermissions 模式是否仍跳出確認未實機驗證；完整防護需要手動 `git-guard` 的 pattern 檢查。
 - 自動 hooks 只注入 context 與清理 session 自己的一次性資源，不承擔 task 結案判定。
 - `session-start`／`session-cleanup` 一律 exit 0，失敗只寫進清理紀錄；Antigravity `Stop` 回覆 `{"decision":"stop"}`，不阻止停止。
 - 用 `Start-Process`、`nohup` 脫離父程序的程式，以及 session 異常中止後遺留的程序，不在清理範圍。

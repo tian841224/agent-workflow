@@ -27,7 +27,7 @@ covers:
 
 `.agents/` 擁有給 agent 讀取的 procedure；`src/hooks.ts` 定義 `CanonicalHookEvent` 與 `HookDecision`；`adapters/` 只保留平台 payload／輸出格式的轉接與 hook template。Adapter 不重新解釋 workflow 語意，也不複製 schema 規則。
 
-Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `engines.node: ">=20"`）。`src/` 是 TypeScript source，`dist/` 有兩個可部署 ESM bundle：`agent-workflow.mjs` 是完整 CLI，`agent-workflow-hook.mjs` 只含 hook 所需的 `hooks.ts`、`locale-hooks.ts` 與 `core.ts`。
+Node.js 20 以上版本是唯一 runtime family（對應 `package.json` 的 `engines.node: ">=20"`）。`src/` 是 TypeScript source，`dist/` 有兩個可部署 ESM bundle：`agent-workflow.mjs` 是完整 CLI，`agent-workflow-hook.mjs` 只含 hook 所需的程式：`hooks.ts`、`locale-hooks.ts`、`session-cleanup.ts`、`work-reminders.ts`、`core.ts` 與 `lifecycle/task-store.ts` 的常數。
 
 完整 CLI 在確認 command 與 options 後才動態載入該 subsystem；esbuild 仍輸出單一 CLI bundle，延後的是 module initialization，不需要部署額外 chunks。locale hook 與手動 git-guard 執行後者，`memory-context` 等其餘指令執行前者，避免 locale hook 載入不相關的 CLI subsystem。
 
@@ -122,13 +122,13 @@ orchestration writable root 與 Claude additionalDirectories 只供 orchestratio
 
 ## Hook trust boundary
 
-自動 hook 只提供 locale 與 memory context，以及 session 結束時的資源清理；平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
+自動 hook 提供 locale 與 memory context、session 結束時的資源清理，以及 Claude 的兩個一次性提醒（未結案 task、未開 task 卻累計修改多個檔案）；這些都只注入 context，不阻擋操作。平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
 
-手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 對受限 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。
+手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 對受限 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。Claude 則由 installer 把 `git commit`、`git push`、`git rebase`、`git merge`（Bash 與 PowerShell）寫進 `permissions.ask`，讓平台自己跳出確認。
 
 Session 清理 hook 與 context 注入分開：Claude／Codex 的 `SessionStart` 只記錄 session 起點，`SessionEnd` 關閉 agent 程序的存活子孫並刪除 `os.tmpdir()` 第一層、建立時間落在本 session 單獨執行期間的項目；Antigravity 沒有 session 事件，改在 `Stop` 只清暫存檔、不關閉程序。
 
-它只處理這個 session 自己產生的一次性資源，失敗一律放行（exit 0）並寫入 `<state-root>/logs/session-cleanup.jsonl`，不判定 task 結案，也不影響 task runtime 的 authority。`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有 PostToolUse guard。
+它只處理這個 session 自己產生的一次性資源，失敗一律放行（exit 0）並寫入 `<state-root>/logs/session-cleanup.jsonl`，不判定 task 結案，也不影響 task runtime 的 authority。`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有會阻擋操作的 PostToolUse guard（Claude 的 PostToolUse 只有 `edit-reminder`，它只注入提醒）。
 
 三平台共用同一組 context hook 功能：輸出前注入的 localization-tw skill 規則，以及依任務自動篩選的 memory hook。
 

@@ -45,7 +45,13 @@ for (const [opName, op] of Object.entries(OPERATIONS)) {
 test("adapter templates retain context hooks without an automatic Git guard", () => {
   for (const path of ["adapters/claude/settings.hooks.json", "adapters/codex/hooks.json", "adapters/antigravity/hooks.json"]) {
     const body = readFileSync(path, "utf8");
-    assert.doesNotMatch(body, /git-guard|PreToolUse|skill-guard|PostToolUse/, path);
+    assert.doesNotMatch(body, /git-guard|PreToolUse|skill-guard/, path);
+    // The only PostToolUse hook is Claude's edit-reminder, which injects context and never blocks.
+    if (path.includes("claude")) {
+      const post = JSON.parse(body).hooks.PostToolUse.flatMap((group) => group.hooks.map((handler) => handler.command));
+      assert.equal(post.length, 1, path);
+      assert.match(post[0], /agent-workflow-hook\.mjs" edit-reminder --platform Claude /, path);
+    } else assert.doesNotMatch(body, /PostToolUse/, path);
     // Claude/Codex have a per-turn UserPromptSubmit event and no longer pay for a separate
     // SessionStart scan; Antigravity has no prompt-submit lifecycle, so its one PreInvocation hook
     // is still the startup navigation event.

@@ -278,6 +278,16 @@ function ensureClaudeOrchestrationDirectory(settingsPath: string, state: string,
   if (!dryRun) writeJson(settingsPath, { ...current, permissions: { ...permissions, additionalDirectories: [...listed, directory] } });
   return directory;
 }
+// Claude asks before it commits, pushes, rebases or merges, whatever the user's allow list says. The
+// rules this install added are recorded so uninstall removes those and leaves the user's own.
+function ensureClaudeAskRules(settingsPath: string, rules: string[], recorded: string[], dryRun: boolean): string[] {
+  const current = existsSync(settingsPath) ? readJson(settingsPath) : {};
+  const permissions = current.permissions && typeof current.permissions === "object" && !Array.isArray(current.permissions) ? current.permissions as JsonObject : {};
+  const listed = Array.isArray(permissions.ask) ? permissions.ask as Json[] : [];
+  const added = rules.filter((rule) => !listed.includes(rule));
+  if (added.length && !dryRun) writeJson(settingsPath, { ...current, permissions: { ...permissions, ask: [...listed, ...added] } });
+  return [...new Set([...recorded, ...added])];
+}
 function pruneManagedAssets(previous: JsonObject, records: FileRecord[], canonical: string, selected: Platform[], targetRoots: Record<Platform, string>, rewrittenSkillRoots: string[], dryRun: boolean): void {
   const keep = new Set(records.filter((record) => MANAGED_ASSET_KINDS.has(record.kind)).map((record) => pathKey(record.path)));
   const managedRoots = [canonical, ...selected.map((platform) => targetRoots[platform])].map(pathKey);
@@ -830,12 +840,17 @@ export async function install(options: InstallOptions): Promise<number> {
   // Written after the entrypoints, so a failed entrypoint write leaves the installed rule matching its record.
   for (const [platform, rule] of delegationSources) installPlatformDelegation(rule, targetRoots[platform], records, options.dryRun);
   const node = process.execPath;
+  let claudeAskRecorded: string[] = Array.isArray(((previous.claude_permissions || {}) as JsonObject).ask) ? ((previous.claude_permissions as JsonObject).ask as string[]).map(String) : [];
   for (const platform of selected) {
     const root = targetRoots[platform];
     const fragment = readJson(join(source, "adapters", platform.toLowerCase(), platform === "Claude" ? "settings.hooks.json" : "hooks.json"));
     mergeHook(fragment, join(root, ...platforms[platform].hook), runtime, state, node, options.dryRun, platform);
     installAgents(agents[platform], platform, root, state, records, options.dryRun);
-    if (platform === "Claude") ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
+    if (platform === "Claude") {
+      ensureClaudeOrchestrationDirectory(join(root, ...platforms[platform].hook), state, options.dryRun);
+      const rules = readJson(join(source, "adapters", "claude", "settings.permissions.json")).permissions as JsonObject;
+      claudeAskRecorded = ensureClaudeAskRules(join(root, ...platforms[platform].hook), (rules.ask as string[]) || [], claudeAskRecorded, options.dryRun);
+    }
   }
   const previousTargets = previous.targets && typeof previous.targets === "object" && !Array.isArray(previous.targets) ? previous.targets as JsonObject : {};
   const previousRoots = { ...targetRoots, ...Object.fromEntries(Object.entries(previousTargets).filter(([, value]) => typeof value === "string").map(([name, value]) => [name, resolve(value as string)])) };
@@ -857,7 +872,7 @@ export async function install(options: InstallOptions): Promise<number> {
     const inSelectedPlatform = selected.some((platform) => pathKey(record.path).startsWith(pathKey(previousRoots[platform]) + sep) || pathKey(record.path).startsWith(pathKey(targetRoots[platform]) + sep));
     if (!inSelectedPlatform && record.kind !== "runtime" && record.kind !== "cli-shim" && record.kind !== "canonical-template") records.push(record);
   }
-  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true, v6_to_v7_task_schema: true } : {}) } });
+  if (!options.dryRun) writeJson(managedPath, { schema_version: 7, product_version: PRODUCT_VERSION, runtime_kind: "node", node, runtime_hash: sha256(readFileSync(join(runtime, "agent-workflow.mjs"))), installed_at: now(), source, targets: { ...previousTargets, ...Object.fromEntries(selected.map((name) => [name, targetRoots[name]])) }, selected_skills: selectedSkills, claude_permissions: { ask: claudeAskRecorded }, files: records, migrations: { ...((previous.migrations || {}) as JsonObject), python_to_node: migration, ...(migration.migrated ? { v1_to_v2_task_schema: true, v2_to_v3_task_schema: true, v3_to_v4_task_schema: true, v4_to_v5_task_schema: true, v5_to_v6_task_schema: true, v6_to_v7_task_schema: true } : {}) } });
   const integrations = options.integrations;
   const native = integrations.length ? integrations.map((name) => installUpstreamIntegration(name, source, selected, options)) : null;
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;
@@ -916,6 +931,8 @@ export function uninstall(options: InstallOptions): number {
     if (linkedAncestor(hookFile) || !existsSync(hookFile)) continue;
     const current = readJson(hookFile); const cleaned = removeOwnHooks(current, join(state, "runtime")) as JsonObject; const permissions = cleaned.permissions as JsonObject | undefined;
     if (platform === "Claude" && permissions && Array.isArray(permissions.additionalDirectories)) permissions.additionalDirectories = permissions.additionalDirectories.filter((item) => resolve(String(item)) !== resolve(join(state, "orchestration")));
+    const addedAsk = new Set(Array.isArray(((managed.claude_permissions || {}) as JsonObject).ask) ? ((managed.claude_permissions as JsonObject).ask as string[]).map(String) : []);
+    if (platform === "Claude" && permissions && Array.isArray(permissions.ask) && addedAsk.size) permissions.ask = permissions.ask.filter((item) => !addedAsk.has(String(item)));
     if (!options.dryRun && JSON.stringify(cleaned) !== JSON.stringify(current)) writeJson(hookFile, cleaned);
   }
   if (!options.dryRun && existsSync(join(state, "runtime"))) rmSync(join(state, "runtime"), { recursive: true, force: true });
