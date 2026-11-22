@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -293,7 +293,7 @@ test("task-gate and contract-lint output match their declared shapes", () => {
   const gate = JSON.parse(run(["task-gate", "--task-path", join(task, "task.json")]).stdout);
   assert.ok(gateValidator(gate), JSON.stringify(gateValidator.errors));
   const lintValidator = validatorFor("contract-lint");
-  const lint = JSON.parse(run(["contract-lint", "--root", process.cwd()]).stdout);
+  const lint = JSON.parse(run(["contract-lint", "--root", lintFixture(["placeholder"])]).stdout);
   assert.ok(lintValidator(lint), JSON.stringify(lintValidator.errors));
 });
 
@@ -357,8 +357,12 @@ function lintFixture(templateLines, extraSkills = {}) {
   for (const schema of readdirSync(join(process.cwd(), "schemas")).filter((name) => name.endsWith(".json"))) {
     writeFileSync(join(root, "schemas", schema), readFileSync(join(process.cwd(), "schemas", schema)));
   }
-  // The whole framework-owned .agents tree, so relative links between procedures still resolve.
-  cpSync(join(process.cwd(), ".agents"), join(root, ".agents"), { recursive: true });
+  writeFileSync(join(root, ".agents", "skills", "workflow", "SKILL.md"), "schemas/workflow-policy.json owns the compiled plan.\n");
+  for (const name of ["evidence.md", "review.md", "elevated.md", "orchestration.md"]) {
+    writeFileSync(join(root, ".agents", "skills", "workflow", name), "# Fixture\n");
+  }
+  mkdirSync(join(root, ".agents", "skills", "project-docs"), { recursive: true });
+  writeFileSync(join(root, ".agents", "skills", "project-docs", "SKILL.md"), "# Fixture\n");
   writeFileSync(join(root, "templates", "task.md"), templateLines.join("\n"));
   for (const [name, lines] of Object.entries(extraSkills)) {
     mkdirSync(join(root, ".agents", "skills", name), { recursive: true });

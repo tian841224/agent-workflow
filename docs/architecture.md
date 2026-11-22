@@ -185,6 +185,7 @@ managed state 記錄 package version、runtime hash、Node 路徑、platform tar
 
 ## 模組文件索引
 
+- [程式測試](modules/testing.md)：程式測試範圍、執行入口與修改時的文件檢查。
 - [Platform hooks](modules/platform-hooks.md)：context hook templates、managed hook 清理與平台授權邊界。
 - [Workflow runtime](modules/workflow-runtime.md)：lifecycle、evidence 與 Codex 拆分／原生觀察 gate。
 

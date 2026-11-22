@@ -92,16 +92,6 @@ test("platform adapters do not start a separate clean-comments Stop agent", () =
   }
 });
 
-test("Git safety requires human authorization rather than agent self-authorization", () => {
-  const instructions = readFileSync("AGENTS.md", "utf8");
-  assert.match(instructions, /破壞性 Git 操作與隱藏 Git 執行/);
-  assert.match(instructions, /不得自行授權/);
-  assert.match(instructions, /平台放行.*不代表使用者授權/);
-  const rules = readFileSync("adapters/codex/execpolicy.rules", "utf8");
-  assert.doesNotMatch(rules, /decision="forbidden"/);
-  assert.match(rules, /pattern=\["git", "push", "--force"\], decision="prompt"/);
-});
-
 test("required localization skill and the before-reply vocabulary are the locale enforcement", () => {
   const claudeHooks = JSON.parse(readFileSync("adapters/claude/settings.hooks.json", "utf8")).hooks;
   assert.equal(JSON.parse(readFileSync("adapters/managed-manifest.json", "utf8")).skills["localization-tw"].required, true);
@@ -184,4 +174,3 @@ test("Antigravity payload resolves workspacePaths when cwd is omitted", () => {
   });
   assert.deepEqual(invocationOne, { injectSteps: [] }, "Must skip injection for subsequent invocations (invocationNum > 0)");
 });
-

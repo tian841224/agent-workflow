@@ -66,11 +66,6 @@ function leaks(roots, lines) {
 
 after(() => { for (const root of created) rmSync(root, { recursive: true, force: true }); });
 
-test("every Codex instruction source has text that no shared source carries", () => {
-  const lines = codexOnlyLines();
-  for (const name of Object.keys(CODEX_SOURCES)) assert.ok(lines[name].length >= 1, `${CODEX_SOURCES[name]} has no Codex-only line`);
-});
-
 test("Codex-only instructions reach the Codex root alone", () => {
   const lines = codexOnlyLines();
   const target = installed("roots");

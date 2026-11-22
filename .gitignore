@@ -18,6 +18,7 @@ docs/*
 docs/modules/*
 !docs/modules/managed-skill-installation.md
 !docs/modules/platform-hooks.md
+!docs/modules/testing.md
 !docs/usage.md
 !docs/installation.md
 !docs/history.md

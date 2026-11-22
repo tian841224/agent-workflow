@@ -56,6 +56,8 @@ Codex 的角色設定與委派程序由 [Codex adapter](../adapters/codex/manage
 
 ## 資料夾結構
 
+開發時的測試與驗證入口見[程式測試](modules/testing.md)。文件與 skill 的文字、引用在修改時檢查，不納入固定測試；`npm run lint:contract` 保留供按需使用。
+
 ```text
 ~/
 |-- .agents/                  安裝後的共用指引、skills 與 templates

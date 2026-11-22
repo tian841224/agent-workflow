@@ -105,13 +105,10 @@ test("AC4 Claude installs no fixed subagent roles or model settings", () => {
   assert.equal(existsSync(join(target.claude, "agents", "agent-workflow-reader.md")), false);
 });
 
-test("AC5 the delegation rule defers dispatch decisions and platform settings", () => {
+test("AC5 the installed delegation rule matches its source", () => {
   const target = installed("ac5");
   const rule = readFileSync(target.delegation, "utf8");
-  assert.doesNotMatch(rule, /haiku|sonnet|opus|model:|effort:|Explore|general-purpose|worker|reader/i);
-  assert.match(rule, /共用入口的「Subagent」段落/);
-  assert.match(rule, /由 Claude 原生能力決定角色、模型與 effort/);
-  assert.match(readFileSync(join(target.canonical, "AGENTS.md"), "utf8"), /^## Subagent$/m);
+  assert.equal(rule, readFileSync(join("adapters", "claude", "delegation.md"), "utf8"));
 });
 
 test("AC6 repair keeps the user's own Claude rules and does not repeat the imports", () => {

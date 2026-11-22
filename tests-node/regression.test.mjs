@@ -122,7 +122,7 @@ test("contract-lint sees commands inside fenced blocks and honours a rule-scoped
   mkdirSync(join(root, "templates"), { recursive: true });
   mkdirSync(join(root, ".agents", "skills", "workflow"), { recursive: true });
   for (const schema of ["workflow-policy.json", "task.schema.json"]) writeFileSync(join(root, "schemas", schema), readFileSync(join(process.cwd(), "schemas", schema)));
-  writeFileSync(join(root, ".agents", "skills", "workflow", "SKILL.md"), readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "SKILL.md")));
+  writeFileSync(join(root, ".agents", "skills", "workflow", "SKILL.md"), "# Fixture\n");
   writeFileSync(join(root, "templates", "task.md"), [
     "```text",
     "agent-workflow frobnicate --now",
@@ -201,32 +201,6 @@ test("skill-backed capabilities carry no checklist steps of their own and stay s
   assert.deepEqual(stepIds(plan, "operational_verification"), ["OV2"]);
   assert.deepEqual(plan.checklist.filter((step) => /^(codebase_design|bug_diagnosis|tdd|operational_verification)\./.test(step.id)), []);
   assert.ok(plan.proofs.some((step) => step.id === "operational_verification.OV2"), JSON.stringify(plan.proofs));
-});
-
-// risk-flags.md used to tell agents to remove a mis-set flag by editing task.json directly, which
-// task-write and the hook both reject; the only downgrade path is an explicit reclassify.
-test("risk-flags.md routes flag removal through reclassify instead of a direct task edit", () => {
-  const doc = readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "risk-flags.md"), "utf8");
-  assert.match(doc, /reclassify --confirmed-by-user/);
-  assert.doesNotMatch(doc, /編輯[^。；]{0,20}task[^。；]{0,20}(?:拿掉|移除)/);
-});
-
-test("impact_confidence stays a task-write field in the docs and in the reclassify comment", () => {
-  const selection = readFileSync(join(process.cwd(), ".agents", "skills", "workflow", "capability-selection.md"), "utf8");
-  const selectionClauses = selection.split("。").filter((part) => part.includes("`impact_confidence`"));
-  assert.ok(selectionClauses.some((part) => part.includes("`task-write`")), "capability-selection.md no longer offers task-write for impact_confidence");
-  assert.ok(!selectionClauses.some((part) => part.includes("reclassify")), "capability-selection.md drags reclassify into impact_confidence");
-
-  // The clause is the doc's whole statement about impact_confidence: it must offer task-write and
-  // must not drag in reclassify's user-confirmation requirement.
-  const doc = readFileSync(join(process.cwd(), "docs", "architecture.md"), "utf8");
-  const clause = doc.split("；").find((part) => part.includes("`impact_confidence`"));
-  assert.ok(clause, "architecture.md no longer states anything about impact_confidence");
-  assert.match(clause, /`task-write`/);
-  assert.doesNotMatch(clause, /--confirmed-by-user/);
-
-  const source = readFileSync(join(process.cwd(), "src", "lifecycle", "transitions.ts"), "utf8");
-  assert.doesNotMatch(source, /lower impact_confidence/);
 });
 
 // item 21: retro is retired; a regression finding is now one more `cause` value in review-cause,
