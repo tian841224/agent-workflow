@@ -19,7 +19,15 @@ agent-workflow project-doc --action Lookup --task-path <task> --repo-root <repo-
 
 在 workflow task 內一律帶 `--task-path`：runtime 會比對 `project_docs.read` 與 `project_docs.digests`，已 Remember 且內容未變的文件回報 `digest_status: reusable`。`unread`、`digest_missing` 與 `stale` 都要實際讀過才算數。frontmatter 標 `status: historical` 的文件是歷史紀錄，Lookup 不回傳。
 
-回傳真正命中的文件、可延後讀取的 `overview_candidates`（含 `content_sha256`），以及 `uncovered`。先讀命中的文件；只有 compiled plan 的 `exploration_profile`、影響面或共享狀態需要時才讀 overview，overview candidate 一律先保持 `unread`。文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容。
+回傳真正命中的文件、可延後讀取的 `overview_candidates`（含 `content_sha256`），以及 `uncovered`。先讀命中的文件；只有 compiled plan 的 `exploration_profile`、影響面或共享狀態需要時才讀 overview，overview candidate 一律先保持 `unread`。文件與現況程式不一致時以程式為準，並把差異列入下一步要修的內容；規範條目例外：以文件為準，程式不符代表該處尚未遷移，本次新增與修改的程式照文件寫，不沿用。
+
+### 動手前評估
+
+讀完本次要修改的程式後、動手前，檢查要修改的程式是否違反命中文件的分層或規範條目，以及同一模組內同一件事是否有兩種以上寫法。任一成立時，在該模組文件的 `## Invariants and gotchas` 補一條規範條目（格式見 [doc-types.md](references/doc-types.md#規範條目)）；沒有發現時不寫。
+
+文件或既有決策已能判定目標寫法時直接記錄；無法判定時列出兩種寫法的位置與差異，由使用者決定後再記錄。本次只讓新增與修改的程式符合目標寫法，其餘位置的舊寫法留在條目中，不在本次修改。
+
+規格階段探索時就對要修改的路徑執行 Lookup 並做這項評估，結果寫進規格的 Scope，與規格一起請使用者確認。
 
 Remember 不是固定步驟，gate 也不讀它。只有讀取結果需要在後續階段、Reviewer、agent 重啟或跨多輪的 expanded task 重用時，才執行 `agent-workflow project-doc --action Remember --task-path <task> --repo-root <repo-root> --paths <doc,...>` 記錄實際讀過的路徑與 `content_sha256`；同一 session 內讀完即用的短 task 不寫。
 

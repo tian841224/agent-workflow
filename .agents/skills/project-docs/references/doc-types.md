@@ -83,6 +83,10 @@ agent-workflow project-doc --action Check --doc docs/structure.md     # frontmat
 | `## Invariants and gotchas` | 為什麼長這樣、不能動的假設、踩過的坑 | 「這裡很重要」這類無資訊量句子 |
 | `## Unverified` | 追不完的節點與原因；無則 `none` | — |
 
+### 規範條目
+
+模組內「該怎麼寫」的規定，放在 `## Invariants and gotchas`。每條寫三件事：目標寫法與範本檔案路徑、舊寫法與所在路徑、舊寫法不沿用。舊寫法全部遷移完成後刪除該條。
+
 ## API 文件七區塊
 
 `covers` 指向實作該端點的路由／handler 檔案，一個端點（或一組緊密相關的端點）一份文件；沒有對外 API 的專案不建立這個資料夾。跟 module 文件不同，這裡**刻意記錄完整 request／response schema**——API 是外部契約，變動必須讓呼叫端立刻看到差異。

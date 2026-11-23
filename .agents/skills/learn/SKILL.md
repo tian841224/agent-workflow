@@ -19,6 +19,7 @@ Capture only a conclusion that is reusable across turns or projects.
 | Conclusion | Destination |
 |---|---|
 | Project decision, business rule, or a correction of how a feature must behave | The project's `docs/`: a `decision` document, or the module/flow document that owns the behavior ([project-docs](../project-docs/SKILL.md)). Set `covers` to the affected paths so `task-init --paths` returns it. |
+| Rejection or correction of a project coding pattern | The owning module document's [規範條目](../project-docs/references/doc-types.md#規範條目) |
 | Reusable project pitfall or fix (hidden second entrypoint, shared table writer, missing test infrastructure) | Project memory, below |
 | Personal preference or a correction of how the agent works | Project memory; Global only for a cross-project preference with explicit user consent |
 

@@ -15,6 +15,7 @@ description: "需要判斷是否進入 managed workflow，或執行已編譯計�
    - 單一檔案、局部行為、影響明確且不帶 [risk-flags.md](risk-flags.md) 任何 flag 的修改，可以不切換 Plan mode，直接在對話提出 Goal、Scope 與驗收案例請使用者確認；確認的要求與第 3 步相同。
 3. **依 implementation-spec 產出規格，交由使用者確認後才開始開發。**
    - 查閱相關程式、文件與測試後，依該 skill 的確認階段寫出 task.md：做什麼、動哪裡、怎麼驗；實作設計留到核准後展開。
+   - 探索時對要修改的路徑依 [project-docs](../project-docs/SKILL.md) 的「動手前評估」處理，結果寫進 Scope。
    - Plan mode 限制寫入時，先用平台允許的計畫檔或對話交付這份規格，確認後再將同一份內容保存為 task.md；有計畫檔時用檔案複製，不重新輸出內容。
    - 確認須對應這份規格；最初的開發請求、只確認需求方向或沒有回覆，都不算規格核准。取得明確確認後才退出 Plan mode、執行 task-init 與實作；規格有影響行為、範圍、契約或驗收的變更時，先重新取得確認。
    - 其餘 managed 任務維持目標、範圍與完成條件流程。
