@@ -23,7 +23,12 @@ agent-workflow project-doc --action Lookup --task-path <task> --repo-root <repo-
 
 ### 動手前評估
 
-讀完本次要修改的程式後、動手前，檢查要修改的程式是否違反命中文件的分層或規範條目，以及同一模組內同一件事是否有兩種以上寫法。任一成立時，在該模組文件的 `## Invariants and gotchas` 補一條規範條目（格式見 [doc-types.md](references/doc-types.md#規範條目)）；沒有發現時不寫。
+讀完本次要修改的程式後、動手前，檢查兩件事：
+
+- 要修改的程式是否違反命中文件的規範條目，或 `docs/architecture.md` 的分層。評估時一律讀 `architecture.md` 的分層段落，其餘 overview 仍依上文延後。
+- 本次要寫的那件事（例如錯誤處理、資料存取、log）是否有兩種以上寫法。範圍是要修改的檔案所在的目錄：對那件事搜尋一次同目錄的既有寫法，不擴及其他目錄。
+
+任一成立時，在該模組文件的 `## Invariants and gotchas` 補一條規範條目（格式見 [doc-types.md](references/doc-types.md#規範條目)）；沒有發現時不寫。
 
 文件或既有決策已能判定目標寫法時直接記錄；無法判定時列出兩種寫法的位置與差異，由使用者決定後再記錄。本次只讓新增與修改的程式符合目標寫法，其餘位置的舊寫法留在條目中，不在本次修改。
 
