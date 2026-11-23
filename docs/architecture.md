@@ -124,7 +124,7 @@ orchestration writable root 與 Claude additionalDirectories 只供 orchestratio
 
 自動 hook 提供 locale 與 memory context、session 結束時的資源清理，以及 Claude 的兩個一次性提醒（未結案 task、未開 task 卻累計修改多個檔案）；這些都只注入 context，不阻擋操作。平台模板不註冊 `PreToolUse` Git guard。Git 操作授權由 [AGENTS.md](../AGENTS.md) 的行為規則管理，只有使用者明確授權才可執行受限操作，agent attestation 或平台放行不能代替使用者授權。
 
-手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 對受限 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。Claude 則由 installer 把 `git commit`、`git push`、`git rebase`、`git merge`（Bash 與 PowerShell）寫進 `permissions.ask`，讓平台自己跳出確認。
+手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 只對破壞性 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。Claude 則由 installer 把破壞性 Git 指令（強制 push、`reset --hard`、`clean -f`、`branch -D` 等，Bash 與 PowerShell）寫進 `permissions.ask`，讓平台自己跳出確認；非破壞性指令只需使用者在對話中同意，平台不再另外詢問。
 
 Session 清理 hook 與 context 注入分開：Claude／Codex 的 `SessionStart` 只記錄 session 起點，`SessionEnd` 關閉 agent 程序的存活子孫並刪除 `os.tmpdir()` 第一層、建立時間落在本 session 單獨執行期間的項目；Antigravity 沒有 session 事件，改在 `Stop` 只清暫存檔、不關閉程序。
 

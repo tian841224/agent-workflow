@@ -12,7 +12,7 @@ covers:
 
 ## Responsibility
 
-平台 hook templates 提供語言規則與相關記憶的注入，以及 session 結束時的一次性資源清理（`src/session-cleanup.ts`）。Git 操作的使用者授權要求由 [AGENTS.md](../../AGENTS.md) 管理，安裝器不註冊自動 Git guard；Claude 另由 `permissions.ask` 讓平台在 commit、push、rebase、merge 前跳出確認。Claude 還有兩個一次性提醒（`src/work-reminders.ts`），避免 agent 在 session 中離開 managed workflow。
+平台 hook templates 提供語言規則與相關記憶的注入，以及 session 結束時的一次性資源清理（`src/session-cleanup.ts`）。Git 操作的使用者授權要求由 [AGENTS.md](../../AGENTS.md) 管理，安裝器不註冊自動 Git guard；Claude 另由 `permissions.ask` 讓平台在強制 push、`reset --hard`、`clean -f`、`branch -D` 等破壞性指令前跳出確認；commit、push、rebase、merge 等非破壞性指令只需使用者同意，平台不另外詢問。Claude 還有兩個一次性提醒（`src/work-reminders.ts`），避免 agent 在 session 中離開 managed workflow。
 
 ## Entrypoints
 
@@ -45,12 +45,12 @@ Uninstall 也只移除 `claude_permissions.ask` 記錄的規則。Uninstall 以�
 
 ## Shared state
 
-平台設定保存已安裝 hooks。`managed-runtime.json` 保存 runtime 路徑與安裝紀錄。選用的 `adapters/codex/execpolicy.rules` 以 prompt 要求 Git 操作確認；目前安裝器不寫入該 rules 檔。
+平台設定保存已安裝 hooks。`managed-runtime.json` 保存 runtime 路徑與安裝紀錄。選用的 `adapters/codex/execpolicy.rules` 以 prompt 要求破壞性 Git 操作確認；目前安裝器不寫入該 rules 檔。
 
 ## Invariants and gotchas
 
 - `edit-reminder` 在每次 Edit／Write 都會啟動一個 node 程序，但門檻之前只讀寫 `os.tmpdir()` 的計數檔，不解析專案、不掃描 task；兩個提醒的 session 狀態都放在同一類暫存標記，由 session 清理一併處理。
-- `permissions.ask` 以規則字串比對指令：`git -C <dir> commit`、經 wrapper 或變數組出的指令不保證被比對到，bypassPermissions 模式是否仍跳出確認未實機驗證；完整防護需要手動 `git-guard` 的 pattern 檢查。
+- `permissions.ask` 以規則字串比對指令：`git -C <dir> reset --hard`、經 wrapper 或變數組出的指令不保證被比對到，bypassPermissions 模式是否仍跳出確認未實機驗證；完整防護需要手動 `git-guard` 的 pattern 檢查。
 - 自動 hooks 只注入 context 與清理 session 自己的一次性資源，不承擔 task 結案判定。
 - `session-start`／`session-cleanup` 一律 exit 0，失敗只寫進清理紀錄；Antigravity `Stop` 回覆 `{"decision":"stop"}`，不阻止停止。
 - 用 `Start-Process`、`nohup` 脫離父程序的程式，以及 session 異常中止後遺留的程序，不在清理範圍。
