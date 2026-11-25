@@ -21,7 +21,7 @@ description: "缺陷已修正或 review finding 已確認，或同一類錯誤�
 判斷時用證據回答，不用推測：
 
 - 宣稱 `doc_gap` 前，先查過專案 `docs/`（可用 `agent-workflow project-doc --action Lookup --paths <修正路徑>`）確認真的沒有或已過時。
-- 宣稱 `convention_gap` 前，找出專案裡遵守這個慣例的既有程式作為證據。
+- 宣稱 `convention_gap` 前，找出至少兩處不同檔案遵守該做法的既有程式作為證據，且不是本次修正改出來的；不足兩處時不歸 `convention_gap`，起因依本清單其餘判準歸類（都不成立時是 `logic_error`）；修正若確立了專案原本沒有的寫法規定，不論歸成哪一類，都依第 3 節那一句往下處理。
 - 宣稱 `context_miss` 時，指出本來該讀到的那份文件或規則。
 - 宣稱 `prompt_gap` 時，指出任務的目標、範圍或完成條件沒寫到的那條需求。
 - 修正或改動弄壞原本正常的行為時，歸為 `regression`。
@@ -32,5 +32,7 @@ description: "缺陷已修正或 review finding 已確認，或同一類錯誤�
 
 - **到此結束**：起因是 `logic_error` 或 `regression`、修正時已補上能擋住它的測試，而且同類錯誤沒有在多處重複出現。每項回報一行：症狀、起因、對應的測試；`regression` 加上 `miss_category`。
 - **繼續補救**：其餘情況。每項先回報一行起因與證據，再讀 [remedies.md](remedies.md) 選補救、寫入並回報。
+
+修正確立了專案原本沒有的寫法規定時，不在此結束；寫入位置依 [remedies.md](remedies.md) 的 `convention_gap` 範圍分流，是否需要使用者同意依同檔的「依分級寫入」。
 
 在 managed task 的 review 中，第 2 輪起仍未通過的問題（`regression` 不限輪次），另外依 [review.md](../workflow/review.md#結果回填與-freshness) 記錄 review cause。

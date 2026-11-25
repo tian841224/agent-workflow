@@ -49,6 +49,10 @@ agent-workflow project-doc --action Check --doc docs/structure.md     # frontmat
 | `structure.md` | 程式碼實體上放在哪、新檔案該放哪 | 執行期行為 |
 | `dataflow.md` | 資料跨模組怎麼流動與落地 | 單一功能的分支細節（那是 flow 文件） |
 
+### 分層段落條目
+
+`architecture.md` 的分層段落記層級規則：每條以層或目錄為主詞，一行寫可以或不可以做什麼；同一層同一件事只有一條。不記事件經過與違規位置；違規位置寫在該模組的[規範條目](#規範條目)，遷移完就刪。單一模組內的寫法放該模組的規範條目，不放這裡。
+
 ## Structure 文件三區塊
 
 目錄增刪、分層調整或放置規則改變時更新。
@@ -85,7 +89,7 @@ agent-workflow project-doc --action Check --doc docs/structure.md     # frontmat
 
 ### 規範條目
 
-模組內「該怎麼寫」的規定，放在 `## Invariants and gotchas`。每條寫三件事：目標寫法與範本檔案路徑、舊寫法與所在路徑、舊寫法不沿用。舊寫法全部遷移完成後刪除該條。
+模組內「該怎麼寫」的規定，放在 `## Invariants and gotchas`。每條寫三件事：目標寫法與範本檔案路徑、舊寫法與所在路徑、舊寫法不沿用。舊寫法全部遷移完成後刪除該條。跨層的規則放[分層段落條目](#分層段落條目)。
 
 ## API 文件七區塊
 

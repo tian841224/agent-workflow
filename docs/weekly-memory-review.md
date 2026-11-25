@@ -68,7 +68,7 @@ agent-workflow review-cause --action Escalate --min-occurrences <n>
 agent-workflow review-cause --action Resolve --id <id>,<id> --status <applied|rejected>
 ```
 
-Escalate groups open findings by `cause` and reports the `remedy_kind` that cause maps to (`project_doc`, `task_spec`, `skill`, `framework_change`); `logic_error` never appears. Resolve with `applied` once the remedy is in place, or `rejected` when it is not worth doing; resolved findings stop counting. Resolve stores no reason, so state it in the report.
+Escalate groups open findings by `cause` and reports the `remedy_kind` that cause maps to (`project_doc`, `task_spec`, `project_rule`, `pointer`, `framework_change`); `logic_error` never appears. Resolve with `applied` once the remedy is in place, or `rejected` when it is not worth doing; resolved findings stop counting. Resolve stores no reason, so state it in the report.
 
 The report must distinguish independent occurrences from duplicated records in one rollout. Project-specific facts belong in the relevant project document; a new skill is appropriate only when the procedure remains useful outside the named repository.
 

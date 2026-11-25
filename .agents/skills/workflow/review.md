@@ -26,6 +26,7 @@
 - diff 的註解符合 入口文件的「程式碼註解」觸發規則，或程式改動可能使既有註解失準時，讀 [clean-comments](../clean-comments/SKILL.md) 核對註解與實作；後者包含未修改但受影響的註解。提出重寫要求前，指出具體的事實錯誤、重要資訊缺漏、位置不當、過時內容或冗餘；意思相同的換句話說不是缺陷。其餘 Review 不固定載入。
 - diff 移除、合併、搬移或改名既有識別字（含參數與欄位）時，讀 [refactor-sweep](../refactor-sweep/SKILL.md)，檢查被移除的識別字是否仍有引用，以及 log 與邊界回應是否等價。
 - diff 路徑有專案文件涵蓋時（`agent-workflow project-doc --action Lookup --repo-root <repo> --paths <brief 的 paths>` 回傳的 `docs`），核對文件記錄的入口、流程、契約與不變量是否仍符合實作；列在 `project_docs.unchanged` 但內容已失準的文件，列為 finding。
+- 專案有 `docs/architecture.md` 時，第一輪不論 `impact_scope` 與 Lookup 是否命中，都讀它的分層段落，diff 違反其中規則時列為 finding；第 2 輪起只在 delta 碰到分層邊界時重讀。
 - 所有輪次：核對既有測試與驗收案例是否足以支撐結論；只有測試範圍、新修改或 finding 使既有結果失效時，才實際重跑。數值、邊界與併發行為若沒有測試涵蓋，列為測試缺口並指出應補的具體案例。對改動的欄位與資料流，往上下游追到 repository 與 entity。
 - `impact_scope: file`、brief 的 `risk_flags` 為空的修改：只看 diff、驗收案例與 checklist；diff 碰到共用 helper 時另依下一條。
 - diff 新增、修改或繞過共用 helper 時，不論 `impact_scope`，在指令中列出同一目錄內同類 helper 的路徑與 symbol，要求 reviewer 一起讀並依入口文件硬護欄的「最小正確變更」檢查；新增的 pass-through 與介面依 [codebase-design](../codebase-design/SKILL.md) 的 delete test 判斷。每一層 pass-through 單看 diff 都合理，疊加出的結構問題要看整組 helper 才看得出來。

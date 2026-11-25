@@ -38,8 +38,8 @@
     "remedy_routing": {
       "doc_gap": "project_doc",
       "prompt_gap": "task_spec",
-      "convention_gap": "skill",
-      "context_miss": "skill",
+      "convention_gap": "project_rule",
+      "context_miss": "pointer",
       "logic_error": "none",
       "regression": "framework_change"
     },
