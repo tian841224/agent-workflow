@@ -16,7 +16,7 @@ description: "缺陷已修正或 review finding 已確認，或同一類錯誤�
 
 ## 2. 判斷起因
 
-對每一項追問「寫程式的人（或 agent）當時缺了什麼，才會寫出這個錯」。起因分類與定義以 [review-cause.schema.json](../../../schemas/review-cause.schema.json) 的 `cause_meaning` 為準；下列判準分不出來時讀它。
+對每一項追問「寫程式的人（或 agent）當時缺了什麼，才會寫出這個錯」。起因分類以 `review-cause.schema.json` 的 `cause_meaning` 為準。下列判準分不出來時，讀 framework checkout 的 `schemas/review-cause.schema.json`。從其他專案使用時，執行 `agent-workflow project-resolver --path .`，在回傳的 `state_root` 下讀 `runtime/schemas/review-cause.schema.json`。
 
 判斷時用證據回答，不用推測：
 

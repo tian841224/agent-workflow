@@ -167,7 +167,41 @@ test("AC4 another running Codex session keeps Codex from killing the shared agen
   const report = await box.cleanupViaAgent("Codex", { session_id: "c1", reason: "other" });
   await sleep(500);
   assert.ok(alive(report.victim), "the other session's processes share this agent");
-  assert.ok(box.lastLog().notes.some((note) => /other codex session active/.test(note)));
+  assert.ok(existsSync(box.record("codex", "c2")), "the other session keeps its record");
+  assert.match(box.lastLog().notes.join(" "), /shared Codex processes and temp files preserved/);
+});
+
+test("Codex records its cleanup even if shared process discovery would be slow", (t) => {
+  const box = sandbox(t);
+  const preload = join(box.state, "slow-process-query.mjs");
+  mkdirSync(box.state, { recursive: true });
+  writeFileSync(preload, `import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+const exec = childProcess.execFileSync;
+childProcess.execFileSync = (file, args, options) => exec(process.execPath, ["-e", "setTimeout(() => {}, 7000)"], options);
+syncBuiltinESMExports();
+`);
+  const payload = { session_id: "slow-codex-end", hook_event_name: "SessionEnd", reason: "other" };
+  assert.equal(box.start("Codex", { ...payload, source: "startup" }).status, 0);
+  const marker = `agent-workflow-memory-${sha16(payload.session_id)}.json`;
+  box.touch(marker);
+  mkdirSync(join(box.temp, "unowned"));
+  writeFileSync(join(box.temp, "unowned", "keep.txt"), "x");
+  const result = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, hookBundle,
+    "session-cleanup", "--platform", "Codex", "--state-root", box.state], {
+    input: JSON.stringify(payload),
+    encoding: "utf8",
+    env: { ...process.env, TMPDIR: box.temp, TMP: box.temp, TEMP: box.temp },
+    timeout: 3000
+  });
+  assert.equal(result.status, 0, String(result.error || result.stderr));
+  const report = box.lastLog();
+  assert.equal(report.platform, "codex");
+  assert.equal(report.session, sha16(payload.session_id));
+  assert.match(report.notes.join(" "), /shared Codex processes and temp files preserved/);
+  assert.ok(!box.has(marker), "the ending session's marker is removed");
+  assert.ok(!existsSync(box.record("codex", payload.session_id)), "the ending session's record is removed");
+  assert.ok(box.has("unowned"), "a temporary folder created during the session is preserved");
 });
 
 test("AC5 Antigravity Stop sweeps temp files, never kills, and waits for background tasks", async (t) => {

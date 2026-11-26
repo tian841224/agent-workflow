@@ -10,8 +10,8 @@ import { test } from "node:test";
 // so every spawned install/repair gets its own home instead of racing on the developer's ~/.agents.
 const isolatedHome = (root) => ({ ...process.env, HOME: join(root, "home"), USERPROFILE: join(root, "home") });
 
-function delegationFixture(t, copySource = false) {
-  const root = mkdtempSync(join(tmpdir(), "agent-workflow-delegation-"));
+function delegationFixture(t, copySource = false, prefix = "agent-workflow-delegation-") {
+  const root = mkdtempSync(join(tmpdir(), prefix));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = copySource ? join(root, "source") : process.cwd();
   if (copySource) {
@@ -23,6 +23,84 @@ function delegationFixture(t, copySource = false) {
   const run = (action, target = "All", extra = [], bundle = join(source, "dist", "agent-workflow.mjs")) => spawnSync(process.execPath, [bundle, action, "--non-interactive", "--target-agent", target, "--state-root", join(root, "state"), "--claude-target", join(root, "claude"), "--codex-target", join(root, "codex"), "--antigravity-target", join(root, "gemini"), ...extra], { cwd: source, encoding: "utf8", env: { ...isolatedHome(root), AGENT_WORKFLOW_STATE_ROOT: join(root, "state") } });
   return { root, source, run, manifestPath: join(source, "adapters", "managed-manifest.json"), codexConfigPath: join(source, "adapters", "codex", "managed-config.json"), claudeConfigPath: join(source, "adapters", "claude", "managed-config.json") };
 }
+
+test("verify identifies missing or changed Codex handlers while accepting user hooks", (t) => {
+  const { root, run } = delegationFixture(t);
+  const installed = run("install", "Codex");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const path = join(root, "codex", "hooks.json");
+  let config = JSON.parse(readFileSync(path, "utf8"));
+  const userHooks = [
+    { type: "command", command: `node "${join(root, "state", "runtime-tools", "custom.mjs")}"` },
+    { type: "command", command: "user-owned-context", statusMessage: join(root, "state", "runtime", "user-message") },
+    { type: "command", command: `node "inspect.js" "${join(root, "state", "runtime", "schemas", "task.schema.json")}"` }
+  ];
+  config.hooks.UserPromptSubmit[0].hooks.push(...userHooks);
+  const userGroup = { hooks: [{ type: "command", command: "outer-user-group" }] };
+  config.hooks.UserPromptSubmit.push(userGroup);
+  writeFileSync(path, JSON.stringify(config));
+  const repaired = run("repair", "Codex");
+  assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+  config = JSON.parse(readFileSync(path, "utf8"));
+  assert.deepEqual(config.hooks.UserPromptSubmit[0].hooks.slice(2), userHooks);
+  assert.deepEqual(config.hooks.UserPromptSubmit[1], userGroup);
+  const good = run("verify", "Codex");
+  assert.equal(good.status, 0, good.stdout + good.stderr);
+  config.hooks.SessionEnd[0].matcher = "unmatched";
+  config.hooks.UserPromptSubmit[0].hooks.splice(1, 1);
+  writeFileSync(path, JSON.stringify(config));
+  const bad = run("verify", "Codex");
+  assert.equal(bad.status, 1, bad.stdout + bad.stderr);
+  const errors = JSON.parse(bad.stdout).errors;
+  assert.ok(errors.some((error) => error.includes("SessionEnd") && error.includes("hooks.json")), errors);
+  assert.ok(errors.some((error) => error.includes("UserPromptSubmit") && error.includes("hooks.json")), errors);
+});
+
+test("the installed Windows Codex handler passes its payload through PowerShell", { skip: process.platform !== "win32" }, (t) => {
+  const { root, run } = delegationFixture(t, false, "agent-workflow-Dev’ $& Team-");
+  const installed = run("install", "Codex");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const hooks = JSON.parse(readFileSync(join(root, "codex", "hooks.json"), "utf8")).hooks;
+  const command = hooks.UserPromptSubmit[0].hooks[0].commandWindows;
+  assert.ok(command, "Windows Codex must select an explicit launcher");
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
+    cwd: root, encoding: "utf8", input: JSON.stringify({ hook_event_name: "UserPromptSubmit" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout).hookSpecificOutput;
+  assert.equal(context.hookEventName, "UserPromptSubmit");
+  assert.match(context.additionalContext, /臺灣/);
+});
+
+test("verify resolves installed skill references and identifies missing targets", (t) => {
+  const { root, source, run } = delegationFixture(t, true);
+  const skill = join(source, ".agents", "skills", "root-cause", "SKILL.md");
+  const body = readFileSync(skill, "utf8");
+  writeFileSync(skill, body + "\n[Missing document](./missing-installed-reference.md)\n");
+  const installed = run("install", "Codex");
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const checked = run("verify", "Codex");
+  assert.equal(checked.status, 1, checked.stdout + checked.stderr);
+  assert.ok(JSON.parse(checked.stdout).errors.some((error) =>
+    error.includes("root-cause") && error.includes("missing-installed-reference.md")), checked.stdout);
+  assert.ok(existsSync(join(root, "state", "runtime", "schemas", "review-cause.schema.json")));
+});
+
+test("verify accepts a user-edited retired canonical skill without discarding its recovery record", (t) => {
+  const { root, run } = delegationFixture(t);
+  assert.equal(run("install", "Codex").status, 0);
+  const statePath = join(root, "state", "managed-runtime.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  const skill = join(root, "home", ".agents", "skills", "writing-for-agents", "SKILL.md");
+  mkdirSync(join(skill, ".."), { recursive: true });
+  writeFileSync(skill, "User-retained notes");
+  const recovery = { kind: "canonical-skill", path: skill, sha256: createHash("sha256").update("old backup").digest("hex") };
+  state.files.push(recovery);
+  writeFileSync(statePath, JSON.stringify(state));
+  const checked = run("verify", "Codex");
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(statePath, "utf8")).files.at(-1), recovery);
+});
 
 test("Codex delegation installs two unpinned roles without changing other platform instructions", (t) => {
   for (const target of ["All", "Codex"]) {
@@ -786,7 +864,12 @@ test("repair removes retired Git guards on all platforms while preserving mixed 
   const user = { type: "command", command: "echo user-git-policy" };
   for (const [platform, path] of [["Claude", join(claudeTarget, "settings.json")], ["Codex", join(codexTarget, "hooks.json")]]) {
     const current = JSON.parse(readFileSync(path, "utf8"));
-    current.hooks.PreToolUse = [{ matcher: "*", hooks: [{ type: "command", command: `node "${join(state, "runtime", "agent-workflow-hook.mjs")}" git-guard --platform ${platform}` }, user] }];
+    current.hooks.PreToolUse = [{ matcher: "*", hooks: [
+      { type: "command", command: `node "${join(state, "runtime", "agent-workflow-hook.mjs")}" git-guard --platform ${platform}` },
+      { type: "command", command: `"python.exe" -X utf8 -u "${join(state, "runtime", "agent_workflow.py")}" role-guard --platform ${platform}` },
+      { type: "command", command: `node "${join(state, "runtime", "agent-workflow-hook.mjs")}" locale-reminder --platform ${platform}` },
+      user
+    ] }];
     writeFileSync(path, JSON.stringify(current));
   }
   const antigravityPath = join(geminiTarget, "config", "hooks.json");

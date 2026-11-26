@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as outputStream } from "node:process";
-import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, frontmatterBody, now, output, parseFrontmatter, projectIdentity, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
+import { Frontmatter, Json, JsonObject, PRODUCT_VERSION, canonicalJson, frontmatterBody, now, output, parseFrontmatter, projectIdentity, readJson, sha256, stateRoot, writeAtomic, writeJson } from "./core.js";
 
 type Platform = "Claude" | "Codex" | "Antigravity";
 type FileRecord = { path: string; sha256: string; kind: string; target?: string };
@@ -367,12 +367,31 @@ async function selectSkills(value: Record<string, JsonObject>, options: InstallO
   if (unknown.length) throw new Error(`unknown skill(s): ${unknown.join(", ")}`);
   return [...new Set([...names, ...requiredSkills(value)])].sort();
 }
-// A prompt-type hook carries no runtime path to identify it by, so it self-identifies with this
-// literal marker instead; both are checked so command hooks and prompt hooks are both recognized as ours.
 const OWN_HOOK_MARKER = "[agent-workflow managed:";
-function isOwnHook(item: Json, needle: string): boolean {
-  const text = JSON.stringify(item).replaceAll("\\\\", "/").toLowerCase();
-  return text.indexOf(needle) >= 0 || text.indexOf(OWN_HOOK_MARKER.toLowerCase()) >= 0;
+const MANAGED_HOOK_ACTIONS = new Set(["git-guard", "locale-lint", "locale-reminder", "locale-context", "memory-context",
+  "session-start", "session-cleanup", "task-reminder", "edit-reminder", "skill-guard"]);
+const LEGACY_PYTHON_HOOK_ACTIONS = new Set(["git-guard", "memory-context", "role-guard", "skill-guard"]);
+
+function hookArguments(command: string): string[] {
+  return Array.from(command.matchAll(/"([^"]*)"|([^\s"]+)/g), (match) => match[1] ?? match[2]);
+}
+
+function ownHookIdentity(item: Json, needle: string): string | undefined {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
+  if (typeof item.prompt === "string" && item.prompt.toLowerCase().includes(OWN_HOOK_MARKER)) return "prompt";
+  if (typeof item.command !== "string") return undefined;
+  const args = hookArguments(item.command.replaceAll("\\", "/").toLowerCase());
+  const runner = args[0]?.split("/").at(-1);
+  if (!runner) return undefined;
+  const [, file, action] = args;
+  if (/^node(?:\.exe)?$/.test(runner)) {
+    const managedScript = file === `${needle}/agent-workflow.mjs` || file === `${needle}/agent-workflow-hook.mjs`;
+    return managedScript && MANAGED_HOOK_ACTIONS.has(action) ? action : undefined;
+  }
+  if (/^python(?:\d+(?:\.\d+)*)?(?:\.exe)?$/.test(runner)
+    && args[1] === "-x" && args[2] === "utf8" && args[3] === "-u"
+    && args[4] === `${needle}/agent_workflow.py` && LEGACY_PYTHON_HOOK_ACTIONS.has(args[5])) return args[5];
+  return undefined;
 }
 function hasEmptyHooks(item: Json): boolean {
   if (!item || typeof item !== "object" || Array.isArray(item)) return false;
@@ -382,7 +401,7 @@ function hasEmptyHooks(item: Json): boolean {
 function removeOwnHooks(value: Json, marker: string): Json {
   const needle = marker.replaceAll("\\", "/").toLowerCase();
   if (Array.isArray(value)) {
-    return value.map((item) => removeOwnHooks(item, marker)).filter((item) => !isOwnHook(item, needle))
+    return value.map((item) => removeOwnHooks(item, marker)).filter((item) => !ownHookIdentity(item, needle))
       // a hook group left with no hooks (ours just removed, or already stale) does nothing; drop it
       // instead of letting empty {"hooks":[]} groups accumulate across repeated installs.
       .filter((item) => !hasEmptyHooks(item));
@@ -427,7 +446,31 @@ function writeLocalizationPolicy(source: string, runtime: string, records: FileR
   if (!dryRun) writeAtomic(destination, content);
   records.push({ path: destination, sha256: sha256(content), kind: "runtime" });
 }
-function mergeHookEvents(current: JsonObject, replaced: JsonObject): JsonObject {
+function mergeHookEvents(current: JsonObject, replaced: JsonObject, codexRuntime?: string): JsonObject {
+  if (codexRuntime) {
+    const needle = codexRuntime.replaceAll("\\", "/").toLowerCase();
+    return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(replaced)])].map((event) => {
+      const previous = Array.isArray(current[event]) ? current[event] as Json[] : [];
+      const additions = Array.isArray(replaced[event]) ? structuredClone(replaced[event]) as JsonObject[] : [];
+      const updated = previous.map((group) => {
+        if (!group || typeof group !== "object" || Array.isArray(group) || !Array.isArray(group.hooks)) return group;
+        const hooks = group.hooks.flatMap((item) => {
+          const identity = ownHookIdentity(item, needle);
+          if (!identity) return [item];
+          const replacement = additions.find((candidate) =>
+            (candidate.matcher ?? null) === (group.matcher ?? null)
+            && Array.isArray(candidate.hooks) && candidate.hooks.some((hook) => ownHookIdentity(hook, needle) === identity));
+          if (!replacement) return [];
+          const handlers = replacement.hooks as Json[];
+          const index = handlers.findIndex((hook) => ownHookIdentity(hook, needle) === identity);
+          return handlers.splice(index, 1);
+        });
+        return { ...group, hooks };
+      });
+      // Unchanged user groups and in-place replacements keep the indexes used by Codex hook trust.
+      return [event, [...updated, ...additions.filter((group) => !hasEmptyHooks(group))]];
+    }));
+  }
   const merged: JsonObject = { ...current };
   for (const [event, groups] of Object.entries(replaced)) {
     const existingGroups = Array.isArray(current[event]) ? current[event] as Json[] : [];
@@ -452,10 +495,18 @@ function normalizeHookCommand(command: string, platform: Platform, node: string)
     if (isNodeOnPath()) {
       return command.replace(/^"\{\{NODE_EXE\}\}"\s*/, "node ").replace(/^\{\{NODE_EXE\}\}\s*/, "node ");
     }
-    const withNode = command.replaceAll("{{NODE_EXE}}", node);
+    const withNode = command.replaceAll("{{NODE_EXE}}", () => node);
     return process.platform === "win32" ? `"${withNode}"` : withNode;
   }
-  return command.replaceAll("{{NODE_EXE}}", node);
+  return command.replaceAll("{{NODE_EXE}}", () => node);
+}
+
+// Encode the installer's argv so both PowerShell and cmd pass it through unchanged.
+function codexWindowsHook(command: string): string {
+  const args = hookArguments(command);
+  const encodedArgv = Buffer.from(JSON.stringify(args), "utf8").toString("base64");
+  const script = `$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $argv = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedArgv}'))); $program = $argv[0]; $arguments = $argv[1..($argv.Count - 1)]; & $program @arguments; exit $LASTEXITCODE`;
+  return `powershell.exe -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}`;
 }
 
 function normalizeHookCommands(value: Json, platform: Platform, node: string): Json {
@@ -470,20 +521,29 @@ function normalizeHookCommands(value: Json, platform: Platform, node: string): J
       result[key] = normalizeHookCommands(item, platform, node);
     }
   }
+  if (platform === "Codex" && process.platform === "win32" && typeof result.command === "string") {
+    result.commandWindows ??= codexWindowsHook(result.command);
+  }
   return result;
 }
 
-function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, platform: Platform): void {
+function renderHook(fragment: JsonObject, runtime: string, state: string, node: string, platform: Platform): JsonObject {
   const templated = JSON.stringify(fragment)
-    .replaceAll("{{RUNTIME_DIR}}", runtime.replaceAll("\\", "\\\\"))
-    .replaceAll("{{STATE_ROOT}}", state.replaceAll("\\", "\\\\"));
-  const replaced = JSON.parse(templated) as JsonObject;
-  const normalizedReplaced = normalizeHookCommands(replaced, platform, node) as JsonObject;
+    .replaceAll("{{RUNTIME_DIR}}", () => runtime.replaceAll("\\", "\\\\"))
+    .replaceAll("{{STATE_ROOT}}", () => state.replaceAll("\\", "\\\\"));
+  return normalizeHookCommands(JSON.parse(templated) as JsonObject, platform, node) as JsonObject;
+}
+
+function mergeHook(fragment: JsonObject, destination: string, runtime: string, state: string, node: string, dryRun: boolean, platform: Platform): void {
+  const normalizedReplaced = renderHook(fragment, runtime, state, node, platform);
   let current: JsonObject = {};
   if (existsSync(destination)) current = readJson(destination);
-  current = removeOwnHooks(current, runtime) as JsonObject;
+  if (platform !== "Codex") current = removeOwnHooks(current, runtime) as JsonObject;
   const topLevel = platform === "Antigravity";
-  const merged = topLevel ? { ...current, ...normalizedReplaced } : { ...current, hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (normalizedReplaced.hooks || {}) as JsonObject) };
+  const merged = topLevel ? { ...current, ...normalizedReplaced } : {
+    ...current,
+    hooks: mergeHookEvents((current.hooks || {}) as JsonObject, (normalizedReplaced.hooks || {}) as JsonObject, platform === "Codex" ? runtime : undefined)
+  };
   if (!dryRun) writeJson(destination, merged);
 }
 // Turns the repository's AGENTS.md into the canonical entrypoint installed for every project (only
@@ -878,6 +938,48 @@ export async function install(options: InstallOptions): Promise<number> {
   const failed = native?.some((item) => (item.results as Json[]).some((result) => (result as JsonObject).status === "failed")) || false;
   output({ ok: !failed, action: options.action, runtime, cli: cliDirectory || null, selected_skills: selectedSkills, retired_skills: retirements, native, migration, skill_backup: !options.dryRun && existsSync(skillBackup) ? skillBackup : null }); return failed ? 1 : 0;
 }
+function codexHookErrors(source: string, target: string, state: string, runtime: string, node: string): string[] {
+  const path = join(target, ...platforms.Codex.hook);
+  const template = join(source, "adapters", "codex", "hooks.json");
+  try {
+    if (!existsSync(path)) return [`managed Codex hooks are missing: ${path}`];
+    if (!existsSync(template)) return [`managed Codex hook template is missing: ${template}`];
+    const expected = (renderHook(readJson(template), runtime, state, node, "Codex").hooks ?? {}) as JsonObject;
+    const actual = (readJson(path).hooks ?? {}) as JsonObject;
+    const needle = runtime.replaceAll("\\", "/").toLowerCase();
+    function handlers(groups: Json | undefined, managedOnly: boolean): string[] {
+      if (!Array.isArray(groups)) return [];
+      return groups.flatMap((group) => {
+        if (!group || typeof group !== "object" || Array.isArray(group) || !Array.isArray(group.hooks)) return [];
+        return group.hooks
+          .filter((item) => !managedOnly || ownHookIdentity(item, needle))
+          .map((item) => canonicalJson({ matcher: group.matcher ?? null, hook: item }));
+      }).sort();
+    }
+    return [...new Set([...Object.keys(expected), ...Object.keys(actual)])]
+      .filter((event) => canonicalJson(handlers(expected[event], false)) !== canonicalJson(handlers(actual[event], true)))
+      .map((event) => `managed Codex hook mismatch (${event}): ${path}`);
+  } catch {
+    return [`managed Codex hooks cannot be verified: ${path}`];
+  }
+}
+
+function skillReferenceErrors(path: string, optionalSkills: Set<string>): string[] {
+  const home = homedir();
+  const skills = join(home, ".agents", "skills");
+  const content = readFileSync(path, "utf8").replace(/^ {0,3}(`{3,}|~{3,})[^\r\n]*[\s\S]*?^ {0,3}\1[^\r\n]*$/gm, "");
+  const errors = new Set<string>();
+  for (const match of content.matchAll(/\]\(([^\s)#]+)(?:#[^)]*)?\)/g)) {
+    const reference = match[1];
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(reference)) continue;
+    const target = reference.startsWith("~/") ? resolve(home, reference.slice(2)) : resolve(dirname(path), reference);
+    const fromSkills = relative(skills, target).split(sep);
+    if (fromSkills.length > 1 && optionalSkills.has(fromSkills[0]) && !existsSync(join(skills, fromSkills[0], "SKILL.md"))) continue;
+    if (!existsSync(target)) errors.add(`managed skill reference is missing: ${path} -> ${reference}`);
+  }
+  return [...errors];
+}
+
 export function verify(options: InstallOptions): number {
   const state = stateRoot(options.root); const runtime = join(state, "runtime"); const managedPath = join(state, "managed-runtime.json"); const errors: string[] = [];
   if (!existsSync(managedPath)) errors.push("managed state is missing"); else {
@@ -888,10 +990,27 @@ export function verify(options: InstallOptions): number {
     const source = typeof managed.source === "string" ? managed.source : "";
     if (!source || !existsSync(join(source, "dist", "agent-workflow.mjs"))) errors.push("recorded source bundle is missing");
     else if (existsSync(bundle) && sha256(readFileSync(join(source, "dist", "agent-workflow.mjs"))) !== sha256(readFileSync(bundle))) errors.push("source and installed runtime bundle differ");
+    const codex = (managed.targets as JsonObject | undefined)?.Codex;
+    if (source && typeof codex === "string" && typeof managed.node === "string") errors.push(...codexHookErrors(source, codex, state, runtime, managed.node));
+    const manifest = join(runtime, "adapters", "managed-manifest.json");
+    const optionalSkills = new Set<string>();
+    const retiredSkills = new Set<string>();
+    const skillsRoot = join(homedir(), ".agents", "skills");
+    let catalog: JsonObject = {};
+    if (existsSync(manifest)) {
+      try {
+        const contents = readJson(manifest);
+        catalog = (contents.skills ?? {}) as JsonObject;
+        for (const [name, skill] of Object.entries(catalog)) if (!(skill as JsonObject).required) optionalSkills.add(name);
+        if (Array.isArray(contents.retired_skills)) for (const name of contents.retired_skills) if (typeof name === "string") retiredSkills.add(name);
+      } catch { errors.push(`managed skill catalog cannot be read: ${manifest}`); }
+    }
     for (const item of Array.isArray(managed.files) ? managed.files : []) {
       if (!item || typeof item !== "object") continue;
       const record = item as JsonObject;
       if (typeof record.path !== "string" || typeof record.sha256 !== "string") { errors.push("managed state contains an invalid file record"); continue; }
+      const skill = record.kind === "canonical-skill" ? relative(skillsRoot, record.path).split(sep)[0] : "";
+      if (retiredSkills.has(skill)) continue;
       try {
         if (record.kind === "platform-skill-link") {
           if (!safeSkillLink(record, managed) || typeof record.target !== "string" || record.sha256 !== sha256(resolve(record.target)) || !linkMatches(record.path, record.target)) errors.push(`managed skill link mismatch: ${record.path}`);
@@ -899,6 +1018,7 @@ export function verify(options: InstallOptions): number {
           if (!existsSync(record.path) || sha256(managedEntryBlock(readFileSync(record.path, "utf8")) || "") !== record.sha256) errors.push(`managed entrypoint block mismatch: ${record.path}`);
         } else if (!existsSync(record.path)) errors.push(`managed file is missing: ${record.path}`);
         else if (sha256(readFileSync(record.path)) !== record.sha256) errors.push(`managed file hash mismatch: ${record.path}`);
+        else if (codex && Object.hasOwn(catalog, skill) && record.path.endsWith(".md")) errors.push(...skillReferenceErrors(record.path, optionalSkills));
       } catch { errors.push(`managed path cannot be verified: ${record.path}`); }
     }
   }

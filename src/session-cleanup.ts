@@ -1,7 +1,6 @@
 // Cleans up what an agent session leaves behind: processes it started and files it dropped into the
-// OS temp directory. SessionStart records when a session began; the end event kills the agent's
-// surviving descendants and removes temp entries created since then. Nothing here may block a
-// session from ending, so every failure is logged and swallowed.
+// OS temp directory. SessionStart records when a session began. Codex SessionEnd removes its own
+// bookkeeping; the other platforms use the start time to bound their sweep. Cleanup errors are logged.
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -20,8 +19,8 @@ const ACTIVE_WINDOW_MS = 12 * 60 * 60 * 1000;
 const LOG_ROTATE_BYTES = 1024 * 1024;
 const LOGGED_PATH_CAP = 200;
 const SHELLS = new Set(["cmd", "powershell", "pwsh", "bash", "sh", "zsh", "dash", "fish", "conhost"]);
-// Codex allows SessionEnd hooks 3 seconds at most; the others leave room for a slow temp directory.
-const BUDGET_MS: Record<Platform, number> = { claude: 20000, codex: 2000, antigravity: 10000 };
+// Temp sweep time budgets for the platforms that use it.
+const BUDGET_MS = { claude: 20000, antigravity: 10000 };
 
 function platformOf(value: string): Platform {
   const lower = value.toLowerCase();
@@ -191,17 +190,22 @@ export function runSessionCleanup(payload: JsonObject, root: string, platformNam
   const reason = typeof payload.reason === "string" ? payload.reason : (typeof payload.terminationReason === "string" ? payload.terminationReason : "");
   const sessionId = sessionIdOf(payload);
   const nowMs = Date.now();
-  const deadline = nowMs + BUDGET_MS[platform];
   const entry: JsonObject = { at: new Date(nowMs).toISOString(), platform, reason, session: sessionId ? sha256(sessionId).slice(0, 16) : "", killed: [], deleted: [], deleted_count: 0, skipped: 0, notes: [] };
   const notes = entry.notes as string[];
   try {
+    if (platform === "codex") {
+      // The app server and OS temp are shared. Neither process ancestry nor file age identifies session ownership.
+      notes.push("shared Codex processes and temp files preserved");
+      return;
+    }
+    const deadline = nowMs + BUDGET_MS[platform];
     const ownFile = sessionId ? recordPath(root, platform, sessionId) : "";
     const own = ownFile ? readRecord(ownFile) : undefined;
     const others = otherActiveSessions(root, ownFile, nowMs);
     // Antigravity's Stop fires after every run, and fullyIdle=false means background work still goes on.
     const settled = platform !== "antigravity" || payload.fullyIdle !== false;
     const sessionContinues = platform === "claude" && (reason === "clear" || reason === "resume");
-    const mayKill = platform !== "antigravity" && !sessionContinues && (platform !== "codex" || others.every((other) => other.platform !== "codex"));
+    const mayKill = platform === "claude" && !sessionContinues;
     if (!settled) notes.push("background tasks still running; nothing cleaned");
     else {
       if (mayKill) {
@@ -214,7 +218,7 @@ export function runSessionCleanup(payload: JsonObject, root: string, platformNam
             if (gone.length < targets.length) notes.push(`${targets.length - gone.length} process(es) survived`);
           }
         } catch (error) { notes.push(`process cleanup failed: ${(error as Error).message}`); }
-      } else notes.push(platform === "antigravity" ? "antigravity: processes are never killed" : (sessionContinues ? "session continues; processes left alone" : "other codex session active; processes left alone"));
+      } else notes.push(platform === "antigravity" ? "antigravity: processes are never killed" : "session continues; processes left alone");
       // Entries that hold the state root or another running session's scratchpad are not scratch of ours.
       const protect = [root, ...others.flatMap((other) => other.scratchpad_dir ? [other.scratchpad_dir] : [])];
       if (others.length) notes.push(`${others.length} other active session(s) limit the sweep`);
@@ -230,13 +234,16 @@ export function runSessionCleanup(payload: JsonObject, root: string, platformNam
       if (scratch && isAbsolute(scratch) && scratch !== resolve(tmpdir()) && isWithin(scratch, resolve(tmpdir()))) {
         try { rmSync(scratch, { recursive: true, force: true }); (entry.deleted as string[]).push(scratch); entry.deleted_count = (entry.deleted_count as number) + 1; } catch { entry.skipped = (entry.skipped as number) + 1; }
       }
-      // Antigravity's conversation goes on after Stop, so only the real end removes the bookkeeping.
-      if (platform !== "antigravity" && sessionId) {
-        const hash = sha256(sessionId).slice(0, 16);
-        for (const file of [ownFile, join(tmpdir(), `agent-workflow-locale-${hash}`), join(tmpdir(), `agent-workflow-memory-${hash}.json`), join(tmpdir(), `agent-workflow-reminder-${hash}.json`)]) try { rmSync(file, { force: true }); } catch { /* clutter only */ }
-      }
     }
   } catch (error) { notes.push(`cleanup failed: ${(error as Error).message}`); }
-  appendLog(root, entry);
+  finally {
+    if (platform !== "antigravity" && sessionId) {
+      const hash = sha256(sessionId).slice(0, 16);
+      for (const file of [recordPath(root, platform, sessionId), join(tmpdir(), `agent-workflow-locale-${hash}`), join(tmpdir(), `agent-workflow-memory-${hash}.json`), join(tmpdir(), `agent-workflow-reminder-${hash}.json`)]) {
+        try { rmSync(file, { force: true }); } catch { notes.push(`session bookkeeping could not be removed: ${basename(file)}`); }
+      }
+    }
+    appendLog(root, entry);
+  }
   if (platform === "antigravity") output({ decision: "stop" });
 }

@@ -60,7 +60,7 @@ Codex 原生角色檔只產生於 `~/.codex/agents/`，由平台自動發現；�
 
 ## Shared state
 
-managed-runtime.json 的 selected_skills 記錄 repo 選取結果，不代表每個平台皆有安裝；files 保存實體檔案雜湊與 `platform-skill-link` 紀錄（path、target、target 路徑雜湊）。單平台 Repair 保留其他平台的紀錄；Verify 同時檢查連結身分與共用檔案內容。既有 file 紀錄仍可讀，完成全平台 Repair 才會轉完所有平台。
+managed-runtime.json 的 selected_skills 記錄 repo 選取結果，不代表每個平台皆有安裝；files 保存實體檔案雜湊與 `platform-skill-link` 紀錄（path、target、target 路徑雜湊）。單平台 Repair 保留其他平台的紀錄；Verify 同時檢查連結身分與共用檔案內容。已安裝 Codex 時，Verify 也比對受管 handler 的事件、matcher 與命令，並檢查已納管 skill Markdown 的本機引用是否有目標。保留使用者 hook，不要求安裝未選取的選用 skill。退役的 canonical 副本是回復資料，仍以原紀錄判斷可否安全退役，Verify 只查核現行受管產物。既有 file 紀錄仍可讀，完成全平台 Repair 才會轉完所有平台。
 
 原生角色以 `platform-agent` 保存整份產物雜湊；Codex 入口以 `platform-entrypoint` 只保存受管區塊雜湊，Verify 檢查專用指示而容許使用者修改區塊外的文字。單平台 Repair 保留其他平台紀錄；來源或平台限制使角色不再適用時，只清除選取平台上雜湊未變的 managed 角色檔。
 

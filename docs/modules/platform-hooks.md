@@ -5,6 +5,7 @@ covers:
   - adapters/codex/
   - adapters/antigravity/
   - src/work-reminders.ts
+  - src/session-cleanup.ts
   - tests-node/adapters/
 ---
 
@@ -20,13 +21,13 @@ Claude／Codex 的 `UserPromptSubmit` 執行 `locale-context` 與 `memory-contex
 
 Claude 的 `UserPromptSubmit` 另執行 `task-reminder`：目前 worktree 有 `in_progress`、`paused` 或 `blocked` 的 task 時，每個 session 提醒一次，列出 task 路徑與 `close-task`／`resume`／`supersede`。Claude 的 `PostToolUse`（matcher `Edit|Write|MultiEdit`）執行 `edit-reminder`：session 工作目錄內累計修改 5 個不同的非文件檔案（`.md`、`.mdx`、`.txt`、`.rst`、`.adoc` 不算）、而且沒有未結案 task 時，提醒一次依 AGENTS.md 重新判斷 `managed_change`。兩者只注入 context，失敗一律靜默結束；沒有 session id 時不提醒。
 
-Session 清理：Claude／Codex 的 `SessionStart` 執行 `session-start`、`SessionEnd` 執行 `session-cleanup`；Antigravity 的首次 `PreInvocation` 執行 `session-start`、`Stop` 執行 `session-cleanup`。三者都走輕量的 `agent-workflow-hook.mjs`。
+Session 清理：Claude／Codex 的 `SessionStart` 執行 `session-start`、`SessionEnd` 執行 `session-cleanup`；Antigravity 的首次 `PreInvocation` 執行 `session-start`、`Stop` 執行 `session-cleanup`。三者都走輕量的 `agent-workflow-hook.mjs`。Windows 的 Codex 安裝會產生 `commandWindows`，以編碼參數保留 Node 的絕對路徑與 stdin。變更 handler 後，Codex 依自己的信任機制重新核對定義。
 
 ## Flow
 
 `install / repair > removeOwnHooks > render platform template > merge user hooks > write settings`
 
-`removeOwnHooks` 依 managed runtime 路徑或 managed marker 辨識自有 hook；Antigravity 另以 `agent-workflow-` key 辨識。移除自有 handler 後保留同群組的使用者 handler，因此模板沒有 Git guard 時，repair 會清除舊 managed guard。
+安裝器以受管 runtime 的 bundle 與 hook 子命令辨識自有 handler。提示型 hook 使用受管標記，Antigravity 另使用 `agent-workflow-` key。Codex 在原有群組及 handler 位置更新相符的 hook，只追加缺少的定義，保留現有使用者 hook 的位置供 Codex 對應信任狀態。退役 handler 仍會清除，若同一群組因此有使用者 handler 改了位置，Codex 會重新要求確認。
 
 `install / repair > ensureClaudeAskRules > settings.json permissions.ask`：把 `adapters/claude/settings.permissions.json` 的規則補進 Claude 設定，已存在的不重複，使用者自己的規則保留；新增的規則記在 `managed-runtime.json` 的 `claude_permissions.ask`。使用者手動刪掉其中一條後，下一次 repair 會補回；模板縮減時舊規則留到 uninstall 才移除。
 
@@ -36,11 +37,12 @@ Uninstall 也只移除 `claude_permissions.ask` 記錄的規則。Uninstall 以�
 
 `session-start > write <state-root>/sessions/<platform>-<hash>.json（起點、transcript、scratchpad）`
 
-`session-cleanup > find agent process > kill its surviving descendants > sweep os.tmpdir() > remove own markers and record > append logs/session-cleanup.jsonl`
+- Codex 的 `SessionEnd` 移除該 session 的紀錄與 framework 暫存標記，再寫入 `logs/session-cleanup.jsonl`。Codex 的 app server 與系統暫存目錄可能同時由多個對話使用，因此保留共用程序與暫存檔。
+- Claude 的 `SessionEnd` 依程序關係清理存活子程序，掃描允許的暫存時間窗並寫入清理紀錄。Antigravity 的 `Stop` 只處理暫存檔。
 
 - agent 程序是 hook 往上第一個非 shell 的祖先；hook 自己的祖先鏈不會被終止。
 - 子孫的判定排除 Windows 的 PID 重用：子程序的建立時間早於父程序，代表它是已結束父程序的孤兒，不是真正的子孫，不終止。終止時逐一指定 PID，不用 `taskkill /T`，避免它沿著同樣過期的父子連結走到不相干的程序。
-- Claude `SessionEnd` 的 reason 為 `clear`／`resume` 時 agent 仍在執行，只清暫存檔、不終止程序。Codex 有其他進行中的 Codex session 時不終止程序（它們共用同一個 agent 程序）。Antigravity 永不終止程序，且 `fullyIdle: false` 時什麼都不清。
+- Claude `SessionEnd` 的 reason 為 `clear`／`resume` 時 agent 仍在執行，只清暫存檔、不終止程序。Antigravity 永不終止程序，且 `fullyIdle: false` 時什麼都不清。
 - 暫存檔只刪建立時間不早於本 session 起點，而且早於其他每個進行中 session 起點的項目；進行中指 transcript（沒有就看紀錄檔）12 小時內有更新，過期的紀錄順手刪除。沒有本 session 的紀錄時略過暫存檔清理。包含 state root 或其他 session scratchpad 的項目不刪。
 
 ## Shared state
@@ -53,6 +55,7 @@ Uninstall 也只移除 `claude_permissions.ask` 記錄的規則。Uninstall 以�
 - `permissions.ask` 以規則字串比對指令：`git -C <dir> reset --hard`、經 wrapper 或變數組出的指令不保證被比對到，bypassPermissions 模式是否仍跳出確認未實機驗證；完整防護需要手動 `git-guard` 的 pattern 檢查。
 - 自動 hooks 只注入 context 與清理 session 自己的一次性資源，不承擔 task 結案判定。
 - `session-start`／`session-cleanup` 一律 exit 0，失敗只寫進清理紀錄；Antigravity `Stop` 回覆 `{"decision":"stop"}`，不阻止停止。
+- Codex 的 `SessionEnd` 上限是 3 秒，因此執行路徑只處理當前 session 的固定檔案，省去程序查詢與暫存目錄掃描。
 - 用 `Start-Process`、`nohup` 脫離父程序的程式，以及 session 異常中止後遺留的程序，不在清理範圍。
 - `locale-context` 每次提交訊息都注入用詞清單；核心規則同一個 session 只在第一次注入，判斷依據是 `os.tmpdir()` 的 session 標記，payload 沒有 session id 或標記寫入失敗時照常注入。
 - 手動 `git-guard` CLI 拒絕破壞性與隱藏執行 pattern；它不是必裝的自動執行步驟。

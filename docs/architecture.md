@@ -126,7 +126,7 @@ orchestration writable root 與 Claude additionalDirectories 只供 orchestratio
 
 手動 `git-guard` CLI：adapter 把 payload 正規化為 `CanonicalHookEvent`，checker 拒絕破壞性與隱藏執行 pattern。它沒有安裝為自動 hook，也不接收或證明使用者授權。選用的 Codex execpolicy rules 只對破壞性 Git 操作要求 prompt；installer 不自動安裝該 rules 檔。Claude 則由 installer 把破壞性 Git 指令（強制 push、`reset --hard`、`clean -f`、`branch -D` 等，Bash 與 PowerShell）寫進 `permissions.ask`，讓平台自己跳出確認；非破壞性指令只需使用者在對話中同意，平台不再另外詢問。
 
-Session 清理 hook 與 context 注入分開：Claude／Codex 的 `SessionStart` 只記錄 session 起點，`SessionEnd` 關閉 agent 程序的存活子孫並刪除 `os.tmpdir()` 第一層、建立時間落在本 session 單獨執行期間的項目；Antigravity 沒有 session 事件，改在 `Stop` 只清暫存檔、不關閉程序。
+Session 清理 hook 與 context 注入分開。Codex 的 `SessionEnd` 清除該 session 的紀錄與 framework 標記，保留共用 app server 的程序與暫存檔。Claude 與 Antigravity 依各自的 session 事件及資源範圍清理，詳見 [platform hooks](modules/platform-hooks.md)。
 
 它只處理這個 session 自己產生的一次性資源，失敗一律放行（exit 0）並寫入 `<state-root>/logs/session-cleanup.jsonl`，不判定 task 結案，也不影響 task runtime 的 authority。`.agents/` 文件品質由 AGENTS pointer、`writing-for-agents`、review 與 contract lint 維持，不保存或驗證 session read proof，也沒有會阻擋操作的 PostToolUse guard（Claude 的 PostToolUse 只有 `edit-reminder`，它只注入提醒）。
 
